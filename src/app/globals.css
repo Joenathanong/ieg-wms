@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg:      255 255 255;
+    --surface: 248 250 252;
+    --border:  226 232 240;
+    --text:    15 23 42;
+    --muted:   100 116 139;
+  }
+  .dark {
+    --bg:      15 23 42;
+    --surface: 30 41 59;
+    --border:  51 65 85;
+    --text:    248 250 252;
+    --muted:   148 163 184;
+  }
+
+  body {
+    @apply bg-[rgb(var(--bg))] text-[rgb(var(--text))] transition-colors duration-200;
+  }
+
+  * { @apply border-[rgb(var(--border))]; }
+}
+
+@layer utilities {
+  .surface   { background: rgb(var(--surface)); }
+  .text-muted{ color: rgb(var(--muted)); }
+}
+
+/* PDA-friendly tap targets */
+@media (max-width: 768px) {
+  button, [role="button"] { min-height: 44px; }
+  input, select { min-height: 44px; font-size: 16px !important; }
+}
+
+/* Scrollbar thin */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-slate-300 dark:bg-slate-600 rounded-full; }
