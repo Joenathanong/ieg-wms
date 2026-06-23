@@ -31,13 +31,17 @@ function LoginForm() {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const snap = await getDoc(doc(db, 'users', cred.user.uid));
-      if (!snap.exists() || !snap.data().active) throw new Error('Akun tidak aktif.');
+
+      if (!snap.exists()) throw new Error('Akun tidak ditemukan di sistem. Hubungi admin.');
+      const userData = snap.data();
+      // active field: boolean false = nonaktif; undefined/missing = dianggap aktif
+      if (userData.active === false) throw new Error('Akun tidak aktif. Hubungi admin.');
 
       // Cache shift logout times from Firestore
-      const shiftSnap = await getDoc(doc(db, 'settings', 'shift_config'));
+      const shiftSnap = await getDoc(doc(db, 'settings', 'shifts'));
       if (shiftSnap.exists()) {
-        const times = (shiftSnap.data().shifts as {logoutTime:string;active:boolean}[])
-          .filter(s => s.active).map(s => s.logoutTime);
+        const times = (shiftSnap.data().shifts as {logoutTime:string}[])
+          .map(s => s.logoutTime);
         localStorage.setItem('shift_logout_times', JSON.stringify(times));
       }
 
@@ -46,13 +50,18 @@ function LoginForm() {
 
       // Create server-side session cookie
       const idToken = await cred.user.getIdToken();
-      await fetch('/api/auth/session', {
+      const sessionRes = await fetch('/api/auth/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken }),
       });
+      if (!sessionRes.ok) {
+        const errData = await sessionRes.json().catch(() => ({}));
+        throw new Error(errData.error ?? 'Gagal membuat sesi. Periksa konfigurasi Firebase Admin.');
+      }
 
-      router.replace('/dashboard');
+      // Full page reload agar cookie wms_session pasti tersimpan sebelum middleware dicek
+      window.location.href = '/dashboard';
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login gagal';
       toast.error(msg.includes('auth/') ? 'Email atau password salah.' : msg);
