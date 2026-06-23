@@ -111,10 +111,10 @@ export default function OpenPOPage() {
                           <td className="px-3 py-2.5 text-muted whitespace-nowrap">{l.date}</td>
                           <td className="px-3 py-2.5 max-w-[180px] truncate" title={l.sku}>{l.sku}</td>
                           <td className="px-3 py-2.5 font-mono text-xs">{l.sapCode}</td>
-                          <td className="px-3 py-2.5 text-right">{l.qtyPO.toLocaleString()}</td>
-                          <td className="px-3 py-2.5 text-right">{l.qtyFulfill.toLocaleString()}</td>
+                          <td className="px-3 py-2.5 text-right">{(l.qtyPO ?? 0).toLocaleString()}</td>
+                          <td className="px-3 py-2.5 text-right">{(l.qtyFulfill ?? 0).toLocaleString()}</td>
                           <td className="px-3 py-2.5 text-right">{l.persentasePO}</td>
-                          <td className="px-3 py-2.5 text-right font-semibold">{l.totalQtyReceived.toLocaleString()}</td>
+                          <td className="px-3 py-2.5 text-right font-semibold">{(l.totalQtyReceived ?? 0).toLocaleString()}</td>
                           <td className="px-3 py-2.5">
                             <div className="flex items-center gap-1.5">
                               <div className="w-12 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5">

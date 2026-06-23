@@ -29,7 +29,9 @@ function parseReceived(row: (string | number | null | undefined)[]): ReceivedEnt
   for (let i = 0; i < 10; i++) {
     const qtyIdx  = RECEIVED_START + i * 2;
     const dateIdx = qtyIdx + 1;
-    const qty  = row[qtyIdx]  != null && row[qtyIdx] !== '' ? Number(row[qtyIdx])  : null;
+    const raw = row[qtyIdx];
+    const n   = Number(raw);
+    const qty = raw != null && raw !== '' && Number.isFinite(n) ? n : null;
     const date = row[dateIdx] != null && row[dateIdx] !== '' ? String(row[dateIdx]) : null;
     entries.push({ qty, arrivalDate: date });
   }

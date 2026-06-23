@@ -1,4 +1,3 @@
-// ─── User & Auth ─────────────────────────────────────────────────────────────
 export type UserRole = 'admin' | 'operator_inbound' | 'supervisor';
 
 export interface AppUser {
@@ -10,10 +9,9 @@ export interface AppUser {
   createdAt: string;
 }
 
-// ─── Shift Config ─────────────────────────────────────────────────────────────
 export interface ShiftConfig {
-  name: string;       // "Shift 1", "Shift 2", etc.
-  logoutTime: string; // "HH:MM" format, e.g. "15:30"
+  name: string;
+  logoutTime: string;
 }
 
 export interface ShiftSettings {
@@ -21,12 +19,11 @@ export interface ShiftSettings {
   shifts: ShiftConfig[];
 }
 
-// ─── Master Item ──────────────────────────────────────────────────────────────
 export interface MasterItem {
   id: string;
-  ocsCode: string;  // e.g. "FYNE-EXTRAIT-AMBER-WOOD"
-  sap1: string;     // e.g. "1207050305"
-  sap2?: string;    // e.g. "1227050305" (optional second SAP code)
+  ocsCode: string;
+  sap1: string;
+  sap2?: string;
   name: string;
   category?: string;
   active: boolean;
@@ -34,7 +31,6 @@ export interface MasterItem {
   updatedAt: string;
 }
 
-// ─── Stock ────────────────────────────────────────────────────────────────────
 export interface StockItem {
   ocsCode: string;
   skuName: string;
@@ -50,11 +46,10 @@ export interface StockItem {
   uploadedBy: string;
 }
 
-// ─── Open PO (from Google Sheets) ────────────────────────────────────────────
 export interface POLine {
   noPO: string;
   date: string;
-  sku: string;          // SKU / OCS code from sheet
+  sku: string;
   sapCode: string;
   qtyPO: number;
   qtyTidakFulfill: number;
@@ -62,7 +57,7 @@ export interface POLine {
   persentasePO: string;
   qtyUpStock?: number;
   dateUpStock?: string;
-  received: ReceivedEntry[];   // up to 10
+  received: ReceivedEntry[];
   totalQtyReceived: number;
   persentaseReceived: string;
   remarkPO: string;
@@ -70,34 +65,32 @@ export interface POLine {
   today: string;
   leadTimePOOutstanding?: number;
   leadTimeArrivalDate?: number;
-  rowIndex: number; // 1-based row index in sheet for write-back
+  rowIndex: number;
 }
 
 export interface ReceivedEntry {
   qty: number | null;
-  arrivalDate: string | null; // Excel serial or formatted string
+  arrivalDate: string | null;
 }
 
-// ─── GR Record ───────────────────────────────────────────────────────────────
 export interface GRRecord {
   id?: string;
   noPO: string;
-  noSJ: string;       // Surat Jalan
-  shift: string;      // "Shift 1" | "Shift 2" | "Shift 3" | "Non Shift"
+  noSJ: string;
+  shift: string;
   sapCode: string;
   ocsCode: string;
   batch: string;
-  qtyCarton: number;  // isi per karton (from barcode)
-  qtyBox: number;     // jumlah box diinput operator
-  totalQty: number;   // qtyCarton × qtyBox
+  qtyCarton: number;
+  qtyBox: number;
+  totalQty: number;
   operatorUid: string;
   operatorName: string;
-  timestamp: string;  // ISO string
+  timestamp: string;
   sheetRowIndex?: number;
-  receivedSlot?: number; // 1-10, which "Received Xth" slot was filled
+  receivedSlot?: number;
 }
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
 export type DashboardFilter =
   | 'all'
   | 'urgent'
@@ -115,7 +108,10 @@ export interface DashboardSummary {
   urgentCount: number;
 }
 
-// ─── Monitor (public) ─────────────────────────────────────────────────────────
+// Urgency priority (lowest number = most urgent):
+// stock_minus (0) > stock_empty (1) > stock_low (2) > overdue (3)
+export type UrgencyLevel = 'stock_minus' | 'stock_empty' | 'stock_low' | 'overdue' | null;
+
 export interface MonitorItem {
   noPO: string;
   date: string;
@@ -124,8 +120,10 @@ export interface MonitorItem {
   skuName: string;
   qtyPO: number;
   qtyPending: number;
-  qtyReceived: number;   // total already received
-  pctFulfill: number;    // 0–100
+  qtyReceived: number;
+  pctFulfill: number;
   remarkPO: string;
   lastArrival: string | null;
+  urgency: UrgencyLevel;
+  stockOnHand: number | null;
 }

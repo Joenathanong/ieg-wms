@@ -18,5 +18,5 @@ export function getSheetsClient() {
   return _sheets;
 }
 
-export const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID ?? '';
-export const SHEET_NAME     = process.env.GOOGLE_SHEET_NAME ?? 'List_PO';
+export const SPREADSHEET_ID = process.env.SPREADSHEET_ID ?? '';
+export const SHEET_NAME     = process.env.SHEET_NAME ?? 'List_PO';

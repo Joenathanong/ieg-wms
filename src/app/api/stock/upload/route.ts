@@ -3,8 +3,15 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { parseStockExcel } from '@/lib/utils/excel';
 
+const BATCH_SIZE = 400;
+
+function chunkArr<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export async function POST(req: NextRequest) {
-  // Verify session + role
   const sessionCookie = cookies().get('wms_session')?.value;
   if (!sessionCookie) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -36,17 +43,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'File kosong atau format tidak sesuai' }, { status: 400 });
   }
 
-  // Batch write: delete old, insert new
-  const batch = adminDb.batch();
   const existing = await adminDb.collection('stock').get();
-  existing.docs.forEach((d) => batch.delete(d.ref));
-  items.forEach((item) => {
-    const ref = adminDb.collection('stock').doc(item.ocsCode);
-    batch.set(ref, item);
-  });
-  await batch.commit();
+  for (const ch of chunkArr(existing.docs.map(d => d.ref), BATCH_SIZE)) {
+    const b = adminDb.batch();
+    ch.forEach(ref => b.delete(ref));
+    await b.commit();
+  }
 
-  // Log upload
+  for (const ch of chunkArr(items, BATCH_SIZE)) {
+    const b = adminDb.batch();
+    ch.forEach(item => {
+      const ref = adminDb.collection('stock').doc(item.ocsCode);
+      b.set(ref, item);
+    });
+    await b.commit();
+  }
+
   await adminDb.collection('stock_uploads').add({
     uploadedBy: userDoc.data()?.name ?? uid,
     uploadedAt: new Date().toISOString(),

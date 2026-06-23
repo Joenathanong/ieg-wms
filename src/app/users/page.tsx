@@ -91,7 +91,7 @@ export default function UsersPage() {
                 {[{label:'Nama Lengkap *',key:'name',ph:'John Doe',type:'text'},{label:'Email *',key:'email',ph:'john@perusahaan.com',type:'email'}].map(f => (
                   <div key={f.key}>
                     <label className="block text-xs font-medium text-[rgb(var(--text))] mb-1">{f.label}</label>
-                    <input type={f.type} value={(form as Record<string,string>)[f.key]} onChange={e => setForm(p=>({...p,[f.key]:e.target.value}))}
+                    <input type={f.type} value={(form as unknown as Record<string,string>)[f.key]} onChange={e => setForm(p=>({...p,[f.key]:e.target.value}))}
                       placeholder={f.ph} disabled={!!editing && f.key==='email'}
                       className="w-full px-3 py-2 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50" />
                   </div>

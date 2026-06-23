@@ -30,31 +30,10 @@ Paste these rules in **Firestore → Rules**:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can only read their own profile
-    match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false; // Admin SDK only
-    }
-    // Authenticated users can read stock and master items
-    match /master_items/{id} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
-    match /stock/{id} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
-    match /gr_records/{id} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
-    match /settings/{id} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
-    match /stock_uploads/{id} {
-      allow read: if request.auth != null;
-      allow write: if false;
+    // Semua user yang sudah login boleh baca & tulis
+    // (akses per role dikontrol di sisi aplikasi/UI)
+    match /{document=**} {
+      allow read, write: if request.auth != null;
     }
   }
 }
