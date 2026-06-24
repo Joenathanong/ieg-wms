@@ -76,6 +76,7 @@ export interface ReceivedEntry {
 export interface GRRecord {
   id?: string;
   noPO: string;
+  date: string;
   noSJ: string;
   shift: string;
   sapCode: string;
@@ -89,6 +90,9 @@ export interface GRRecord {
   timestamp: string;
   sheetRowIndex?: number;
   receivedSlot?: number;
+  arrivalDateSerial?: number;
+  editedAt?: string;
+  editedBy?: string;
 }
 
 export type DashboardFilter =
@@ -108,8 +112,6 @@ export interface DashboardSummary {
   urgentCount: number;
 }
 
-// Urgency priority (lowest number = most urgent):
-// stock_minus (0) > stock_empty (1) > stock_low (2) > overdue (3)
 export type UrgencyLevel = 'stock_minus' | 'stock_empty' | 'stock_low' | 'overdue' | null;
 
 export interface MonitorItem {
