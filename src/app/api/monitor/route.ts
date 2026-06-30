@@ -104,6 +104,3 @@ export async function GET() {
     return NextResponse.json({ error: 'Failed to load' }, { status: 500 });
   }
 }
-son({ error: 'Failed to load' }, { status: 500 });
-  }
-}
