@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'WMS Dashboard – IEG',
-  description: 'Warehouse Management System – PT Internasional EJI Group',
+  description: 'Warehouse Management System – PT. INOVASI EKA GEMILANG',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

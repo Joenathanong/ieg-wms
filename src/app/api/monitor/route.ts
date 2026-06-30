@@ -44,21 +44,24 @@ export async function GET() {
       if (data.sap2) sapMap[String(data.sap2).trim()] = entry;
     });
 
-    // OCS -> qtyOnHand (can be negative = oversell)
+    // OCS -> effectiveStock = qtyOnHand - reserveQty (can be negative = oversell)
     const stockMap: Record<string, number> = {};
     stockSnap.docs.forEach((d) => {
       const data = d.data();
-      if (data.ocsCode) stockMap[String(data.ocsCode).trim()] = Number(data.qtyOnHand ?? 0);
+      if (data.ocsCode) {
+        const onHand  = Number(data.qtyOnHand  ?? 0);
+        const reserve = Number(data.reserveQty ?? 0);
+        stockMap[String(data.ocsCode).trim()] = onHand - reserve;
+      }
     });
     const hasStock = stockSnap.size > 0;
 
     const items: MonitorItem[] = poLines
       .filter((p) => {
-        // Show lines with outstanding qty that have been activated (qtyFulfill > 0
-        // OR some qty already received). Pure "not yet" lines are excluded.
+        // If supplier marked "Full Received" in AH, treat as settled
+        if (p.remarkReceived && p.remarkReceived.trim().toLowerCase() === 'full received') return false;
         const pending = p.qtyPO - p.totalQtyReceived;
         if (pending <= 0) return false;
-        // Exclude lines where nothing has been sent yet (sheet formula keeps these as "not started")
         if (p.qtyFulfill === 0 && p.totalQtyReceived === 0) return false;
         return true;
       })

@@ -46,6 +46,8 @@ const URGENCY_ORDER: Record<string, number> = {
 
 const PAGE_SIZES = [10, 25, 50, 100];
 
+type UrgencyFilter = 'all' | 'po' | 'qty' | 'stock_minus' | 'stock_empty' | 'stock_low';
+
 // ---- Sort helpers ----------------------------------------------------------
 
 function getValue(item: MonitorItem, key: ColKey): string | number | null {
@@ -114,6 +116,7 @@ export default function MonitorPage() {
   const [pageSize,   setPageSize]   = useState(25);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showColPanel, setShowColPanel] = useState(false);
+  const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>('all');
   const colPanelRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(async () => {
@@ -149,19 +152,21 @@ export default function MonitorPage() {
   // Filter + sort + paginate
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    const base = q
-      ? items.filter(i =>
-          String(i.noPO).includes(q) ||
-          i.sapCode.toLowerCase().includes(q) ||
-          i.ocsCode.toLowerCase().includes(q) ||
-          i.skuName.toLowerCase().includes(q)
-        )
-      : items;
+    let base = items;
+    if (urgencyFilter === 'stock_minus') base = base.filter(i => i.urgency === 'stock_minus');
+    else if (urgencyFilter === 'stock_empty') base = base.filter(i => i.urgency === 'stock_empty');
+    else if (urgencyFilter === 'stock_low')   base = base.filter(i => i.urgency === 'stock_low');
+    if (q) base = base.filter(i =>
+      String(i.noPO).includes(q) ||
+      i.sapCode.toLowerCase().includes(q) ||
+      i.ocsCode.toLowerCase().includes(q) ||
+      i.skuName.toLowerCase().includes(q)
+    );
     return sortKey ? sortItems(base, sortKey, sortDir) : base;
-  }, [items, search, sortKey, sortDir]);
+  }, [items, search, sortKey, sortDir, urgencyFilter]);
 
   // Reset to page 1 when filter/sort changes
-  useEffect(() => { setPage(1); }, [search, sortKey, sortDir, pageSize]);
+  useEffect(() => { setPage(1); }, [search, sortKey, sortDir, pageSize, urgencyFilter]);
 
   const totalPages  = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage    = Math.min(page, totalPages);
@@ -322,7 +327,7 @@ export default function MonitorPage() {
               <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 px-2 py-0.5 rounded-full font-medium">PUBLIC</span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              PT EJI Group · PO belum sepenuhnya diterima
+              PT. INOVASI EKA GEMILANG · PO belum sepenuhnya diterima
               {lastFetch && ` · ${lastFetch.toLocaleTimeString('id-ID')}`}
             </p>
           </div>
@@ -392,36 +397,56 @@ export default function MonitorPage() {
 
       <main className="max-w-screen-2xl mx-auto px-4 py-4 space-y-3">
 
-        {/* Summary cards */}
-        <div className={cn('grid gap-2', hasStockData ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2')}>
-          {[
-            { label: 'PO Pending',  value: filtered.length,              color: 'blue',   sub: 'item' },
-            { label: 'QTY Pending', value: totalPending.toLocaleString(), color: 'red',    sub: 'PC' },
+        {/* Summary cards — clickable to filter */}
+        {(() => {
+          type CardDef = { key: UrgencyFilter; label: string; value: number | string; color: string; sub: string; icon?: React.ElementType };
+          const cards: CardDef[] = [
+            { key: 'po',  label: 'PO Pending',  value: items.length, color: 'blue', sub: 'item' },
+            { key: 'qty', label: 'QTY Pending', value: items.reduce((s,i)=>s+i.qtyPending,0).toLocaleString(), color: 'red', sub: 'PC' },
             ...(hasStockData ? [
-              { label: 'Oversell',    value: stockMinusCount, color: 'purple', sub: 'stok minus', icon: TrendingDown },
-              { label: 'Stok Kosong', value: stockEmptyCount, color: 'red',    sub: 'item',       icon: Archive },
-              { label: 'Stok Rendah', value: stockLowCount,   color: 'orange', sub: '≤50% pending', icon: ShieldAlert },
+              { key: 'stock_minus' as UrgencyFilter, label: 'Oversell',    value: stockMinusCount, color: 'purple', sub: 'stok minus',   icon: TrendingDown },
+              { key: 'stock_empty' as UrgencyFilter, label: 'Stok Kosong', value: stockEmptyCount, color: 'red',    sub: 'item',         icon: Archive },
+              { key: 'stock_low'   as UrgencyFilter, label: 'Stok Rendah', value: stockLowCount,   color: 'orange', sub: '\u226450% pending', icon: ShieldAlert },
             ] : []),
-          ].map((c, i) => {
-            const colors: Record<string, string> = {
-              blue:   'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700',
-              red:    typeof c.value === 'number' && c.value > 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700',
-              purple: typeof c.value === 'number' && c.value > 0 ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700',
-              orange: typeof c.value === 'number' && c.value > 0 ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700',
-            };
-            const textColors: Record<string, string> = {
-              blue: 'text-blue-700 dark:text-blue-400', red: 'text-red-600 dark:text-red-400',
-              purple: 'text-purple-700 dark:text-purple-400', orange: 'text-orange-600 dark:text-orange-400',
-            };
-            return (
-              <div key={i} className={cn('rounded-xl border p-3', colors[c.color])}>
-                <p className="text-xs text-slate-500 mb-1">{c.label}</p>
-                <p className={cn('text-xl font-black', textColors[c.color])}>{c.value}</p>
-                <p className="text-xs text-slate-400">{c.sub}</p>
-              </div>
-            );
-          })}
-        </div>
+          ];
+          const baseCard = 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700';
+          const activeColors: Record<string, string> = {
+            blue:   'bg-blue-50 dark:bg-blue-900/20 border-blue-500 ring-2 ring-blue-200 dark:ring-blue-800',
+            red:    'bg-red-50 dark:bg-red-900/20 border-red-500 ring-2 ring-red-200 dark:ring-red-800',
+            purple: 'bg-purple-50 dark:bg-purple-900/20 border-purple-500 ring-2 ring-purple-200 dark:ring-purple-800',
+            orange: 'bg-orange-50 dark:bg-orange-900/20 border-orange-500 ring-2 ring-orange-200 dark:ring-orange-800',
+          };
+          const textColors: Record<string, string> = {
+            blue: 'text-blue-700 dark:text-blue-400', red: 'text-red-600 dark:text-red-400',
+            purple: 'text-purple-700 dark:text-purple-400', orange: 'text-orange-600 dark:text-orange-400',
+          };
+          return (
+            <div className={cn('grid gap-2', hasStockData ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2')}>
+              {cards.map((c) => {
+                const isActive = urgencyFilter === c.key;
+                const Icon = c.icon;
+                return (
+                  <button
+                    key={c.key}
+                    onClick={() => setUrgencyFilter(prev => prev === c.key ? 'all' : c.key)}
+                    className={cn(
+                      'rounded-xl border p-3 text-left transition-all hover:shadow-md',
+                      isActive ? activeColors[c.color] : baseCard
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs text-slate-500">{c.label}</p>
+                      {Icon && <Icon size={13} className={cn('shrink-0', textColors[c.color])}/>}
+                    </div>
+                    <p className={cn('text-xl font-black', textColors[c.color])}>{c.value}</p>
+                    <p className="text-xs text-slate-400">{c.sub}</p>
+                    {isActive && <p className={cn('text-xs mt-0.5 font-medium', textColors[c.color])}>\u2713 filter aktif</p>}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* Legend + Search row */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
