@@ -5,21 +5,13 @@ import type { MonitorItem, UrgencyLevel } from '@/types';
 
 export const revalidate = 120;
 
-// Lower = more urgent
 const URGENCY_ORDER: Record<string, number> = {
-  stock_minus: 0,
-  stock_empty: 1,
-  stock_low:   2,
-  overdue:     3,
+  stock_minus: 0, stock_empty: 1, stock_low: 2, overdue: 3,
 };
 
-function calcUrgency(
-  stockOnHand: number | null,
-  qtyPending: number,
-  leadTime: number,
-): UrgencyLevel {
+function calcUrgency(stockOnHand: number | null, qtyPending: number, leadTime: number): UrgencyLevel {
   if (stockOnHand !== null) {
-    if (stockOnHand < 0)  return 'stock_minus'; // oversell
+    if (stockOnHand < 0)   return 'stock_minus';
     if (stockOnHand === 0) return 'stock_empty';
     if (qtyPending > 0 && stockOnHand <= qtyPending * 0.5) return 'stock_low';
   }
@@ -35,7 +27,6 @@ export async function GET() {
       adminDb.collection('stock').get(),
     ]);
 
-    // SAP -> { ocsCode, name }
     const sapMap: Record<string, { ocsCode: string; name: string }> = {};
     masterSnap.docs.forEach((d) => {
       const data = d.data();
@@ -44,25 +35,25 @@ export async function GET() {
       if (data.sap2) sapMap[String(data.sap2).trim()] = entry;
     });
 
-    // OCS -> effectiveStock = qtyOnHand - reserveQty (can be negative = oversell)
+    // effectiveStock = qtyOnHand - reserveQty (negatives = oversell)
     const stockMap: Record<string, number> = {};
     stockSnap.docs.forEach((d) => {
       const data = d.data();
       if (data.ocsCode) {
-        const onHand  = Number(data.qtyOnHand  ?? 0);
-        const reserve = Number(data.reserveQty ?? 0);
-        stockMap[String(data.ocsCode).trim()] = onHand - reserve;
+        stockMap[String(data.ocsCode).trim()] =
+          Number(data.qtyOnHand ?? 0) - Number(data.reserveQty ?? 0);
       }
     });
     const hasStock = stockSnap.size > 0;
 
     const items: MonitorItem[] = poLines
       .filter((p) => {
-        // If supplier marked "Full Received" in AH, treat as settled
+        // Supplier marked "Full Received" in AH => no longer pending
         if (p.remarkReceived && p.remarkReceived.trim().toLowerCase() === 'full received') return false;
         const pending = p.qtyPO - p.totalQtyReceived;
         if (pending <= 0) return false;
-        if (p.qtyFulfill === 0 && p.totalQtyReceived === 0) return false;
+        // "Not yet" items: supplier confirmed they cannot fulfill (mirrors open-po logic)
+        if (p.qtyFulfill === 0 && p.qtyTidakFulfill >= p.qtyPO) return false;
         return true;
       })
       .map((p) => {
@@ -71,13 +62,10 @@ export async function GET() {
         const pct         = p.qtyPO > 0 ? Math.round((p.totalQtyReceived / p.qtyPO) * 100) : 0;
         const lastArrival = [...p.received].reverse().find((r) => r.arrivalDate != null)?.arrivalDate ?? null;
         const ocsCode     = meta.ocsCode;
-
         const stockOnHand: number | null = hasStock
           ? (stockMap[ocsCode] !== undefined ? stockMap[ocsCode] : null)
           : null;
-
         const urgency = calcUrgency(stockOnHand, pending, p.leadTimePOOutstanding ?? 0);
-
         return {
           noPO:        p.noPO,
           date:        p.date,
