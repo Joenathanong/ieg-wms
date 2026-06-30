@@ -54,8 +54,13 @@ export async function GET() {
 
     const items: MonitorItem[] = poLines
       .filter((p) => {
+        // Show lines with outstanding qty that have been activated (qtyFulfill > 0
+        // OR some qty already received). Pure "not yet" lines are excluded.
         const pending = p.qtyPO - p.totalQtyReceived;
-        return pending > 0 && p.remarkPO !== 'Not yet fulfilled';
+        if (pending <= 0) return false;
+        // Exclude lines where nothing has been sent yet (sheet formula keeps these as "not started")
+        if (p.qtyFulfill === 0 && p.totalQtyReceived === 0) return false;
+        return true;
       })
       .map((p) => {
         const meta        = sapMap[p.sapCode] ?? { ocsCode: p.sku, name: p.sku };
@@ -90,7 +95,6 @@ export async function GET() {
         const sa = a.urgency ? (URGENCY_ORDER[a.urgency] ?? 9) : 9;
         const sb = b.urgency ? (URGENCY_ORDER[b.urgency] ?? 9) : 9;
         if (sa !== sb) return sa - sb;
-        // Within same urgency group: most pending first
         return b.qtyPending - a.qtyPending;
       });
 
@@ -98,5 +102,8 @@ export async function GET() {
   } catch (err) {
     console.error('Monitor error:', err);
     return NextResponse.json({ error: 'Failed to load' }, { status: 500 });
+  }
+}
+son({ error: 'Failed to load' }, { status: 500 });
   }
 }

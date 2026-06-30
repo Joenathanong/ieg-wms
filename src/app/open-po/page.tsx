@@ -26,10 +26,12 @@ export default function OpenPOPage() {
   useEffect(() => { fetchPO(); }, [fetchPO]);
 
   function classify(p: POLine): Filter {
-    const pct = p.qtyPO > 0 ? (p.totalQtyReceived / p.qtyPO) * 100 : 0;
-    if (pct >= 100) return 'fulfilled';
-    if (pct > 0)    return 'partial';
-    if (p.qtyTidakFulfill === p.qtyPO) return 'not_yet';
+    // Use sheet values: totalQtyReceived (AE) and qtyFulfill (G)
+    if (p.qtyPO === 0) return 'not_yet';
+    const receivedPct = (p.totalQtyReceived / p.qtyPO) * 100;
+    if (receivedPct >= 100) return 'fulfilled';
+    if (p.totalQtyReceived > 0) return 'partial';
+    if (p.qtyFulfill === 0 && p.qtyTidakFulfill >= p.qtyPO) return 'not_yet';
     return 'pending';
   }
 

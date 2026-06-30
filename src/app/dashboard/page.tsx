@@ -20,10 +20,11 @@ interface EnrichedLine extends POLine {
 
 function classifyLine(p: POLine): EnrichedLine['cls'] {
   if (p.qtyPO === 0) return 'not_yet';
-  const pct = (p.totalQtyReceived / p.qtyPO) * 100;
-  if (pct === 0 && p.qtyTidakFulfill === p.qtyPO) return 'not_yet';
-  if (pct >= 100) return 'fulfilled';
-  if (pct > 0)    return 'partial';
+  const receivedPct = (p.totalQtyReceived / p.qtyPO) * 100;
+  if (receivedPct >= 100) return 'fulfilled';
+  if (p.totalQtyReceived > 0) return 'partial';
+  // Nothing received yet — check whether supplier has sent anything
+  if (p.qtyFulfill === 0 && p.qtyTidakFulfill >= p.qtyPO) return 'not_yet';
   return 'pending';
 }
 
@@ -394,7 +395,7 @@ export default function DashboardPage() {
               {visibleLines.length > 100 && (
                 <p className="text-center text-xs text-muted py-3">
                   Menampilkan 100 dari {visibleLines.length} item
-                </p>
+                              </p>
               )}
             </div>
           )}
