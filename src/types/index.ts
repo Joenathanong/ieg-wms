@@ -34,6 +34,7 @@ export interface MasterItem {
 export interface StockItem {
   ocsCode: string;
   skuName: string;
+  sapCode?: string;
   category: string;
   qtyRack: number;
   qtySap: number;
@@ -41,6 +42,7 @@ export interface StockItem {
   qtyOnOrder: number;
   availableQty: number;
   reserveQty: number;
+  isUnderReserve?: string;
   status: string;
   uploadedAt: string;
   uploadedBy: string;
