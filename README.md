@@ -11,12 +11,20 @@ Siap deploy gratis di **Vercel** (Serverless Next.js) + **Neon.tech / Supabase**
 
 | Layer | Teknologi |
 |---|---|
-| Framework | Next.js 15 (App Router) + TypeScript |
+| Framework | Next.js 16 (App Router) + React 19 + TypeScript |
 | Styling | Tailwind CSS + Lucide Icons |
 | Excel Parser | SheetJS (`xlsx`) — dijalankan **di browser** |
 | ORM | Prisma ORM |
 | Database | PostgreSQL (Neon.tech / Supabase) |
 | Auth | JWT (jose) di HttpOnly cookie + bcryptjs |
+
+> **Catatan keamanan dependensi.** `npm audit` = **0 vulnerabilities**.
+> Next.js dinaikkan ke 16.x karena Next 15.1.6 terkena **CVE-2025-66478 / React2Shell**
+> (RCE, CVSS 10.0) — Vercel menolak deployment dengan versi tersebut.
+> SheetJS diambil dari **CDN resmi SheetJS** (`cdn.sheetjs.com`), bukan npm registry,
+> karena versi npm (0.18.5) sudah tidak di-maintain dan punya 2 advisory terbuka.
+> Kalau CDN tidak bisa diakses dari jaringan Anda, ganti baris `xlsx` di `package.json`
+> menjadi `"xlsx": "^0.18.5"` — fungsional sama, tapi `npm audit` akan kembali menandai 2 high.
 
 ---
 
