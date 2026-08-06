@@ -1,0 +1,212 @@
+// =====================================================================
+//  WMS SAP LITE — Prisma Schema (PostgreSQL / Neon.tech / Supabase)
+//  Mengadopsi logika SAP S/4HANA Modul WM (Warehouse Mgmt) & IM (Inventory Mgmt)
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------------------
+
+enum BinStatus {
+  EMPTY
+  OCCUPIED
+  BLOCKED
+}
+
+/// Movement Type SAP. Nama simbol Prisma tidak boleh diawali angka,
+/// karena itu value asli di database dipetakan lewat @map.
+enum MovementType {
+  GR_101       @map("101_GR")
+  GI_201       @map("201_GI")
+  TR_301_BIN   @map("301_TR_BIN")
+  ADJ_551_MIN  @map("551_ADJ_MIN")
+  INIT_561     @map("561_INIT_STOCK")
+  ADJ_701_PLUS @map("701_ADJ_PLUS")
+  ADJ_702_MIN  @map("702_ADJ_MIN")
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum PhysInvStatus {
+  CREATED // dokumen dibuat, bin belum di-freeze
+  FROZEN // bin di-freeze, siap counting (LI01N)
+  COUNTED // hasil counting sudah diinput (LI11N)
+  POSTED // selisih sudah di-clearing via 701/702
+}
+
+// ---------------------------------------------------------------------
+// MASTER DATA
+// ---------------------------------------------------------------------
+
+model Material {
+  id               String   @id @default(uuid())
+  material_code    String   @unique
+  description      String
+  uom              String   @default("PC")
+  is_batch_managed Boolean  @default(true)
+  min_safety_stock Int      @default(0)
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@index([description])
+  @@map("materials")
+}
+
+model StorageBin {
+  id            String    @id @default(uuid())
+  /// Format: Aisle-Rack-Level, contoh: A-01-02-1
+  bin_code      String    @unique
+  /// contoh: RACK-FAST, RACK-SLOW, STAGING, REJECT
+  zone_id       String
+  max_weight_kg Float     @default(1000)
+  status        BinStatus @default(EMPTY)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  @@index([zone_id])
+  @@index([status])
+  @@map("storage_bins")
+}
+
+// ---------------------------------------------------------------------
+// STOCK
+// ---------------------------------------------------------------------
+
+/// Global Inventory Management Stock (level plant / MB52)
+model StockIM {
+  id            String   @id @default(uuid())
+  material_code String   @unique
+  total_qty     Int      @default(0)
+  updated_at    DateTime @updatedAt
+
+  @@map("stock_im")
+}
+
+/// Warehouse Management Stock — level Bin & Batch (LX02)
+model StockWM {
+  id            String    @id @default(uuid())
+  material_code String
+  bin_code      String
+  /// null jika material tidak batch-managed
+  batch_number  String?
+  mfg_date      DateTime?
+  exp_date      DateTime?
+  qty           Int       @default(0)
+  updated_at    DateTime  @updatedAt
+
+  /// Kunci unik gudang: 1 material + 1 bin + 1 batch = 1 baris quant
+  @@unique([material_code, bin_code, batch_number], name: "quant_key")
+  @@index([material_code])
+  @@index([bin_code])
+  @@index([exp_date])
+  @@map("stock_wm")
+}
+
+// ---------------------------------------------------------------------
+// TRANSACTION / AUDIT TRAIL (MB51)
+// ---------------------------------------------------------------------
+
+model MigoLog {
+  id              String       @id @default(uuid())
+  document_number String       @unique
+  movement_type   MovementType
+  material_code   String
+  source_bin      String?
+  target_bin      String?
+  batch_number    String?
+  qty             Int
+  uom             String       @default("PC")
+  reference       String?
+  remarks         String?
+  doc_date        DateTime     @default(now())
+  created_at      DateTime     @default(now())
+  user_id         String
+
+  @@index([material_code])
+  @@index([movement_type])
+  @@index([doc_date])
+  @@index([created_at])
+  @@map("migo_logs")
+}
+
+/// Penomoran dokumen ala SAP (number range object)
+model DocumentCounter {
+  id       String @id @default(uuid())
+  /// contoh: MATDOC, TRDOC, PIDOC
+  key      String @unique
+  last_num Int    @default(0)
+
+  @@map("document_counters")
+}
+
+// ---------------------------------------------------------------------
+// PHYSICAL INVENTORY / STOCK OPNAME (LI01N / LI11N / LI21)
+// ---------------------------------------------------------------------
+
+model PhysInvDoc {
+  id           String            @id @default(uuid())
+  doc_number   String            @unique
+  /// bin yang di-freeze pada dokumen ini
+  bin_code     String
+  status       PhysInvStatus     @default(CREATED)
+  planned_date DateTime          @default(now())
+  counted_at   DateTime?
+  posted_at    DateTime?
+  created_by   String
+  created_at   DateTime          @default(now())
+  items        PhysInvDocItem[]
+
+  @@index([bin_code])
+  @@index([status])
+  @@map("phys_inv_docs")
+}
+
+model PhysInvDocItem {
+  id            String     @id @default(uuid())
+  doc_id        String
+  doc           PhysInvDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
+  material_code String
+  batch_number  String?
+  /// snapshot stok sistem saat freeze
+  book_qty      Int        @default(0)
+  /// hasil hitung fisik
+  counted_qty   Int?
+  /// counted_qty - book_qty
+  diff_qty      Int        @default(0)
+  posted        Boolean    @default(false)
+
+  @@index([doc_id])
+  @@map("phys_inv_doc_items")
+}
+
+// ---------------------------------------------------------------------
+// USER MANAGEMENT (SU01)
+// ---------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(uuid())
+  username      String   @unique
+  full_name     String
+  password_hash String
+  role          UserRole @default(OPERATOR)
+  is_active     Boolean  @default(true)
+  last_login    DateTime?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@map("users")
+}

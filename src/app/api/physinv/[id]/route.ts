@@ -1,0 +1,138 @@
+import { NextRequest } from 'next/server';
+import prisma from '@/lib/prisma';
+import { requireUser, requireWrite, HttpError } from '@/lib/auth';
+import { handle, ok, cleanStr, toInt, normBatch } from '@/lib/api';
+import { BinStatus, PhysInvStatus } from '@prisma/client';
+
+export const dynamic = 'force-dynamic';
+
+type Ctx = { params: Promise<{ id: string }> };
+
+/** GET /api/physinv/:id — detail dokumen + item */
+export async function GET(_req: NextRequest, ctx: Ctx) {
+  return handle(async () => {
+    await requireUser();
+    const { id } = await ctx.params;
+
+    const doc = await prisma.physInvDoc.findUnique({
+      where: { id },
+      include: { items: { orderBy: { material_code: 'asc' } } },
+    });
+    if (!doc) throw new HttpError(404, 'Physical inventory document does not exist.');
+
+    const materials = await prisma.material.findMany({
+      where: { material_code: { in: doc.items.map((i) => i.material_code) } },
+      select: { material_code: true, description: true, uom: true },
+    });
+    const mMap = new Map(materials.map((m) => [m.material_code, m]));
+
+    return ok(
+      {
+        ...doc,
+        items: doc.items.map((i) => ({
+          ...i,
+          description: mMap.get(i.material_code)?.description ?? '',
+          uom: mMap.get(i.material_code)?.uom ?? 'PC',
+        })),
+      },
+      `Document ${doc.doc_number} displayed`
+    );
+  });
+}
+
+/**
+ * PATCH /api/physinv/:id — LI11N Enter Count Result
+ * Body: { items: [{ id?, material_code, batch_number?, counted_qty }] }
+ * Item baru (material ditemukan di bin tapi tidak ada di sistem) otomatis ditambahkan.
+ */
+export async function PATCH(req: NextRequest, ctx: Ctx) {
+  return handle(async () => {
+    await requireWrite();
+    const { id } = await ctx.params;
+    const b = await req.json();
+    const items = Array.isArray(b.items) ? b.items : [];
+    if (items.length === 0) throw new HttpError(400, 'No count results were entered.');
+
+    const doc = await prisma.$transaction(async (tx) => {
+      const d = await tx.physInvDoc.findUnique({ where: { id }, include: { items: true } });
+      if (!d) throw new HttpError(404, 'Physical inventory document does not exist.');
+      if (d.status === PhysInvStatus.POSTED)
+        throw new HttpError(400, `Document ${d.doc_number} is already posted.`);
+
+      for (const raw of items) {
+        const counted = toInt(raw.counted_qty ?? 0, 'counted quantity');
+        if (counted < 0) throw new HttpError(400, 'Counted quantity cannot be negative.');
+
+        const material_code = cleanStr(raw.material_code).toUpperCase();
+        const batch_number = normBatch(raw.batch_number);
+
+        const existing = raw.id
+          ? d.items.find((i) => i.id === raw.id)
+          : d.items.find((i) => i.material_code === material_code && i.batch_number === batch_number);
+
+        if (existing) {
+          await tx.physInvDocItem.update({
+            where: { id: existing.id },
+            data: { counted_qty: counted, diff_qty: counted - existing.book_qty },
+          });
+        } else {
+          if (!material_code) throw new HttpError(400, 'Material number is mandatory for new count item.');
+          const mat = await tx.material.findUnique({ where: { material_code } });
+          if (!mat) throw new HttpError(400, `Material ${material_code} does not exist in master data.`);
+          if (mat.is_batch_managed && !batch_number)
+            throw new HttpError(400, `Material ${material_code} is batch managed. Batch is mandatory.`);
+          await tx.physInvDocItem.create({
+            data: {
+              doc_id: d.id,
+              material_code,
+              batch_number: mat.is_batch_managed ? batch_number : null,
+              book_qty: 0,
+              counted_qty: counted,
+              diff_qty: counted,
+            },
+          });
+        }
+      }
+
+      return tx.physInvDoc.update({
+        where: { id },
+        data: { status: PhysInvStatus.COUNTED, counted_at: new Date() },
+        include: { items: true },
+      });
+    });
+
+    const diff = doc.items.reduce((a, i) => a + i.diff_qty, 0);
+    return ok(
+      doc,
+      `Count results saved for document ${doc.doc_number} — net difference ${diff > 0 ? '+' : ''}${diff}`
+    );
+  });
+}
+
+/** DELETE /api/physinv/:id — batalkan dokumen & unfreeze bin */
+export async function DELETE(_req: NextRequest, ctx: Ctx) {
+  return handle(async () => {
+    await requireWrite();
+    const { id } = await ctx.params;
+
+    const doc = await prisma.$transaction(async (tx) => {
+      const d = await tx.physInvDoc.findUnique({ where: { id } });
+      if (!d) throw new HttpError(404, 'Physical inventory document does not exist.');
+      if (d.status === PhysInvStatus.POSTED)
+        throw new HttpError(400, 'Posted document cannot be deleted.');
+
+      await tx.physInvDoc.delete({ where: { id } });
+
+      // unfreeze bin sesuai stok aktual
+      const agg = await tx.stockWM.aggregate({ where: { bin_code: d.bin_code }, _sum: { qty: true } });
+      await tx.storageBin.update({
+        where: { bin_code: d.bin_code },
+        data: { status: (agg._sum.qty ?? 0) > 0 ? BinStatus.OCCUPIED : BinStatus.EMPTY },
+      });
+
+      return d;
+    });
+
+    return ok({ id }, `Document ${doc.doc_number} deleted — bin ${doc.bin_code} released`);
+  });
+}

@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================================
+   SAP GUI 8.0 — Theme "Quartz Dark / Dark Crystal"
+   ===================================================================== */
+
+:root {
+  --sap-sysbar: #181c24;
+  --sap-bg: #1e232a;
+  --sap-panel: #2a2f3b;
+  --sap-panel-alt: #242934;
+  --sap-shell: #2d323e;
+  --sap-border: #3a4050;
+  --sap-blue: #367bf5;
+  --sap-text: #e2e8f0;
+  --sap-muted: #94a3b8;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--sap-bg);
+    color: var(--sap-text);
+    font-family: 'Segoe UI', '72', Arial, sans-serif;
+    font-size: 12px;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #4a5164 var(--sap-panel-alt);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--sap-panel-alt);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #4a5164;
+    border: 2px solid var(--sap-panel-alt);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #5c6478;
+  }
+
+  input,
+  select,
+  textarea {
+    color-scheme: dark;
+  }
+
+  /* Hilangkan spinner number input agar mirip field SAP */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  /* ---------- FIELD ---------- */
+  .sap-field {
+    @apply w-full bg-[#1b1f27] border border-sap-border text-sap-text text-2xs px-2 py-[5px]
+           outline-none rounded-[2px] font-mono transition-colors;
+  }
+  .sap-field:focus {
+    @apply border-sap-blue;
+    box-shadow: 0 0 0 1px rgba(54, 123, 245, 0.55);
+  }
+  .sap-field:disabled {
+    @apply bg-[#23272f] text-sap-muted cursor-not-allowed;
+  }
+  .sap-field-label {
+    @apply block text-2xs text-sap-muted mb-1 tracking-wide;
+  }
+  .sap-required::after {
+    content: ' *';
+    color: #e5484d;
+  }
+
+  /* ---------- BUTTON ---------- */
+  .sap-btn {
+    @apply inline-flex items-center gap-1.5 px-3 py-[5px] text-2xs rounded-[2px]
+           border border-sap-border bg-[#333846] text-sap-text
+           hover:bg-[#3d4353] active:bg-[#2b3040] transition-colors
+           disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap;
+  }
+  .sap-btn-primary {
+    @apply border-sap-blue bg-sap-blue text-white hover:bg-sap-bluehover active:bg-[#22539f];
+  }
+  .sap-btn-danger {
+    @apply border-[#7f2529] bg-[#5f1c1f] text-[#ffb3b5] hover:bg-[#7a2427];
+  }
+  .sap-btn-ghost {
+    @apply bg-transparent border-transparent hover:bg-[#333846];
+  }
+
+  /* ---------- PANEL ---------- */
+  .sap-panel {
+    @apply bg-sap-panel border border-sap-border rounded-[3px];
+  }
+  .sap-panel-title {
+    @apply flex items-center gap-2 px-3 py-2 text-2xs font-semibold tracking-wide
+           uppercase text-sap-text bg-[#323847] border-b border-sap-border rounded-t-[3px];
+  }
+
+  /* ---------- GRID TABLE (ALV) ---------- */
+  .sap-grid {
+    @apply w-full border-collapse text-2xs;
+  }
+  .sap-grid thead th {
+    @apply sticky top-0 z-10 bg-[#333846] text-sap-muted font-semibold uppercase tracking-wide
+           text-left px-2 py-[6px] border-b border-sap-border border-r last:border-r-0
+           whitespace-nowrap;
+    border-right-color: var(--sap-border);
+  }
+  .sap-grid tbody td {
+    @apply px-2 py-[3px] border-b border-r last:border-r-0 whitespace-nowrap align-middle;
+    border-color: #30364400;
+    border-bottom-color: #303644;
+    border-right-color: #303644;
+  }
+  .sap-grid tbody tr:nth-child(odd) {
+    background-color: #2a2f3b;
+  }
+  .sap-grid tbody tr:nth-child(even) {
+    background-color: #242934;
+  }
+  .sap-grid tbody tr:hover {
+    background-color: rgba(54, 123, 245, 0.16);
+  }
+  .sap-num {
+    @apply font-mono text-right tabular-nums;
+  }
+  .sap-code {
+    @apply font-mono tracking-tight;
+  }
+
+  /* ---------- BADGE ---------- */
+  .sap-badge {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded-[2px] text-xxs font-semibold
+           border font-mono tracking-wide;
+  }
+}
+
+/* Animasi ringan untuk status bar */
+@keyframes sapFlash {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.sap-flash {
+  animation: sapFlash 220ms ease-out;
+}
