@@ -77,9 +77,7 @@ function LoginForm() {
         </button>
 
         <p className="text-xxs text-sap-muted/70 leading-relaxed pt-1">
-          Login pertama kali: user <span className="font-mono text-sap-blue">ADMIN</span> / password{' '}
-          <span className="font-mono text-sap-blue">admin123</span> dibuat otomatis. Segera ubah password
-          melalui transaksi SU01.
+          Hubungi <span className="font-mono text-sap-blue">ADMIN</span><span className="font-mono text-sap-blue"></span> Jika tidak bisa Login.
         </p>
       </div>
     </form>
@@ -93,7 +91,7 @@ export default function LoginPage() {
         <Boxes size={26} className="text-sap-blue" />
         <div>
           <h1 className="text-base font-semibold tracking-wide">WMS LITE</h1>
-          <p className="text-2xs text-sap-muted font-mono">Warehouse Management — S/4HANA Style</p>
+          <p className="text-2xs text-sap-muted font-mono">Warehouse Management — PT IEG</p>
         </div>
       </div>
 
@@ -108,7 +106,7 @@ export default function LoginPage() {
       </Suspense>
 
       <p className="mt-6 text-xxs text-sap-muted/60 font-mono">
-        SAP GUI 8.0 Theme — Quartz Dark · Next.js + Prisma + PostgreSQL
+        © 2026 PT INOVASI EKA GEMILANG
       </p>
     </div>
   );
