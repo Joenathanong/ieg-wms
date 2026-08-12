@@ -12,7 +12,17 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 const MATERIALS = [
-  { material_code: 'FG-0001', description: 'Sabun Cair Botol 500ml', uom: 'PC', is_batch_managed: true, min_safety_stock: 100 },
+  {
+    material_code: 'FG-0001',
+    description: 'Sabun Cair Botol 500ml',
+    uom: 'PC',
+    is_batch_managed: true,
+    min_safety_stock: 100,
+    barcode_produk: '8998824551223',
+    barcode_bpom: 'NA18201234567',
+    kode_ocs: 'GIMMICK-CONTOH-SABUN-CAIR-BOTOL-500ML',
+    fix_bin: 'GB-PICK-A-01',
+  },
   { material_code: 'FG-0002', description: 'Shampoo Sachet 12ml x 12', uom: 'BOX', is_batch_managed: true, min_safety_stock: 50 },
   { material_code: 'FG-0003', description: 'Hand Sanitizer 100ml', uom: 'PC', is_batch_managed: true, min_safety_stock: 80 },
   { material_code: 'SP-1001', description: 'Karton Box 40x30x25', uom: 'PC', is_batch_managed: false, min_safety_stock: 200 },
@@ -106,6 +116,7 @@ const SETTINGS = [
   { key: 'PDT_ZRF05', value: '1' },
   { key: 'PDT_ZRF06', value: '1' },
   { key: 'PDT_ZRF07', value: '1' },
+  { key: 'PDT_ZRF08', value: '1' },
 ];
 
 async function main() {

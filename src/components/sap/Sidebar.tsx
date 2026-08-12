@@ -22,6 +22,7 @@ import {
   PackageCheck,
   Smartphone,
   Settings,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface Item {
@@ -76,6 +77,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     title: 'Administration',
     items: [
       { code: 'SU01', label: 'User Maintenance', href: '/su01', Icon: Users, adminOnly: true },
+      { code: 'PFCG', label: 'Role T-Code', href: '/pfcg', Icon: ShieldCheck, adminOnly: true },
       { code: 'ZSET', label: 'System Configuration', href: '/zset', Icon: Settings, adminOnly: true },
     ],
   },
@@ -84,24 +86,36 @@ const GROUPS: { title: string; items: Item[] }[] = [
 export function Sidebar({
   role,
   pdt,
+  tcodes,
   collapsed,
 }: {
   role: string;
   pdt: boolean;
+  /** daftar T-Code yang diizinkan role otorisasi (PFCG); null = tidak dibatasi */
+  tcodes?: string[] | null;
   collapsed: boolean;
 }) {
   const pathname = usePathname();
   const [closed, setClosed] = useState<Record<string, boolean>>({});
 
+  const allowedItem = (i: Item) => {
+    if (i.adminOnly && role !== 'ADMIN') return false;
+    if (i.pdtOnly && !pdt) return false;
+    if (!tcodes || role === 'ADMIN') return true;
+    if (tcodes.includes(i.code)) return true;
+    if (i.code === 'ZRF') return tcodes.some((c) => c.startsWith('ZRF') && c !== 'ZRF');
+    if (i.code === 'MM01') return tcodes.includes('MM02') || tcodes.includes('MM03');
+    if (i.code === 'LS01N') return tcodes.includes('LS02N') || tcodes.includes('LS06');
+    return false;
+  };
+
   return (
     <nav
-      className={`shrink-0 border-r border-sap-border bg-[#20242d] overflow-y-auto overflow-x-hidden
+      className={`shrink-0 border-r border-sap-border bg-sap-nav overflow-y-auto overflow-x-hidden
                   transition-all duration-150 ${collapsed ? 'w-[46px]' : 'w-[218px]'}`}
     >
       {GROUPS.map((g) => {
-        const items = g.items.filter(
-          (i) => (!i.adminOnly || role === 'ADMIN') && (!i.pdtOnly || pdt)
-        );
+        const items = g.items.filter(allowedItem);
         if (items.length === 0) return null;
         const isClosed = closed[g.title];
         return (
@@ -133,7 +147,7 @@ export function Sidebar({
                                     ${
                                       active
                                         ? 'border-sap-blue bg-sap-blue/15 text-sap-text'
-                                        : 'border-transparent text-sap-muted hover:bg-white/5 hover:text-sap-text'
+                                        : 'border-transparent text-sap-muted hover:bg-sap-hover hover:text-sap-text'
                                     }`}
                       >
                         <it.Icon

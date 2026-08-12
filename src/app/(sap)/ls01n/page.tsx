@@ -135,7 +135,7 @@ export default function Ls01nPage() {
       width: '80px',
       render: (r) =>
         r.is_interim ? (
-          <span className="sap-badge border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]">GR/GI</span>
+          <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext">GR/GI</span>
         ) : (
           <span className="text-sap-muted">—</span>
         ),

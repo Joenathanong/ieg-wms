@@ -31,15 +31,15 @@ export async function PdtModuleGuard({
   if (!masterOn || !enabled) {
     return (
       <div className="mx-auto w-full max-w-[520px] sap-panel overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-[#323847] border-b border-sap-border">
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-sap-titlebar border-b border-sap-border">
           <span className="font-mono text-sap-blue text-sm">{code}</span>
           <span className="text-sap-border">|</span>
           <span className="text-sm font-semibold">{title}</span>
         </div>
         <div className="p-4 flex items-start gap-3">
-          <Lock size={20} className="text-[#FF9CA0] shrink-0 mt-0.5" />
+          <Lock size={20} className="text-sap-errtext shrink-0 mt-0.5" />
           <div className="text-2xs leading-relaxed">
-            <p className="text-[#FF9CA0] font-semibold mb-1">Transaction is locked</p>
+            <p className="text-sap-errtext font-semibold mb-1">Transaction is locked</p>
             <p className="text-sap-muted">
               {!masterOn
                 ? 'Seluruh modul PDT sedang dinonaktifkan oleh administrator.'

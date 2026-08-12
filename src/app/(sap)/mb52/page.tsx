@@ -65,7 +65,7 @@ function Mb52Inner() {
       align: 'right',
       width: '120px',
       render: (r) => (
-        <span className={r.below_safety ? 'text-[#F3C77B] font-semibold' : ''}>
+        <span className={r.below_safety ? 'text-sap-warntext font-semibold' : ''}>
           {r.im_qty.toLocaleString('de-DE')}
         </span>
       ),
@@ -78,7 +78,7 @@ function Mb52Inner() {
       align: 'right',
       width: '85px',
       render: (r) => (
-        <span className={r.variance !== 0 ? 'text-[#FF9CA0] font-semibold' : 'text-sap-muted'}>{r.variance}</span>
+        <span className={r.variance !== 0 ? 'text-sap-errtext font-semibold' : 'text-sap-muted'}>{r.variance}</span>
       ),
     },
     { key: 'bin_count', header: 'Bins', align: 'right', width: '60px' },
@@ -101,11 +101,11 @@ function Mb52Inner() {
       width: '110px',
       render: (r) =>
         r.below_safety ? (
-          <span className="sap-badge border-[#7a5b1e] bg-[#3b2f14] text-[#F3C77B] gap-1">
+          <span className="sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext gap-1">
             <AlertTriangle size={10} /> LOW STOCK
           </span>
         ) : (
-          <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]">OK</span>
+          <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext">OK</span>
         ),
     },
   ];
@@ -126,7 +126,7 @@ function Mb52Inner() {
             <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer h-[27px]">
               <input
                 type="checkbox"
-                className="accent-[#367BF5]"
+                className="accent-sap-blue"
                 checked={onlyBelow}
                 onChange={(e) => setOnlyBelow(e.target.checked)}
               />

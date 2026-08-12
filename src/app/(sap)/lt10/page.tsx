@@ -229,7 +229,7 @@ export default function Lt10Page() {
         <Panel title={`Transfer Orders Created (${result.length})`} bodyClassName="p-3">
           <div className="flex flex-wrap gap-2">
             {result.map((d: any) => (
-              <span key={d.document_number} className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4] !text-2xs">
+              <span key={d.document_number} className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext !text-2xs">
                 {d.document_number} · {d.material_code} · {d.source_bin} → {d.target_bin} ({d.qty})
               </span>
             ))}

@@ -15,6 +15,7 @@ import {
 import { CommandField } from './CommandField';
 import { Sidebar } from './Sidebar';
 import { StatusBar, StatusProvider, useStatus } from './StatusBar';
+import { ThemeToggle } from './ThemeToggle';
 import { tcodeByPath } from '@/lib/tcodes';
 import type { SessionPayload } from '@/lib/session';
 
@@ -37,7 +38,7 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
           <PanelLeft size={14} />
         </button>
 
-        <CommandField role={user.role} pdt={user.pdt} />
+        <CommandField role={user.role} pdt={user.pdt} tcodes={user.tcodes} />
 
         <div className="flex items-center gap-1 ml-1">
           <button
@@ -77,6 +78,7 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
               </span>
             )}
           </span>
+          <ThemeToggle />
           <Link href="/help" title="Help" className="sap-btn sap-btn-ghost !px-1.5 !py-1">
             <HelpCircle size={14} />
           </Link>
@@ -87,7 +89,7 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
       </div>
 
       {/* Baris 2 — Judul transaksi aktif */}
-      <div className="flex items-center gap-2 h-[28px] px-3 bg-[#1F242E] border-t border-sap-border">
+      <div className="flex items-center gap-2 h-[28px] px-3 bg-sap-topbar2 border-t border-sap-border">
         <span className="font-mono text-2xs text-sap-blue">{tcode?.code ?? 'SESSION_MANAGER'}</span>
         <span className="text-sap-border">|</span>
         <span className="text-2xs text-sap-text truncate">{tcode?.title ?? 'SAP Easy Access'}</span>
@@ -112,7 +114,9 @@ export function Shell({ user, children }: { user: SessionPayload; children: Reac
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-sap-bg">
         <TopBar user={user} onToggle={() => (isPdt ? setHidden((h) => !h) : setCollapsed((c) => !c))} />
         <div className="flex flex-1 min-h-0">
-          {(!isPdt || hidden) && <Sidebar role={user.role} pdt={user.pdt} collapsed={collapsed} />}
+          {(!isPdt || hidden) && (
+            <Sidebar role={user.role} pdt={user.pdt} tcodes={user.tcodes} collapsed={collapsed} />
+          )}
           <main className="flex-1 min-w-0 overflow-auto p-3">{children}</main>
         </div>
         <StatusBar />

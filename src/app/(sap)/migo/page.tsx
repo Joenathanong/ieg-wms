@@ -18,7 +18,7 @@ import {
 import { Panel, Field, Input, Select, Button, Toolbar, Separator } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
-import { post } from '@/lib/client';
+import { api, post, fmtDate } from '@/lib/client';
 import { ZONE_GROUPS } from '@/lib/zones';
 
 /* --------------------------------------------------------------- */
@@ -29,9 +29,29 @@ const MOVEMENTS = [
   { code: '551', label: '551 — Scrapping / Adjustment (-)', mode: 'DIRECT_MIN' },
   { code: '701', label: '701 — Phys. Inv. Difference (+)', mode: 'DIRECT_PLUS' },
   { code: '702', label: '702 — Phys. Inv. Difference (-)', mode: 'DIRECT_MIN' },
+  { code: 'CANCEL', label: 'Cancellation — 102 / 202 / 552 / 562 / 711 / 712', mode: 'CANCEL' },
 ] as const;
 
 type Mode = (typeof MOVEMENTS)[number]['mode'];
+
+interface CancelPreview {
+  document_number: string;
+  movement_code: string;
+  movement_label: string;
+  cancel_code: string;
+  cancel_label: string;
+  material_code: string;
+  description: string;
+  uom: string;
+  qty: number;
+  batch_number: string | null;
+  source_bin: string | null;
+  target_bin: string | null;
+  doc_date: string;
+  reference: string | null;
+  tr_number: string | null;
+  user_id: string;
+}
 
 interface Line {
   key: string;
@@ -79,11 +99,45 @@ export default function MigoPage() {
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState<PostedDoc[]>([]);
 
+  // --- mode CANCELLATION ---
+  const [cancelDoc, setCancelDoc] = useState('');
+  const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
+  const [cancelRemarks, setCancelRemarks] = useState('');
+  const [cancelLoading, setCancelLoading] = useState(false);
+
   const mode: Mode = MOVEMENTS.find((m) => m.code === movement)?.mode ?? 'TR_IN';
   const isGiIssue = mode === 'TR_OUT' && giMode === 'ISSUE';
   // ISSUE mengeluarkan stok dari bin interim GI, jadi tidak perlu input bin manual
   const isTwoStep = mode === 'TR_IN' || mode === 'TR_OUT';
   const isInbound = mode === 'TR_IN' || mode === 'DIRECT_PLUS';
+  const isCancel = mode === 'CANCEL';
+
+  async function loadCancelPreview() {
+    const doc = cancelDoc.trim().toUpperCase();
+    if (!doc) return setStatus('Masukkan nomor material document yang akan dibatalkan', 'E');
+    setCancelLoading(true);
+    setCancelPreview(null);
+    const r = await api<CancelPreview>(`/api/migo/cancel?doc=${encodeURIComponent(doc)}`);
+    setCancelLoading(false);
+    setStatus(r.message, r.ok ? 'S' : 'E');
+    if (r.ok && r.data) setCancelPreview(r.data);
+  }
+
+  async function submitCancel() {
+    if (!cancelPreview) return setStatus('Tampilkan dokumen terlebih dahulu', 'E');
+    setBusy(true);
+    const r = await post('/api/migo/cancel', {
+      document_number: cancelPreview.document_number,
+      remarks: cancelRemarks,
+    });
+    setBusy(false);
+    setStatus(r.message, r.ok ? 'S' : 'E');
+    if (r.ok) {
+      setCancelPreview(null);
+      setCancelDoc('');
+      setCancelRemarks('');
+    }
+  }
 
   const matMap = useMemo(() => new Map(materials.map((m) => [m.material_code, m])), [materials]);
 
@@ -185,9 +239,11 @@ export default function MigoPage() {
             </Select>
           </Field>
 
-          <Field label="Document Date" required>
-            <Input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
-          </Field>
+          {!isCancel && (
+            <Field label="Document Date" required>
+              <Input type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
+            </Field>
+          )}
 
           {mode === 'TR_IN' && (
             <Field label="Gudang Tujuan" hint="menentukan baris palletization yang dipakai">
@@ -211,43 +267,79 @@ export default function MigoPage() {
             </Field>
           )}
 
-          <Field label="Reference / Delivery Note">
-            <Input
-              value={reference}
-              placeholder="mis. DO-2026-00123"
-              onChange={(e) => setReference(e.target.value)}
-            />
-          </Field>
+          {!isCancel && (
+            <Field label="Reference / Delivery Note">
+              <Input
+                value={reference}
+                placeholder="mis. DO-2026-00123"
+                onChange={(e) => setReference(e.target.value)}
+              />
+            </Field>
+          )}
+
+          {isCancel && (
+            <Field label="No. Dokumen yang Dibatalkan" required>
+              <div className="flex gap-1.5">
+                <Input
+                  className="uppercase font-mono"
+                  placeholder="5000000123"
+                  value={cancelDoc}
+                  onChange={(e) => setCancelDoc(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadCancelPreview()}
+                />
+                <Button variant="primary" onClick={loadCancelPreview} loading={cancelLoading}>
+                  Tampilkan
+                </Button>
+              </div>
+            </Field>
+          )}
 
           <Field label="Processing Level">
             <div className="flex items-center gap-2 h-[27px]">
               {mode === 'TR_IN' && (
-                <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4] gap-1">
+                <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext gap-1">
                   <ArrowDownToLine size={11} /> IM + → GR ZONE
                 </span>
               )}
               {mode === 'TR_OUT' && giMode === 'REQUEST' && (
-                <span className="sap-badge border-[#2b5480] bg-[#1c3450] text-[#9DC0FF] gap-1">
+                <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext gap-1">
                   <ArrowUpFromLine size={11} /> REQUEST ONLY
                 </span>
               )}
               {mode === 'TR_OUT' && giMode === 'ISSUE' && (
-                <span className="sap-badge border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0] gap-1">
+                <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext gap-1">
                   <ArrowUpFromLine size={11} /> IM − / WM − @ GI ZONE
                 </span>
               )}
               {mode === 'DIRECT_PLUS' && (
-                <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]">IM + / WM +</span>
+                <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext">IM + / WM +</span>
               )}
               {mode === 'DIRECT_MIN' && (
-                <span className="sap-badge border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]">IM − / WM −</span>
+                <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext">IM − / WM −</span>
+              )}
+              {isCancel && (
+                <span className="sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext">
+                  REVERSAL — DATA TERKUNCI
+                </span>
               )}
             </div>
           </Field>
         </div>
 
+        {isCancel && (
+          <div className="mt-3 flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-warnborder/60 bg-sap-warnbg text-2xs text-sap-warntext">
+            <Info size={13} className="shrink-0 mt-[1px]" />
+            <span>
+              Masukkan nomor material document asal — sistem menentukan movement pembatalan secara
+              otomatis (101→102, 201→202, 551→552, 561→562, 701→711, 702→712). Seluruh data (material,
+              qty, batch, bin) diambil dari dokumen asal dan <b>tidak dapat diubah</b>. Dokumen yang sudah
+              pernah dibatalkan tidak bisa dibatalkan lagi.
+            </span>
+          </div>
+        )}
+
         {isTwoStep && (
-          <div className="mt-3 flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-blue/40 bg-sap-blue/10 text-2xs text-[#9DC0FF]">
+          <div className="mt-3 flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-blue/40 bg-sap-blue/10 text-2xs text-sap-infotext">
             <Info size={13} className="shrink-0 mt-[1px]" />
             {mode === 'TR_IN' ? (
               <span>
@@ -273,7 +365,74 @@ export default function MigoPage() {
         )}
       </Panel>
 
+      {/* CANCELLATION PREVIEW */}
+      {isCancel && (
+        <Panel
+          title="Cancellation — Data Dokumen Asal (terkunci)"
+          icon={<RotateCcw size={13} className="text-sap-warntext" />}
+        >
+          {!cancelPreview ? (
+            <p className="text-2xs text-sap-muted">
+              Masukkan nomor dokumen lalu tekan <b>Tampilkan</b>. Data dokumen asal akan muncul di sini.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Field label="Dokumen Asal">
+                  <Input disabled value={cancelPreview.document_number} className="font-mono" />
+                </Field>
+                <Field label="Movement Asal">
+                  <Input disabled value={cancelPreview.movement_label} />
+                </Field>
+                <Field label="Movement Pembatalan">
+                  <Input disabled value={cancelPreview.cancel_label} className="text-sap-warntext" />
+                </Field>
+                <Field label="Tgl. Dokumen Asal">
+                  <Input disabled value={fmtDate(cancelPreview.doc_date)} className="font-mono" />
+                </Field>
+                <Field label="Material">
+                  <Input disabled value={cancelPreview.material_code} className="font-mono" />
+                </Field>
+                <Field label="Deskripsi">
+                  <Input disabled value={cancelPreview.description} />
+                </Field>
+                <Field label="Quantity">
+                  <Input
+                    disabled
+                    value={`${cancelPreview.qty.toLocaleString('de-DE')} ${cancelPreview.uom}`}
+                    className="font-mono text-right"
+                  />
+                </Field>
+                <Field label="Batch">
+                  <Input disabled value={cancelPreview.batch_number ?? '—'} className="font-mono" />
+                </Field>
+                <Field label="Source Bin">
+                  <Input disabled value={cancelPreview.source_bin ?? '—'} className="font-mono" />
+                </Field>
+                <Field label="Target Bin">
+                  <Input disabled value={cancelPreview.target_bin ?? '—'} className="font-mono" />
+                </Field>
+                <Field label="Reference">
+                  <Input disabled value={cancelPreview.reference ?? '—'} />
+                </Field>
+                <Field label="User Asal">
+                  <Input disabled value={cancelPreview.user_id} className="font-mono" />
+                </Field>
+              </div>
+              <Field label="Remarks Pembatalan (opsional)">
+                <Input
+                  value={cancelRemarks}
+                  placeholder={`Cancellation of ${cancelPreview.document_number}`}
+                  onChange={(e) => setCancelRemarks(e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+        </Panel>
+      )}
+
       {/* ITEM TABLE */}
+      {!isCancel && (
       <Panel
         title={`Line Items (${lines.length})`}
         icon={<ClipboardCheck size={13} className="text-sap-blue" />}
@@ -391,7 +550,7 @@ export default function MigoPage() {
                     {mode === 'TR_IN' && (
                       <td className="font-mono text-xxs">
                         {prev ? (
-                          <span className="text-[#8FE0A4]">
+                          <span className="text-sap-oktext">
                             {prev.lines} line × {prev.per}
                           </span>
                         ) : (
@@ -435,20 +594,46 @@ export default function MigoPage() {
           </table>
         </div>
       </Panel>
+      )}
 
       {/* TOOLBAR */}
       <Toolbar>
-        <Button variant="primary" onClick={submit} loading={busy}>
-          <Save size={13} /> Post
-        </Button>
-        <Button onClick={reset}>
-          <RotateCcw size={13} /> Reset
-        </Button>
-        <Separator />
-        <span className="text-xxs text-sap-muted flex items-center gap-1.5">
-          <Info size={12} />
-          Semua item diposting dalam satu database transaction — bila satu baris gagal, seluruh dokumen dibatalkan.
-        </span>
+        {isCancel ? (
+          <>
+            <Button variant="danger" onClick={submitCancel} loading={busy} disabled={!cancelPreview}>
+              <Save size={13} /> Post Cancellation
+            </Button>
+            <Button
+              onClick={() => {
+                setCancelPreview(null);
+                setCancelDoc('');
+                setCancelRemarks('');
+                setStatus('Cancellation screen has been reset', 'I');
+              }}
+            >
+              <RotateCcw size={13} /> Reset
+            </Button>
+            <Separator />
+            <span className="text-xxs text-sap-muted flex items-center gap-1.5">
+              <Info size={12} />
+              Stok dikembalikan persis seperti sebelum dokumen asal diposting (qty &amp; batch sama).
+            </span>
+          </>
+        ) : (
+          <>
+            <Button variant="primary" onClick={submit} loading={busy}>
+              <Save size={13} /> Post
+            </Button>
+            <Button onClick={reset}>
+              <RotateCcw size={13} /> Reset
+            </Button>
+            <Separator />
+            <span className="text-xxs text-sap-muted flex items-center gap-1.5">
+              <Info size={12} />
+              Semua item diposting dalam satu database transaction — bila satu baris gagal, seluruh dokumen dibatalkan.
+            </span>
+          </>
+        )}
       </Toolbar>
 
       {/* HASIL POSTING */}
@@ -481,8 +666,8 @@ export default function MigoPage() {
                   <td className="font-mono text-sap-muted">{d.line}</td>
                   <td className="font-mono">{d.material_code}</td>
                   <td className="text-right font-mono">{d.qty.toLocaleString('de-DE')}</td>
-                  <td className="font-mono text-[#8FE0A4]">{d.document_number ?? '—'}</td>
-                  <td className="font-mono text-[#9DC0FF]">{d.tr_number ?? '—'}</td>
+                  <td className="font-mono text-sap-oktext">{d.document_number ?? '—'}</td>
+                  <td className="font-mono text-sap-infotext">{d.tr_number ?? '—'}</td>
                   <td className="text-sap-muted">
                     {d.tr_number ? (
                       <Link href={`/lb12?tr=${d.tr_number}`} className="text-sap-blue hover:underline">

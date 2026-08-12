@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
-import { TCODES } from '@/lib/tcodes';
+import { TCODES, canAccessTcode } from '@/lib/tcodes';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,7 +112,7 @@ export default async function EasyAccess() {
       </div>
 
       {!kpi && (
-        <div className="sap-panel px-4 py-3 border-[#7f2529] bg-[#3d1a1c] text-2xs text-[#FF9CA0] flex items-center gap-2">
+        <div className="sap-panel px-4 py-3 border-sap-errborder bg-sap-errbg text-2xs text-sap-errtext flex items-center gap-2">
           <AlertTriangle size={15} />
           Database belum terhubung. Isi <span className="font-mono">DATABASE_URL</span> di file{' '}
           <span className="font-mono">.env</span> lalu jalankan{' '}
@@ -157,13 +157,13 @@ export default async function EasyAccess() {
             const items = TCODES.filter(
               (t) =>
                 t.group === g.key &&
-                (!t.adminOnly || session?.role === 'ADMIN') &&
-                (!t.pdtOnly || session?.pdt)
+                canAccessTcode(t, session?.role ?? 'VIEWER', session?.pdt ?? false, session?.tcodes ?? null)
             ).filter(
               (t) =>
-                !['SESSION_MANAGER', 'MM02', 'LS02N', 'ZRF01', 'ZRF02', 'ZRF03', 'ZRF04', 'ZRF05', 'ZRF06'].includes(
-                  t.code
-                )
+                ![
+                  'SESSION_MANAGER', 'MM02', 'LS02N',
+                  'ZRF01', 'ZRF02', 'ZRF03', 'ZRF04', 'ZRF05', 'ZRF06', 'ZRF07', 'ZRF08',
+                ].includes(t.code)
             );
             if (items.length === 0) return null;
             return (

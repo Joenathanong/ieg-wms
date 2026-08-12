@@ -28,6 +28,38 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
     }
 
+    const barcode_bpom =
+      b.barcode_bpom !== undefined ? cleanStr(b.barcode_bpom).toUpperCase() || null : undefined;
+    const barcode_produk =
+      b.barcode_produk !== undefined ? cleanStr(b.barcode_produk).toUpperCase() || null : undefined;
+    const kode_ocs = b.kode_ocs !== undefined ? cleanStr(b.kode_ocs).toUpperCase() || null : undefined;
+    const fix_bin = b.fix_bin !== undefined ? cleanStr(b.fix_bin).toUpperCase() || null : undefined;
+
+    // barcode harus unik antar material agar lookup scan PDT tidak ambigu
+    for (const [label, val] of [
+      ['Barcode B-POM', barcode_bpom],
+      ['Barcode produk', barcode_produk],
+    ] as const) {
+      if (!val) continue;
+      const dup = await prisma.material.findFirst({
+        where: {
+          material_code: { not: material_code },
+          OR: [
+            { barcode_bpom: { equals: val, mode: 'insensitive' } },
+            { barcode_produk: { equals: val, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (dup)
+        throw new HttpError(409, `${label} ${val} sudah dipakai material ${dup.material_code}.`);
+    }
+
+    if (fix_bin) {
+      const bin = await prisma.storageBin.findUnique({ where: { bin_code: fix_bin } });
+      if (!bin) throw new HttpError(400, `Fix bin ${fix_bin} does not exist (LS01N).`);
+      if (bin.is_interim) throw new HttpError(400, `Fix bin ${fix_bin} is an interim bin and cannot be used.`);
+    }
+
     const m = await prisma.material.update({
       where: { material_code },
       data: {
@@ -36,6 +68,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         is_batch_managed: b.is_batch_managed !== undefined ? Boolean(b.is_batch_managed) : undefined,
         min_safety_stock:
           b.min_safety_stock !== undefined ? toInt(b.min_safety_stock, 'min_safety_stock') : undefined,
+        barcode_bpom,
+        barcode_produk,
+        kode_ocs,
+        fix_bin,
       },
     });
 

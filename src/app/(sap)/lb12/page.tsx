@@ -185,8 +185,8 @@ function Lb12Inner() {
           </div>
           {doc && (
             <div className="md:col-span-3 flex flex-wrap items-center gap-3 text-2xs font-mono text-sap-muted">
-              <span className="sap-badge border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]">{doc.tr_type}</span>
-              <span className="sap-badge border-[#3f4657] bg-[#2c313d] text-sap-muted">{doc.status}</span>
+              <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext">{doc.tr_type}</span>
+              <span className="sap-badge border-sap-neutralborder bg-sap-neutralbg text-sap-muted">{doc.status}</span>
               {doc.ref_doc && <span>Mat.Doc: <b className="text-sap-text">{doc.ref_doc}</b></span>}
               {doc.reference && <span>Ref: {doc.reference}</span>}
               <span>By: {doc.created_by}</span>
@@ -196,7 +196,7 @@ function Lb12Inner() {
         </div>
 
         {doc && (
-          <div className="mt-3 flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-blue/40 bg-sap-blue/10 text-2xs text-[#9DC0FF]">
+          <div className="mt-3 flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-blue/40 bg-sap-blue/10 text-2xs text-sap-infotext">
             <Info size={13} className="shrink-0 mt-[1px]" />
             {doc.tr_type === 'PUTAWAY' ? (
               <span>
@@ -283,7 +283,7 @@ function Lb12Inner() {
                       <tr key={it.id} className={done ? 'opacity-50' : undefined}>
                         <td className="text-center">
                           {done ? (
-                            <span className="text-[#8FE0A4]">✓</span>
+                            <span className="text-sap-oktext">✓</span>
                           ) : (
                             <button
                               type="button"
@@ -301,7 +301,7 @@ function Lb12Inner() {
                         <td className="font-mono">{fmtDate(it.exp_date) || '—'}</td>
                         <td className="font-mono text-sap-muted">{it.pack_code || '—'}</td>
                         <td className="text-right font-mono tabular-nums">{it.qty}</td>
-                        <td className="text-right font-mono tabular-nums text-[#F3C77B]">{it.qty_open}</td>
+                        <td className="text-right font-mono tabular-nums text-sap-warntext">{it.qty_open}</td>
                         <td>
                           <Input
                             type="number"

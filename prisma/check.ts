@@ -52,11 +52,17 @@ async function main() {
   const missing: string[] = [];
   const need = [
     ['users', 'pdt_enabled'],
+    ['users', 'auth_role_id'],
+    ['auth_roles', 'tcodes'],
     ['packaging_types', 'su_type'],
     ['packaging_types', 'zone_group'],
     ['storage_bins', 'is_interim'],
     ['phys_inv_doc_items', 'bin_code'],
     ['migo_logs', 'tr_number'],
+    ['migo_logs', 'reversal_of'],
+    ['stock_wm', 'gr_date'],
+    ['materials', 'barcode_bpom'],
+    ['materials', 'fix_bin'],
   ];
   for (const [t, c] of need) {
     const r = await prisma.$queryRaw<{ n: bigint }[]>`

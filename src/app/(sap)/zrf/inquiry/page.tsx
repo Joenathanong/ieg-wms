@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { PdtScreen, PdtInput, PdtButton, PdtMessage } from '@/components/pdt/ui';
 import { api, qs, fmtDate } from '@/lib/client';
+import { resolveScan } from '@/lib/barcode';
 
 interface Row {
   bin_code: string;
@@ -28,8 +29,21 @@ export default function ZrfInquiryPage() {
     if (!bin.trim() && !material.trim())
       return setMsg({ text: 'Isi bin atau material', type: 'E' });
     setLoading(true);
+
+    // material bisa berupa barcode (compound ';' / EAN B-POM / produk)
+    let matQ = material.trim().toUpperCase();
+    if (matQ) {
+      const rs = await resolveScan(material.trim());
+      if (!rs.ok) {
+        setLoading(false);
+        return setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
+      }
+      matQ = rs.material_code;
+      if (matQ !== material.trim().toUpperCase()) setMaterial(matQ);
+    }
+
     const r = await api<{ rows: Row[]; total_qty: number }>(
-      '/api/reports/lx02' + qs({ bin: bin.trim().toUpperCase(), material: material.trim().toUpperCase() })
+      '/api/reports/lx02' + qs({ bin: bin.trim().toUpperCase(), material: matQ })
     );
     setLoading(false);
     if (!r.ok) return setMsg({ text: r.message, type: 'E' });
@@ -49,10 +63,11 @@ export default function ZrfInquiryPage() {
         onKeyDown={(e) => e.key === 'Enter' && run()}
       />
       <PdtInput
-        label="atau scan material"
+        label="atau scan material / barcode"
         value={material}
-        onChange={(e) => setMaterial(e.target.value.toUpperCase())}
+        onChange={(e) => setMaterial(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && run()}
+        hint="mendukung barcode ; (material;batch;...) dan EAN B-POM / produk"
       />
       <PdtButton variant="primary" onClick={run} loading={loading}>
         <Search size={16} /> Cari
@@ -60,7 +75,7 @@ export default function ZrfInquiryPage() {
 
       <div className="space-y-1.5 max-h-[48vh] overflow-auto">
         {rows.map((r, i) => (
-          <div key={i} className="rounded-[3px] border border-sap-border bg-[#242934] px-3 py-2">
+          <div key={i} className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
             <div className="flex items-baseline justify-between gap-2">
               <span className="font-mono text-sm text-sap-blue">{r.bin_code}</span>
               <span className="font-mono text-sm">

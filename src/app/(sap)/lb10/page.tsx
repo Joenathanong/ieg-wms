@@ -27,16 +27,16 @@ interface Row {
 }
 
 const TYPE_STYLE: Record<string, string> = {
-  PUTAWAY: 'border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]',
-  PICK: 'border-[#7a5b1e] bg-[#3b2f14] text-[#F3C77B]',
-  INTERNAL: 'border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]',
+  PUTAWAY: 'border-sap-okborder bg-sap-okbg text-sap-oktext',
+  PICK: 'border-sap-warnborder bg-sap-warnbg text-sap-warntext',
+  INTERNAL: 'border-sap-infoborder bg-sap-infobg text-sap-infotext',
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  OPEN: 'border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]',
-  PARTIAL: 'border-[#7a5b1e] bg-[#3b2f14] text-[#F3C77B]',
-  CLOSED: 'border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]',
-  CANCELLED: 'border-[#3f4657] bg-[#2c313d] text-sap-muted',
+  OPEN: 'border-sap-infoborder bg-sap-infobg text-sap-infotext',
+  PARTIAL: 'border-sap-warnborder bg-sap-warnbg text-sap-warntext',
+  CLOSED: 'border-sap-okborder bg-sap-okbg text-sap-oktext',
+  CANCELLED: 'border-sap-neutralborder bg-sap-neutralbg text-sap-muted',
 };
 
 export default function Lb10Page() {
@@ -93,7 +93,7 @@ export default function Lb10Page() {
       align: 'right',
       width: '100px',
       render: (r) => (
-        <span className={r.confirmed_qty >= r.total_qty ? 'text-[#8FE0A4]' : 'text-[#F3C77B]'}>
+        <span className={r.confirmed_qty >= r.total_qty ? 'text-sap-oktext' : 'text-sap-warntext'}>
           {r.confirmed_qty.toLocaleString('de-DE')}
         </span>
       ),

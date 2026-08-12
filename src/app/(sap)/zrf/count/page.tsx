@@ -110,7 +110,7 @@ export default function ZrfCountPage() {
               key={d.id}
               type="button"
               onClick={() => openDoc(d.id)}
-              className="w-full text-left rounded-[3px] border border-sap-border bg-[#242934] px-3 py-2.5
+              className="w-full text-left rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2.5
                          hover:border-sap-blue/60 flex items-center gap-2"
             >
               <div className="min-w-0 flex-1">
@@ -145,7 +145,7 @@ export default function ZrfCountPage() {
     >
       {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
-      <div className="rounded-[3px] border border-sap-border bg-[#242934] px-3 py-2">
+      <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
         <PdtRow label="Dokumen" value={doc.doc_number} accent />
         <PdtRow label="Bin" value={`${doc.frozen_bins.length}`} />
         <PdtRow label="Line" value={`${doc.items.length}`} />
@@ -174,7 +174,7 @@ export default function ZrfCountPage() {
           ) : (
             <div className="space-y-2 max-h-[36vh] overflow-auto">
               {binItems.map((it) => (
-                <div key={it.id} className="rounded-[3px] border border-sap-border bg-[#242934] px-3 py-2 space-y-1.5">
+                <div key={it.id} className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5">
                   <p className="font-mono text-sm text-sap-blue">{it.material_code}</p>
                   <p className="text-2xs text-sap-text truncate">{it.description}</p>
                   <p className="text-xxs text-sap-muted font-mono">
@@ -188,7 +188,7 @@ export default function ZrfCountPage() {
                     disabled={it.posted}
                     value={counts[it.id] ?? ''}
                     onChange={(e) => setCounts((s) => ({ ...s, [it.id]: e.target.value }))}
-                    className="w-full bg-[#12161d] border-2 border-sap-border focus:border-sap-blue outline-none
+                    className="w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
                                rounded-[3px] px-3 py-2 text-base font-mono text-right"
                   />
                 </div>

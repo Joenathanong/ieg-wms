@@ -314,7 +314,7 @@ function Li11nInner() {
                           {diff === null ? (
                             <span className="text-sap-muted">—</span>
                           ) : (
-                            <span className={diff > 0 ? 'text-[#8FE0A4]' : diff < 0 ? 'text-[#FF9CA0]' : 'text-sap-muted'}>
+                            <span className={diff > 0 ? 'text-sap-oktext' : diff < 0 ? 'text-sap-errtext' : 'text-sap-muted'}>
                               {diff > 0 ? '+' : ''}
                               {diff}
                             </span>
@@ -323,7 +323,7 @@ function Li11nInner() {
                         <td className="font-mono text-sap-muted">{it.uom}</td>
                         <td className="text-center">
                           {it.posted ? (
-                            <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]">YES</span>
+                            <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext">YES</span>
                           ) : (
                             <span className="text-sap-muted">—</span>
                           )}
@@ -379,7 +379,7 @@ function Li11nInner() {
                           }
                         />
                       </td>
-                      <td className="text-right font-mono text-[#8FE0A4]">
+                      <td className="text-right font-mono text-sap-oktext">
                         {e.counted_qty ? `+${e.counted_qty}` : '—'}
                       </td>
                       <td></td>
@@ -416,7 +416,7 @@ function Li11nInner() {
             <span className="font-mono text-xxs text-sap-muted">
               Book <b className="text-sap-text">{totalBook}</b> · Counted{' '}
               <b className="text-sap-text">{totalCounted}</b> · Diff{' '}
-              <b className={totalDiff > 0 ? 'text-[#8FE0A4]' : totalDiff < 0 ? 'text-[#FF9CA0]' : 'text-sap-text'}>
+              <b className={totalDiff > 0 ? 'text-sap-oktext' : totalDiff < 0 ? 'text-sap-errtext' : 'text-sap-text'}>
                 {totalDiff > 0 ? '+' : ''}
                 {totalDiff}
               </b>

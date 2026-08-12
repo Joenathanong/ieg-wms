@@ -10,6 +10,14 @@ export interface SessionPayload {
   role: 'ADMIN' | 'OPERATOR' | 'VIEWER';
   /** izin membuka T-Code PDT (flag user DAN master switch sistem) */
   pdt: boolean;
+  /**
+   * Daftar T-Code yang diizinkan dari role otorisasi (PFCG).
+   * null = tidak dibatasi (akses penuh sesuai role dasar).
+   * Perubahan role berlaku pada login berikutnya (disematkan di token).
+   */
+  tcodes: string[] | null;
+  /** nama role otorisasi (untuk tampilan) */
+  auth_role?: string | null;
 }
 
 function secretKey(): Uint8Array {
@@ -37,6 +45,8 @@ export async function verifySession(token?: string | null): Promise<SessionPaylo
       name: String(payload.name),
       role: payload.role as SessionPayload['role'],
       pdt: payload.pdt === true,
+      tcodes: Array.isArray(payload.tcodes) ? (payload.tcodes as string[]) : null,
+      auth_role: typeof payload.auth_role === 'string' ? payload.auth_role : null,
     };
   } catch {
     return null;

@@ -65,7 +65,7 @@ function LoginForm() {
         </div>
 
         {err && (
-          <div className="flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-[#7f2529] bg-[#3d1a1c] text-2xs text-[#FF9CA0]">
+          <div className="flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-errborder bg-sap-errbg text-2xs text-sap-errtext">
             <ShieldAlert size={14} className="shrink-0 mt-[1px]" />
             <span>{err}</span>
           </div>

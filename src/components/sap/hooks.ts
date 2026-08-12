@@ -21,6 +21,10 @@ export interface MaterialLite {
   uom: string;
   is_batch_managed: boolean;
   min_safety_stock: number;
+  barcode_bpom?: string | null;
+  barcode_produk?: string | null;
+  kode_ocs?: string | null;
+  fix_bin?: string | null;
   packagings?: PackagingLite[];
 }
 

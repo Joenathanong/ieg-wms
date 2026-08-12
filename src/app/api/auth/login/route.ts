@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const user = await prisma.user.findUnique({ where: { username } });
+    const user = await prisma.user.findUnique({ where: { username }, include: { auth_role: true } });
     if (!user) return fail('Name or password is incorrect (repeat logon).', 401);
     if (!user.is_active) return fail('User is locked. Contact your system administrator.', 403);
 
@@ -42,12 +42,17 @@ export async function POST(req: NextRequest) {
     const pdtGlobal = await isTrue(prisma, 'PDT_ENABLED');
     const pdt = pdtGlobal && user.pdt_enabled;
 
+    // pembatasan T-Code dari role otorisasi (PFCG). ADMIN tidak pernah dibatasi.
+    const tcodes = user.role !== 'ADMIN' && user.auth_role ? user.auth_role.tcodes : null;
+
     const token = await signSession({
       uid: user.id,
       username: user.username,
       name: user.full_name,
       role: user.role,
       pdt,
+      tcodes,
+      auth_role: user.auth_role?.role_name ?? null,
     });
 
     const res = NextResponse.json({

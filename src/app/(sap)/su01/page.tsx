@@ -1,10 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Users, Save, Plus, Trash2, RefreshCw, KeyRound, Lock, Unlock, Smartphone } from 'lucide-react';
+import { Users, Save, Plus, Trash2, RefreshCw, KeyRound, Lock, Unlock, Smartphone, ShieldCheck } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { api, post, patch, del, fmtDateTime } from '@/lib/client';
+
+interface AuthRoleLite {
+  id: string;
+  role_name: string;
+  description: string;
+  tcodes: string[];
+}
 
 interface Row {
   id: string;
@@ -13,6 +20,8 @@ interface Row {
   role: 'ADMIN' | 'OPERATOR' | 'VIEWER';
   is_active: boolean;
   pdt_enabled: boolean;
+  auth_role_id: string | null;
+  auth_role: { role_name: string; tcodes: string[] } | null;
   last_login: string | null;
   created_at: string;
 }
@@ -25,6 +34,7 @@ const emptyForm = {
   role: 'OPERATOR' as Row['role'],
   is_active: true,
   pdt_enabled: false,
+  auth_role_id: '',
 };
 
 export default function Su01Page() {
@@ -34,13 +44,15 @@ export default function Su01Page() {
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'CREATE' | 'CHANGE'>('CREATE');
   const [form, setForm] = useState({ ...emptyForm });
+  const [roles, setRoles] = useState<AuthRoleLite[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await api<Row[]>('/api/users');
+    const [r, ar] = await Promise.all([api<Row[]>('/api/users'), api<AuthRoleLite[]>('/api/roles')]);
     setLoading(false);
     if (!r.ok) return setStatus(r.message, 'E');
     setRows(r.data ?? []);
+    if (ar.ok) setRoles(ar.data ?? []);
   }, [setStatus]);
 
   useEffect(() => {
@@ -58,12 +70,13 @@ export default function Su01Page() {
     setBusy(true);
     const r =
       mode === 'CREATE'
-        ? await post('/api/users', form)
+        ? await post('/api/users', { ...form, auth_role_id: form.auth_role_id || null })
         : await patch(`/api/users/${form.id}`, {
             full_name: form.full_name,
             role: form.role,
             is_active: form.is_active,
             pdt_enabled: form.pdt_enabled,
+            auth_role_id: form.auth_role_id || null,
             ...(form.password ? { password: form.password } : {}),
           });
     setBusy(false);
@@ -96,14 +109,27 @@ export default function Su01Page() {
     { key: 'full_name', header: 'Full Name', width: '230px' },
     { key: 'role', header: 'Role', width: '110px', render: (r) => <Badge value={r.role} /> },
     {
+      key: 'auth_role',
+      header: 'Role T-Code',
+      width: '150px',
+      render: (r) =>
+        r.auth_role ? (
+          <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext gap-1">
+            <ShieldCheck size={10} /> {r.auth_role.role_name}
+          </span>
+        ) : (
+          <span className="text-sap-muted">FULL</span>
+        ),
+    },
+    {
       key: 'is_active',
       header: 'Status',
       width: '110px',
       render: (r) =>
         r.is_active ? (
-          <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]">ACTIVE</span>
+          <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext">ACTIVE</span>
         ) : (
-          <span className="sap-badge border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]">LOCKED</span>
+          <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext">LOCKED</span>
         ),
     },
     {
@@ -113,7 +139,7 @@ export default function Su01Page() {
       width: '80px',
       render: (r) =>
         r.pdt_enabled ? (
-          <span className="sap-badge border-[#2b5480] bg-[#1c3450] text-[#9DC0FF] gap-1">
+          <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext gap-1">
             <Smartphone size={10} /> ON
           </span>
         ) : (
@@ -196,10 +222,32 @@ export default function Su01Page() {
               <option value="VIEWER">VIEWER — hanya laporan (display only)</option>
             </Select>
           </Field>
+
+          <Field
+            label="Role T-Code (PFCG)"
+            hint={
+              form.role === 'ADMIN'
+                ? 'ADMIN tidak pernah dibatasi role T-Code'
+                : 'Kosong = semua T-Code sesuai role dasar. Kelola daftar role di PFCG.'
+            }
+          >
+            <Select
+              disabled={form.role === 'ADMIN'}
+              value={form.auth_role_id}
+              onChange={(e) => setForm({ ...form, auth_role_id: e.target.value })}
+            >
+              <option value="">(tanpa pembatasan T-Code)</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.role_name} — {r.tcodes.length} T-Code{r.description ? ` · ${r.description}` : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer">
             <input
               type="checkbox"
-              className="accent-[#367BF5]"
+              className="accent-sap-blue"
               checked={form.is_active}
               onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
             />
@@ -209,7 +257,7 @@ export default function Su01Page() {
           <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer">
             <input
               type="checkbox"
-              className="accent-[#367BF5]"
+              className="accent-sap-blue"
               checked={form.pdt_enabled}
               onChange={(e) => setForm({ ...form, pdt_enabled: e.target.checked })}
             />
@@ -266,6 +314,7 @@ export default function Su01Page() {
               role: r.role,
               is_active: r.is_active,
               pdt_enabled: r.pdt_enabled,
+              auth_role_id: r.auth_role_id ?? '',
             });
             setMode('CHANGE');
             setStatus(`User ${r.username} selected for change`, 'I');

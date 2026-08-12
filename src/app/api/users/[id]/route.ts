@@ -44,6 +44,16 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       data.pdt_enabled = Boolean(b.pdt_enabled);
     }
 
+    if (b.auth_role_id !== undefined) {
+      if (b.auth_role_id === null || b.auth_role_id === '') {
+        data.auth_role_id = null;
+      } else {
+        const ar = await prisma.authRole.findUnique({ where: { id: String(b.auth_role_id) } });
+        if (!ar) throw new HttpError(400, 'Authorization role does not exist (PFCG).');
+        data.auth_role_id = ar.id;
+      }
+    }
+
     if (b.password) {
       const pw = String(b.password);
       if (pw.length < 6) throw new HttpError(400, 'Password must be at least 6 characters.');
@@ -55,10 +65,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const user = await prisma.user.update({
       where: { id },
       data,
-      select: { id: true, username: true, full_name: true, role: true, is_active: true, pdt_enabled: true },
+      select: { id: true, username: true, full_name: true, role: true, is_active: true, pdt_enabled: true, auth_role_id: true },
     });
 
-    return ok(user, `User ${user.username} changed`);
+    return ok(user, `User ${user.username} changed. Perubahan otorisasi berlaku pada login berikutnya.`);
   });
 }
 

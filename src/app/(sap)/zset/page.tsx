@@ -60,11 +60,11 @@ export default function ZsetPage() {
                   <label className="flex items-center gap-2 text-2xs cursor-pointer h-[27px]">
                     <input
                       type="checkbox"
-                      className="accent-[#367BF5] w-4 h-4"
+                      className="accent-sap-blue w-4 h-4"
                       checked={values[m.key] === '1'}
                       onChange={(e) => setValues((s) => ({ ...s, [m.key]: e.target.checked ? '1' : '0' }))}
                     />
-                    <span className={values[m.key] === '1' ? 'text-[#8FE0A4]' : 'text-sap-muted'}>
+                    <span className={values[m.key] === '1' ? 'text-sap-oktext' : 'text-sap-muted'}>
                       {values[m.key] === '1' ? 'AKTIF' : 'NONAKTIF'}
                     </span>
                   </label>
@@ -96,14 +96,14 @@ export default function ZsetPage() {
 
       <Panel title="Interim Bin yang tersedia" icon={<MapPin size={13} className="text-sap-blue" />} bodyClassName="p-3">
         {interimBins.length === 0 ? (
-          <p className="text-xxs text-[#F3C77B]">
+          <p className="text-xxs text-sap-warntext">
             Belum ada bin interim. Buat bin dengan zona <b>GR-ZONE</b> dan <b>GI-ZONE</b> di LS01N terlebih
             dahulu, kalau tidak MIGO 101 / 201 akan menolak posting.
           </p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {interimBins.map((b) => (
-              <span key={b.id} className="sap-badge border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]">
+              <span key={b.id} className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext">
                 {b.bin_code} · {b.zone_id}
               </span>
             ))}

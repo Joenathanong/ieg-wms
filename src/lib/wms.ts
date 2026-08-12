@@ -1,7 +1,7 @@
 import { Prisma, BinStatus, MovementType, TrStatus, TrType, type PrismaClient } from '@prisma/client';
 import { HttpError } from './auth';
 import { nextDocNumber } from './docnum';
-import { MOVEMENT_SIGN, MOVEMENT_CODE } from './movement';
+import { MOVEMENT_SIGN, MOVEMENT_CODE, CANCELLED_BY } from './movement';
 import { getSetting, isTrue } from './settings';
 
 /* =====================================================================
@@ -108,7 +108,7 @@ export async function applyStockWM(
   tx: Prisma.TransactionClient,
   key: QuantKey,
   delta: number,
-  dates?: { mfg_date?: Date | null; exp_date?: Date | null }
+  dates?: { mfg_date?: Date | null; exp_date?: Date | null; gr_date?: Date | null }
 ) {
   if (delta === 0) return;
 
@@ -139,6 +139,7 @@ export async function applyStockWM(
         batch_number: key.batch_number,
         mfg_date: dates?.mfg_date ?? null,
         exp_date: dates?.exp_date ?? null,
+        gr_date: dates?.gr_date ?? null,
         qty: newQty,
       },
     });
@@ -152,6 +153,9 @@ export async function applyStockWM(
         qty: newQty,
         mfg_date: dates?.mfg_date ?? existing.mfg_date,
         exp_date: dates?.exp_date ?? existing.exp_date,
+        // GR date quant dipertahankan (tanggal penerimaan pertama);
+        // hanya diisi bila sebelumnya kosong.
+        gr_date: existing.gr_date ?? dates?.gr_date ?? null,
       },
     });
   }
@@ -363,7 +367,7 @@ export async function postBinTransfer(
     tx,
     { material_code: material.material_code, bin_code: input.target_bin, batch_number: batch },
     qty,
-    { mfg_date: src.mfg_date, exp_date: src.exp_date }
+    { mfg_date: src.mfg_date, exp_date: src.exp_date, gr_date: src.gr_date }
   );
 
   await refreshBinStatus(tx, input.source_bin);
@@ -482,7 +486,7 @@ export async function postGoodsReceipt(
     tx,
     { material_code: material.material_code, bin_code: grBin.bin_code, batch_number: batch },
     qty,
-    { mfg_date: args.mfg_date ?? null, exp_date: args.exp_date ?? null }
+    { mfg_date: args.mfg_date ?? null, exp_date: args.exp_date ?? null, gr_date: args.doc_date ?? new Date() }
   );
   await applyStockIM(tx, material.material_code, qty);
   await refreshBinStatus(tx, grBin.bin_code);
@@ -772,6 +776,172 @@ export async function postGoodsIssue(
     via_pdt: args.via_pdt,
     user_id: args.user_id,
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* CANCELLATION — 102 / 202 / 552 / 562 / 711 / 712                     */
+/* Membatalkan dokumen MIGO dengan data PERSIS sama (qty, batch, bin).  */
+/* ------------------------------------------------------------------ */
+
+export interface CancelPreview {
+  document_number: string;
+  movement_type: MovementType;
+  cancel_movement: MovementType;
+  material_code: string;
+  description: string;
+  uom: string;
+  qty: number;
+  batch_number: string | null;
+  source_bin: string | null;
+  target_bin: string | null;
+  doc_date: Date;
+  reference: string | null;
+  tr_number: string | null;
+  user_id: string;
+}
+
+/** Ambil dokumen asal + validasi kelayakan pembatalan (dipakai GET preview & POST). */
+export async function getCancellable(
+  tx: ReadDb,
+  document_number: string
+): Promise<CancelPreview> {
+  const orig = await tx.migoLog.findUnique({ where: { document_number } });
+  if (!orig) throw new HttpError(404, `Material document ${document_number} does not exist.`);
+  if (orig.reversal_of)
+    throw new HttpError(400, `Document ${document_number} is itself a cancellation document and cannot be cancelled.`);
+  if (orig.reversed_by)
+    throw new HttpError(400, `Document ${document_number} has already been cancelled by document ${orig.reversed_by}.`);
+
+  const cancelType = CANCELLED_BY[orig.movement_type];
+  if (!cancelType)
+    throw new HttpError(
+      400,
+      `Movement ${MOVEMENT_CODE[orig.movement_type]} cannot be cancelled here. ` +
+        `Bin transfer (301) dibatalkan dengan transfer balik lewat LT01.`
+    );
+
+  const material = await tx.material.findUnique({ where: { material_code: orig.material_code } });
+
+  return {
+    document_number: orig.document_number,
+    movement_type: orig.movement_type,
+    cancel_movement: cancelType,
+    material_code: orig.material_code,
+    description: material?.description ?? '',
+    uom: orig.uom,
+    qty: orig.qty,
+    batch_number: orig.batch_number,
+    source_bin: orig.source_bin,
+    target_bin: orig.target_bin,
+    doc_date: orig.doc_date,
+    reference: orig.reference,
+    tr_number: orig.tr_number,
+    user_id: orig.user_id,
+  };
+}
+
+/**
+ * Posting pembatalan dokumen. Seluruh data (material, qty, batch, bin) diambil
+ * dari dokumen asal dan TIDAK dapat diubah — sesuai perilaku MIGO Cancellation.
+ */
+export async function postCancellation(
+  tx: Prisma.TransactionClient,
+  args: {
+    document_number: string;
+    user_id: string;
+    remarks?: string | null;
+    via_pdt?: boolean;
+  }
+): Promise<{ document_number: string; cancel_movement: MovementType; original: CancelPreview }> {
+  const prev = await getCancellable(tx, args.document_number);
+  const origSign = MOVEMENT_SIGN[prev.movement_type]; // +1 = dulu menambah stok
+  const bin_code = origSign > 0 ? prev.target_bin : prev.source_bin;
+  if (!bin_code)
+    throw new HttpError(400, `Document ${prev.document_number} has no storage bin reference.`);
+
+  // bin boleh BLOCKED? tidak — konsisten dengan aturan movement biasa,
+  // tapi izinkan bila bin interim (transit) karena cancel GR/GI menunjuk ke sana.
+  await getBinOrThrow(tx, bin_code, false);
+
+  // Khusus cancel GR (102): Transfer Requirement put-away terkait harus belum
+  // dikonfirmasi sama sekali — bila barang sudah dipindah ke rak, stok di bin
+  // interim memang sudah tidak utuh dan pembatalan harus ditolak.
+  if (prev.movement_type === MovementType.GR_101 && prev.tr_number) {
+    const tr = await tx.transferReq.findUnique({
+      where: { tr_number: prev.tr_number },
+      include: { items: true },
+    });
+    if (tr && tr.status !== TrStatus.CANCELLED) {
+      if (tr.items.some((i) => i.qty_confirmed > 0))
+        throw new HttpError(
+          400,
+          `Put-away for TR ${tr.tr_number} is already (partially) confirmed. ` +
+            `Cancellation 102 is only possible while the stock is still in the interim bin.`
+        );
+      await tx.transferReq.update({
+        where: { id: tr.id },
+        data: { status: TrStatus.CANCELLED, closed_at: new Date() },
+      });
+      await tx.transferReqItem.updateMany({
+        where: { tr_id: tr.id },
+        data: { status: TrStatus.CANCELLED },
+      });
+    }
+  }
+
+  // Tanggal batch untuk quant yang dibuat kembali (cancel dari movement minus):
+  // ambil dari quant lain material+batch yang masih ada.
+  let dates: { mfg_date?: Date | null; exp_date?: Date | null; gr_date?: Date | null } | undefined;
+  if (origSign < 0) {
+    const sibling = await tx.stockWM.findFirst({
+      where: { material_code: prev.material_code, batch_number: prev.batch_number },
+      orderBy: { updated_at: 'desc' },
+    });
+    dates = {
+      mfg_date: sibling?.mfg_date ?? null,
+      exp_date: sibling?.exp_date ?? null,
+      gr_date: sibling?.gr_date ?? prev.doc_date,
+    };
+  }
+
+  // posting stok kebalikan arah dokumen asal — qty & batch persis sama
+  await applyStockWM(
+    tx,
+    { material_code: prev.material_code, bin_code, batch_number: prev.batch_number },
+    -origSign * prev.qty,
+    dates
+  );
+  await applyStockIM(tx, prev.material_code, -origSign * prev.qty);
+  await refreshBinStatus(tx, bin_code);
+
+  const document_number = await nextDocNumber(tx, 'MATDOC');
+  await tx.migoLog.create({
+    data: {
+      document_number,
+      movement_type: prev.cancel_movement,
+      material_code: prev.material_code,
+      // arah dibalik: dokumen cancel yang MENGURANGI stok memakai source_bin, dst.
+      source_bin: origSign > 0 ? bin_code : null,
+      target_bin: origSign > 0 ? null : bin_code,
+      batch_number: prev.batch_number,
+      qty: prev.qty,
+      uom: prev.uom,
+      reference: prev.reference,
+      remarks: args.remarks?.trim() || `Cancellation of ${prev.document_number}`,
+      tr_number: prev.tr_number,
+      via_pdt: args.via_pdt ?? false,
+      doc_date: new Date(),
+      user_id: args.user_id,
+      reversal_of: prev.document_number,
+    },
+  });
+
+  await tx.migoLog.update({
+    where: { document_number: prev.document_number },
+    data: { reversed_by: document_number },
+  });
+
+  return { document_number, cancel_movement: prev.cancel_movement, original: prev };
 }
 
 /** Bisa dipanggil dengan PrismaClient biasa maupun di dalam transaction. */

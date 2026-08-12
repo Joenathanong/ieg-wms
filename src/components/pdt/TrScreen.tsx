@@ -149,7 +149,7 @@ export function TrScreen({
               key={t.id}
               type="button"
               onClick={() => openDoc(t.tr_number)}
-              className="w-full text-left rounded-[3px] border border-sap-border bg-[#242934]
+              className="w-full text-left rounded-[3px] border border-sap-border bg-sap-panelalt
                          px-3 py-2.5 hover:border-sap-blue/60 flex items-center gap-2"
             >
               <div className="min-w-0 flex-1">
@@ -194,7 +194,7 @@ export function TrScreen({
     >
       {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
-      <div className="rounded-[3px] border border-sap-border bg-[#242934] px-3 py-2">
+      <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
         <PdtRow label="TR" value={doc.tr_number} accent />
         {doc.ref_doc && <PdtRow label="Mat. Doc" value={doc.ref_doc} />}
         <PdtRow label="Sisa line" value={`${doc.items.filter((i) => i.qty_open > 0).length} / ${doc.items.length}`} />

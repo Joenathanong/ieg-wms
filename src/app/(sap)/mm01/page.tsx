@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Boxes, Search, Save, Plus, Trash2, Download, Package, Star } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
-import { invalidateMasterData, type PackagingLite } from '@/components/sap/hooks';
+import { invalidateMasterData, useMasterData, type PackagingLite } from '@/components/sap/hooks';
 import { api, post, patch, del, qs } from '@/lib/client';
 import { ZONE_GROUPS } from '@/lib/zones';
 
@@ -15,6 +15,10 @@ interface Row {
   uom: string;
   is_batch_managed: boolean;
   min_safety_stock: number;
+  barcode_bpom: string | null;
+  barcode_produk: string | null;
+  kode_ocs: string | null;
+  fix_bin: string | null;
   packagings: PackagingLite[];
 }
 
@@ -24,6 +28,10 @@ const emptyForm = {
   uom: 'PC',
   is_batch_managed: true,
   min_safety_stock: 0,
+  barcode_bpom: '',
+  barcode_produk: '',
+  kode_ocs: '',
+  fix_bin: '',
 };
 
 const emptyPack = {
@@ -37,6 +45,7 @@ const emptyPack = {
 
 export default function Mm01Page() {
   const { setStatus } = useStatus();
+  const { bins } = useMasterData();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
@@ -144,6 +153,20 @@ export default function Mm01Page() {
     },
     { key: 'min_safety_stock', header: 'Safety Stock', align: 'right', width: '105px' },
     {
+      key: 'barcode_produk',
+      header: 'Barcode',
+      mono: true,
+      width: '130px',
+      render: (r) => r.barcode_produk || r.barcode_bpom || <span className="text-sap-muted">—</span>,
+    },
+    {
+      key: 'fix_bin',
+      header: 'Fix Bin',
+      mono: true,
+      width: '115px',
+      render: (r) => r.fix_bin || <span className="text-sap-muted">—</span>,
+    },
+    {
       key: 'packagings',
       header: 'Pallet / Packaging',
       width: '210px',
@@ -223,12 +246,52 @@ export default function Mm01Page() {
               <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer">
                 <input
                   type="checkbox"
-                  className="accent-[#367BF5]"
+                  className="accent-sap-blue"
                   checked={form.is_batch_managed}
                   onChange={(e) => setForm({ ...form, is_batch_managed: e.target.checked })}
                 />
                 Batch management aktif (wajib input nomor batch saat posting)
               </label>
+
+              <div className="border-t border-sap-border pt-3 space-y-3">
+                <p className="text-xxs uppercase tracking-wide text-sap-muted">
+                  Identifikasi Barcode &amp; Lokasi
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Barcode B-POM" hint="dipakai lookup scan PDT">
+                    <Input
+                      className="uppercase font-mono"
+                      placeholder="NA18201234567"
+                      value={form.barcode_bpom}
+                      onChange={(e) => setForm({ ...form, barcode_bpom: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Barcode Produk (EAN/UPC)" hint="dipakai lookup scan PDT">
+                    <Input
+                      className="uppercase font-mono"
+                      placeholder="8998824551223"
+                      value={form.barcode_produk}
+                      onChange={(e) => setForm({ ...form, barcode_produk: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <Field label="Kode OCS" hint="identifier panjang, mis. GIMMICK-HANASUI-EYEMAZING-EYESHADOW-PALETTE-SUNSET">
+                  <Input
+                    className="uppercase font-mono"
+                    value={form.kode_ocs}
+                    onChange={(e) => setForm({ ...form, kode_ocs: e.target.value })}
+                  />
+                </Field>
+                <Field label="Fix Bin" hint="bin picking tetap — saran tujuan replenishment ZRF08">
+                  <Input
+                    list="dl-fixbin"
+                    className="uppercase font-mono"
+                    placeholder="GB-PICK-A-01"
+                    value={form.fix_bin}
+                    onChange={(e) => setForm({ ...form, fix_bin: e.target.value })}
+                  />
+                </Field>
+              </div>
 
               <div className="flex gap-1.5 pt-1">
                 <Button variant="primary" onClick={save} loading={busy}>
@@ -288,7 +351,7 @@ export default function Mm01Page() {
                         <td className="font-mono text-sap-muted">{p.zone_group ?? 'ALL'}</td>
                         <td className="text-right font-mono">{p.qty_per_unit}</td>
                         <td className="text-center">
-                          {p.is_default ? <Star size={12} className="inline text-[#F3C77B]" /> : '—'}
+                          {p.is_default ? <Star size={12} className="inline text-sap-warntext" /> : '—'}
                         </td>
                         <td className="text-center">
                           <button
@@ -356,7 +419,7 @@ export default function Mm01Page() {
                 <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer">
                   <input
                     type="checkbox"
-                    className="accent-[#367BF5]"
+                    className="accent-sap-blue"
                     checked={packForm.is_default}
                     onChange={(e) => setPackForm({ ...packForm, is_default: e.target.checked })}
                   />
@@ -404,6 +467,10 @@ export default function Mm01Page() {
                 uom: r.uom,
                 is_batch_managed: r.is_batch_managed,
                 min_safety_stock: r.min_safety_stock,
+                barcode_bpom: r.barcode_bpom ?? '',
+                barcode_produk: r.barcode_produk ?? '',
+                kode_ocs: r.kode_ocs ?? '',
+                fix_bin: r.fix_bin ?? '',
               });
               setPacks(r.packagings ?? []);
               setPackForm({ ...emptyPack });
@@ -413,6 +480,17 @@ export default function Mm01Page() {
           />
         </div>
       </div>
+
+      {/* SEARCH HELP (F4) fix bin — bin non-interim & tidak blocked */}
+      <datalist id="dl-fixbin">
+        {bins
+          .filter((b) => !b.is_interim && b.status !== 'BLOCKED')
+          .map((b) => (
+            <option key={b.id} value={b.bin_code}>
+              {b.zone_id}
+            </option>
+          ))}
+      </datalist>
     </div>
   );
 }

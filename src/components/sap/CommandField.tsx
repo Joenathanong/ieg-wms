@@ -3,13 +3,22 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Check, X } from 'lucide-react';
-import { TCODES, resolveTCode, normalizeCommand } from '@/lib/tcodes';
+import { TCODES, resolveTCode, normalizeCommand, canAccessTcode } from '@/lib/tcodes';
 import { useStatus } from './StatusBar';
 
 /**
  * Command Field ala SAP GUI: ketik T-Code (MIGO, MB52, /nLX02 ...) lalu Enter.
  */
-export function CommandField({ role, pdt }: { role: string; pdt: boolean }) {
+export function CommandField({
+  role,
+  pdt,
+  tcodes,
+}: {
+  role: string;
+  pdt: boolean;
+  /** pembatasan T-Code dari role otorisasi (PFCG); null = tidak dibatasi */
+  tcodes?: string[] | null;
+}) {
   const [value, setValue] = useState('');
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -44,8 +53,7 @@ export function CommandField({ role, pdt }: { role: string; pdt: boolean }) {
     ? TCODES.filter(
         (t) =>
           (t.code.startsWith(q) || t.title.toUpperCase().includes(q)) &&
-          (!t.adminOnly || role === 'ADMIN') &&
-          (!t.pdtOnly || pdt)
+          canAccessTcode(t, role, pdt, tcodes ?? null)
       ).slice(0, 8)
     : [];
 
@@ -79,13 +87,17 @@ export function CommandField({ role, pdt }: { role: string; pdt: boolean }) {
       setStatus(`PDT terminal is not enabled for this user (${t.code})`, 'E');
       return;
     }
+    if (!canAccessTcode(t, role, pdt, tcodes ?? null)) {
+      setStatus(`No authorization for transaction ${t.code} (S_TCODE)`, 'E');
+      return;
+    }
     go(t.path, t.code);
   }
 
   return (
     <div ref={boxRef} className="relative">
       <div className="flex items-stretch h-[24px] w-[240px] sm:w-[300px]">
-        <div className="flex items-center px-1.5 bg-[#12161d] border border-r-0 border-sap-border rounded-l-[2px]">
+        <div className="flex items-center px-1.5 bg-sap-cmd border border-r-0 border-sap-border rounded-l-[2px]">
           <ChevronRight size={13} className="text-sap-blue" />
         </div>
         <input
@@ -115,7 +127,7 @@ export function CommandField({ role, pdt }: { role: string; pdt: boolean }) {
               setValue('');
             }
           }}
-          className="flex-1 min-w-0 bg-[#12161d] border border-sap-border text-sap-text
+          className="flex-1 min-w-0 bg-sap-cmd border border-sap-border text-sap-text
                      font-mono text-2xs px-2 outline-none focus:border-sap-blue
                      placeholder:text-sap-muted/50"
         />
@@ -123,7 +135,7 @@ export function CommandField({ role, pdt }: { role: string; pdt: boolean }) {
           type="button"
           onClick={submit}
           title="Enter"
-          className="px-1.5 bg-[#12161d] border border-l-0 border-sap-border rounded-r-[2px]
+          className="px-1.5 bg-sap-cmd border border-l-0 border-sap-border rounded-r-[2px]
                      hover:bg-sap-blue/25 text-sap-muted hover:text-sap-blue"
         >
           <Check size={13} />
@@ -142,7 +154,7 @@ export function CommandField({ role, pdt }: { role: string; pdt: boolean }) {
                 onMouseEnter={() => setHi(i)}
                 onClick={() => go(t.path, t.code)}
                 className={`w-full text-left px-2.5 py-1.5 flex items-center gap-2 text-2xs
-                            ${i === hi ? 'bg-sap-blue/25' : 'hover:bg-white/5'}`}
+                            ${i === hi ? 'bg-sap-blue/25' : 'hover:bg-sap-hover'}`}
               >
                 <span className="font-mono text-sap-blue w-[74px] shrink-0">{t.code}</span>
                 <span className="truncate text-sap-muted">{t.title}</span>

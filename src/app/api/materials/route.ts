@@ -47,6 +47,35 @@ export async function POST(req: NextRequest) {
     const exists = await prisma.material.findUnique({ where: { material_code } });
     if (exists) throw new HttpError(409, `Material ${material_code} already exists.`);
 
+    const barcode_bpom = cleanStr(b.barcode_bpom).toUpperCase() || null;
+    const barcode_produk = cleanStr(b.barcode_produk).toUpperCase() || null;
+    const kode_ocs = cleanStr(b.kode_ocs).toUpperCase() || null;
+    const fix_bin = cleanStr(b.fix_bin).toUpperCase() || null;
+
+    // barcode harus unik antar material agar lookup scan PDT tidak ambigu
+    for (const [label, val] of [
+      ['Barcode B-POM', barcode_bpom],
+      ['Barcode produk', barcode_produk],
+    ] as const) {
+      if (!val) continue;
+      const dup = await prisma.material.findFirst({
+        where: {
+          OR: [
+            { barcode_bpom: { equals: val, mode: 'insensitive' } },
+            { barcode_produk: { equals: val, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (dup)
+        throw new HttpError(409, `${label} ${val} sudah dipakai material ${dup.material_code}.`);
+    }
+
+    if (fix_bin) {
+      const bin = await prisma.storageBin.findUnique({ where: { bin_code: fix_bin } });
+      if (!bin) throw new HttpError(400, `Fix bin ${fix_bin} does not exist (LS01N).`);
+      if (bin.is_interim) throw new HttpError(400, `Fix bin ${fix_bin} is an interim bin and cannot be used.`);
+    }
+
     const m = await prisma.material.create({
       data: {
         material_code,
@@ -54,6 +83,10 @@ export async function POST(req: NextRequest) {
         uom: (cleanStr(b.uom) || 'PC').toUpperCase(),
         is_batch_managed: b.is_batch_managed === false ? false : true,
         min_safety_stock: b.min_safety_stock ? toInt(b.min_safety_stock, 'min_safety_stock') : 0,
+        barcode_bpom,
+        barcode_produk,
+        kode_ocs,
+        fix_bin,
       },
     });
 

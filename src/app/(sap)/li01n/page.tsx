@@ -121,7 +121,7 @@ export default function Li01nPage() {
         r.status === 'FROZEN' ? (
           <span className="text-sap-muted">—</span>
         ) : (
-          <span className={r.diff_total > 0 ? 'text-[#8FE0A4]' : r.diff_total < 0 ? 'text-[#FF9CA0]' : ''}>
+          <span className={r.diff_total > 0 ? 'text-sap-oktext' : r.diff_total < 0 ? 'text-sap-errtext' : ''}>
             {r.diff_total > 0 ? '+' : ''}
             {r.diff_total}
           </span>
@@ -237,7 +237,7 @@ export default function Li01nPage() {
                   type="button"
                   onClick={() => setPicked((s) => ({ ...s, [b.bin_code]: !on }))}
                   className={`flex items-center gap-1.5 px-2 py-1 rounded-[2px] border text-2xs font-mono text-left
-                    ${on ? 'border-sap-blue bg-sap-blue/15 text-sap-text' : 'border-sap-border bg-[#242934] text-sap-muted hover:border-sap-blue/50'}`}
+                    ${on ? 'border-sap-blue bg-sap-blue/15 text-sap-text' : 'border-sap-border bg-sap-panelalt text-sap-muted hover:border-sap-blue/50'}`}
                 >
                   {on ? <CheckSquare size={12} className="text-sap-blue shrink-0" /> : <Square size={12} className="shrink-0" />}
                   <span className="truncate">{b.bin_code}</span>

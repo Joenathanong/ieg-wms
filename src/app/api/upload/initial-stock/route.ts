@@ -77,7 +77,11 @@ export async function POST(req: NextRequest) {
 
             if (delta === 0) return null;
 
-            await applyStockWM(tx, { material_code, bin_code, batch_number }, delta, { mfg_date, exp_date });
+            await applyStockWM(tx, { material_code, bin_code, batch_number }, delta, {
+              mfg_date,
+              exp_date,
+              gr_date: new Date(),
+            });
             await applyStockIM(tx, material_code, delta);
             await refreshBinStatus(tx, bin_code);
 

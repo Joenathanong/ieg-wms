@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser } from '@/lib/auth';
 import { handle, ok, cleanStr, toDate } from '@/lib/api';
-import { parseMovement, MOVEMENT_CODE } from '@/lib/movement';
+import { parseMovement, MOVEMENT_CODE, MOVEMENT_DESC } from '@/lib/movement';
 import { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
@@ -68,6 +68,9 @@ export async function GET(req: NextRequest) {
       document_number: l.document_number,
       movement_type: l.movement_type,
       movement_code: MOVEMENT_CODE[l.movement_type],
+      movement_desc: MOVEMENT_DESC[l.movement_type],
+      reversal_of: l.reversal_of ?? '',
+      reversed_by: l.reversed_by ?? '',
       material_code: l.material_code,
       description: mMap.get(l.material_code) ?? '',
       batch_number: l.batch_number ?? '',

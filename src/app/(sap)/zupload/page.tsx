@@ -45,13 +45,13 @@ const KINDS: Record<UploadKind, KindDef> = {
     endpoint: '/api/upload/materials',
     file: 'master_materials.xlsx',
     Icon: Boxes,
-    columns: ['material_code', 'description', 'uom', 'is_batch_managed', 'min_safety_stock'],
+    columns: ['material_code', 'description', 'uom', 'is_batch_managed', 'min_safety_stock', 'barcode_bpom', 'barcode_produk', 'kode_ocs', 'fix_bin'],
     sample: [
-      { material_code: 'FG-0001', description: 'Sabun Cair Botol 500ml', uom: 'PC', is_batch_managed: 'TRUE', min_safety_stock: 100 },
-      { material_code: 'FG-0002', description: 'Shampoo Sachet 12ml x 12', uom: 'BOX', is_batch_managed: 'TRUE', min_safety_stock: 50 },
-      { material_code: 'SP-1001', description: 'Karton Box 40x30x25', uom: 'PC', is_batch_managed: 'FALSE', min_safety_stock: 0 },
+      { material_code: 'FG-0001', description: 'Sabun Cair Botol 500ml', uom: 'PC', is_batch_managed: 'TRUE', min_safety_stock: 100, barcode_bpom: 'NA18201234567', barcode_produk: '8998824551223', kode_ocs: 'GIMMICK-CONTOH-SABUN-CAIR-BOTOL-500ML', fix_bin: 'GB-PICK-A-01' },
+      { material_code: 'FG-0002', description: 'Shampoo Sachet 12ml x 12', uom: 'BOX', is_batch_managed: 'TRUE', min_safety_stock: 50, barcode_bpom: '', barcode_produk: '', kode_ocs: '', fix_bin: '' },
+      { material_code: 'SP-1001', description: 'Karton Box 40x30x25', uom: 'PC', is_batch_managed: 'FALSE', min_safety_stock: 0, barcode_bpom: '', barcode_produk: '', kode_ocs: '', fix_bin: '' },
     ],
-    note: 'is_batch_managed: TRUE / FALSE. Material yang sudah ada akan di-update (upsert).',
+    note: 'is_batch_managed: TRUE / FALSE. Kolom barcode_bpom / barcode_produk / kode_ocs / fix_bin opsional. Material yang sudah ada akan di-update (upsert).',
   },
   packaging: {
     id: 'packaging',
@@ -246,7 +246,7 @@ export default function ZuploadPage() {
                   if (fileRef.current) fileRef.current.value = '';
                 }}
                 className={`flex items-start gap-2.5 p-3 rounded-[3px] border text-left transition-colors
-                  ${active ? 'border-sap-blue bg-sap-blue/12' : 'border-sap-border bg-[#242934] hover:border-sap-blue/50'}`}
+                  ${active ? 'border-sap-blue bg-sap-blue/12' : 'border-sap-border bg-sap-panelalt hover:border-sap-blue/50'}`}
               >
                 <d.Icon size={17} className={active ? 'text-sap-blue' : 'text-sap-muted'} />
                 <div className="min-w-0">
@@ -276,12 +276,12 @@ export default function ZuploadPage() {
                 onChange={(e) => e.target.files?.[0] && readFile(e.target.files[0])}
                 className="block w-full text-2xs text-sap-muted file:mr-2 file:py-[5px] file:px-3
                            file:rounded-[2px] file:border file:border-sap-border file:text-2xs
-                           file:bg-[#333846] file:text-sap-text hover:file:bg-[#3d4353] cursor-pointer"
+                           file:bg-sap-btn file:text-sap-text hover:file:bg-sap-btnhover cursor-pointer"
               />
             </div>
 
             {fileName && (
-              <div className="text-xxs font-mono text-sap-muted border border-sap-border rounded-[2px] p-2 bg-[#1b1f27]">
+              <div className="text-xxs font-mono text-sap-muted border border-sap-border rounded-[2px] p-2 bg-sap-field">
                 <p className="text-sap-text truncate">{fileName}</p>
                 <p>{rows.length} data row(s) siap dikirim</p>
               </div>
@@ -291,7 +291,7 @@ export default function ZuploadPage() {
               <p className="text-xxs uppercase tracking-wide text-sap-muted mb-1">Kolom wajib</p>
               <div className="flex flex-wrap gap-1">
                 {def.columns.map((c) => (
-                  <span key={c} className="sap-badge border-[#3f4657] bg-[#2c313d] text-sap-muted">
+                  <span key={c} className="sap-badge border-sap-neutralborder bg-sap-neutralbg text-sap-muted">
                     {c}
                   </span>
                 ))}
@@ -338,14 +338,14 @@ export default function ZuploadPage() {
                 </span>
                 <span>{pct}%</span>
               </div>
-              <div className="h-[6px] bg-[#1b1f27] border border-sap-border rounded-[2px] overflow-hidden">
+              <div className="h-[6px] bg-sap-field border border-sap-border rounded-[2px] overflow-hidden">
                 <div className="h-full bg-sap-blue transition-all duration-200" style={{ width: `${pct}%` }} />
               </div>
               <div className="flex gap-3 mt-2 text-xxs font-mono">
-                <span className="text-[#8FE0A4] flex items-center gap-1">
+                <span className="text-sap-oktext flex items-center gap-1">
                   <CheckCircle2 size={11} /> {okCount} success
                 </span>
-                <span className="text-[#FF9CA0] flex items-center gap-1">
+                <span className="text-sap-errtext flex items-center gap-1">
                   <XCircle size={11} /> {errCount} error
                 </span>
               </div>
@@ -421,13 +421,13 @@ export default function ZuploadPage() {
                     <td className="font-mono">{r.key}</td>
                     <td>
                       {r.status === 'ERROR' ? (
-                        <span className="sap-badge border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]">ERROR</span>
+                        <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext">ERROR</span>
                       ) : (
-                        <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]">{r.status}</span>
+                        <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext">{r.status}</span>
                       )}
                     </td>
                     <td className="font-mono text-sap-muted">{r.document_number ?? ''}</td>
-                    <td className="text-[#FF9CA0]">{r.message ?? ''}</td>
+                    <td className="text-sap-errtext">{r.message ?? ''}</td>
                   </tr>
                 ))}
               </tbody>

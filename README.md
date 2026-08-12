@@ -1,7 +1,8 @@
 # WMS LITE — Warehouse Management System (SAP S/4HANA Style)
 
 Aplikasi Full-Stack WMS Lightweight berbasis web yang mengadopsi logika **SAP S/4HANA Modul WM/IM**
-dengan tampilan visual **SAP GUI 8.0 Theme Quartz Dark / Dark Crystal**.
+dengan dua tema visual: **Quartz Dark / Dark Crystal** (default) dan **SAP Morning Horizon** (light).
+Toggle tema ada di top bar (ikon matahari/bulan); preferensi disimpan per browser.
 
 Siap deploy gratis di **Vercel** (Serverless Next.js) + **Neon.tech / Supabase** (PostgreSQL).
 
@@ -107,7 +108,7 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 
 | T-Code | Fungsi |
 |---|---|
-| `MIGO` | Goods Movement — 101 GR, 201 GI (2 mode: request picking / post goods issue), 551/701/702 koreksi. Multi line item. |
+| `MIGO` | Goods Movement — 101 GR, 201 GI (2 mode: request picking / post goods issue), 551/701/702 koreksi, **mode Cancellation 102/202/552/562/711/712** (input no. dokumen asal, data auto terisi & terkunci). Multi line item. |
 | `LI01N` | Create Physical Inventory Document — **multi-bin** (zona / daftar bin / seluruh gudang) |
 | `LI11N` | Enter Count Result **multi-line** → posting seluruh selisih 701/702 sekaligus |
 
@@ -125,15 +126,15 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 | T-Code | Fungsi |
 |---|---|
 | `MB52` | Global Stock Summary (IM) + indikator safety stock & konsistensi IM vs WM |
-| `LX02` | Stock per Storage Bin — Bin, Batch, Mfg/Exp, alert FEFO |
-| `MB51` | Material Document History — filter tanggal, material, movement, bin, batch, user |
+| `LX02` | Stock per Storage Bin — Bin, Batch, Mfg/Exp, **GR Date**, alert FEFO (alias `LX01`) |
+| `MB51` | Material Document History — filter tanggal, material, movement, bin, batch, user + **kolom deskripsi movement type** & penanda dokumen dibatalkan |
 | `LS04` | Empty Bin List |
 
 ### Master Data
 
 | T-Code | Fungsi |
 |---|---|
-| `MM01` / `MM02` | Material Master **+ tabel palletization per kelompok gudang** |
+| `MM01` / `MM02` | Material Master **+ tabel palletization per kelompok gudang** + **Barcode B-POM, Barcode Produk (EAN), Kode OCS, Fix Bin** |
 | `LS01N` / `LS02N` / `LS06` | Storage Bin: create / change / block, plus mass generate |
 | `ZUPLOAD` | Upload Center — 5 tipe file |
 
@@ -149,13 +150,21 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 | `ZRF05` | Stock Count — input hasil opname per bin |
 | `ZRF06` | Inquiry — cek isi rak / lokasi material |
 | `ZRF07` | Goods Issue — keluarkan barang dari transit-out (201) |
+| `ZRF08` | **Replenishment** — scan bin ATAU material → list stok urut **FEFO** (ED terdekat paling atas) → pilih → qty + S-Bin tujuan (saran otomatis dari **Fix Bin** material, tetap bisa diganti) → posting 301 |
+
+> **Barcode PDT.** Field scan material di ZRF01 / ZRF06 / ZRF08 mendukung:
+> (1) barcode compound `material;batch;...` (mis. `1228050306;D26153;CTN;36.00000;PCS;...`) —
+> field 1 = material, field 2 = batch, langsung terisi;
+> (2) barcode EAN polos (mis. `8998824551223`) — di-lookup ke master data lewat
+> **Barcode B-POM / Barcode Produk** di MM01.
 
 ### System
 
 | T-Code | Fungsi |
 |---|---|
-| `SU01` | User Maintenance (ADMIN) — termasuk flag **Akses PDT** per user |
-| `ZSET` | System Configuration (ADMIN) — master switch PDT, **toggle per T-Code ZRF01–ZRF07**, bin transit, auto-split pallet |
+| `SU01` | User Maintenance (ADMIN) — flag **Akses PDT** per user + **assign Role T-Code (PFCG)** |
+| `PFCG` | Role Maintenance (ADMIN) — buat role berisi daftar T-Code yang diizinkan (termasuk per-ZRF01–08), lalu assign ke user di SU01. User tanpa role = akses penuh sesuai role dasar; ADMIN tidak pernah dibatasi. Berlaku pada login berikutnya. |
+| `ZSET` | System Configuration (ADMIN) — master switch PDT, **toggle per T-Code ZRF01–ZRF08**, bin transit, auto-split pallet |
 
 ---
 

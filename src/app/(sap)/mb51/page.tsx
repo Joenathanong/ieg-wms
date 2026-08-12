@@ -10,6 +10,9 @@ interface Row {
   document_number: string;
   movement_code: string;
   movement_type: string;
+  movement_desc: string;
+  reversal_of: string;
+  reversed_by: string;
   material_code: string;
   description: string;
   batch_number: string;
@@ -27,15 +30,25 @@ interface Row {
 const MOVES = [
   { v: '', l: 'All movement types' },
   { v: '101', l: '101 — Goods Receipt' },
+  { v: '102', l: '102 — Cancel Goods Receipt' },
   { v: '201', l: '201 — Goods Issue' },
+  { v: '202', l: '202 — Cancel Goods Issue' },
   { v: '301', l: '301 — Bin Transfer' },
   { v: '551', l: '551 — Scrapping' },
+  { v: '552', l: '552 — Cancel Scrapping' },
   { v: '561', l: '561 — Initial Stock' },
+  { v: '562', l: '562 — Cancel Initial Stock' },
   { v: '701', l: '701 — Phys. Inv. (+)' },
   { v: '702', l: '702 — Phys. Inv. (−)' },
+  { v: '711', l: '711 — Cancel Phys. Inv. (+)' },
+  { v: '712', l: '712 — Cancel Phys. Inv. (−)' },
 ];
 
-const SIGN: Record<string, number> = { '101': 1, '561': 1, '701': 1, '201': -1, '551': -1, '702': -1, '301': 0 };
+const SIGN: Record<string, number> = {
+  '101': 1, '561': 1, '701': 1, '202': 1, '552': 1, '712': 1,
+  '201': -1, '551': -1, '702': -1, '102': -1, '562': -1, '711': -1,
+  '301': 0,
+};
 
 export default function Mb51Page() {
   const { setStatus } = useStatus();
@@ -80,7 +93,22 @@ export default function Mb51Page() {
   }, []);
 
   const cols: Column<Row>[] = [
-    { key: 'document_number', header: 'Mat. Doc.', mono: true, width: '120px' },
+    {
+      key: 'document_number',
+      header: 'Mat. Doc.',
+      mono: true,
+      width: '130px',
+      render: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className={r.reversed_by ? 'line-through text-sap-muted' : ''}>{r.document_number}</span>
+          {r.reversed_by && (
+            <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext" title={`Dibatalkan oleh ${r.reversed_by}`}>
+              CANC
+            </span>
+          )}
+        </span>
+      ),
+    },
     {
       key: 'movement_code',
       header: 'MvT',
@@ -89,9 +117,20 @@ export default function Mb51Page() {
       align: 'center',
       render: (r) => {
         const s = SIGN[r.movement_code] ?? 0;
-        const cls = s > 0 ? 'text-[#8FE0A4]' : s < 0 ? 'text-[#FF9CA0]' : 'text-[#9DC0FF]';
+        const cls = s > 0 ? 'text-sap-oktext' : s < 0 ? 'text-sap-errtext' : 'text-sap-infotext';
         return <span className={`font-mono font-semibold ${cls}`}>{r.movement_code}</span>;
       },
+    },
+    {
+      key: 'movement_desc',
+      header: 'MvT Description',
+      width: '175px',
+      render: (r) => (
+        <span className="text-sap-muted">
+          {r.movement_desc}
+          {r.reversal_of && <span className="font-mono text-xxs"> (dok. {r.reversal_of})</span>}
+        </span>
+      ),
     },
     { key: 'doc_date', header: 'Doc. Date', mono: true, width: '95px', render: (r) => fmtDate(r.doc_date) },
     { key: 'material_code', header: 'Material', mono: true, width: '140px' },
@@ -106,7 +145,7 @@ export default function Mb51Page() {
       width: '90px',
       render: (r) => {
         const s = SIGN[r.movement_code] ?? 0;
-        const cls = s > 0 ? 'text-[#8FE0A4]' : s < 0 ? 'text-[#FF9CA0]' : '';
+        const cls = s > 0 ? 'text-sap-oktext' : s < 0 ? 'text-sap-errtext' : '';
         return (
           <span className={cls}>
             {s > 0 ? '+' : s < 0 ? '−' : ''}

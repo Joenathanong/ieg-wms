@@ -112,15 +112,21 @@ export default async function HelpPage() {
           <p>
             T-Code <b className="text-sap-blue">ZRF</b> adalah menu operator untuk perangkat PDT / RF scanner.
             Admin mengatur aktif/nonaktifnya di <b className="text-sap-blue">ZSET</b>: ada master switch{' '}
-            <b>Modul PDT</b> plus toggle terpisah untuk tiap T-Code (ZRF01–ZRF06). Modul yang dimatikan langsung
-            terkunci tanpa perlu login ulang. Sebagai lapisan tambahan, tiap user punya flag <b>Akses PDT</b> di SU01.
+            <b>Modul PDT</b> plus toggle terpisah untuk tiap T-Code (ZRF01–ZRF08). Modul yang dimatikan langsung
+            terkunci tanpa perlu login ulang. Sebagai lapisan tambahan, tiap user punya flag <b>Akses PDT</b> di SU01,
+            dan akses per T-Code (termasuk per-ZRF) bisa dibatasi lewat role otorisasi{' '}
+            <b className="text-sap-blue">PFCG</b> yang di-assign di SU01. <b>ZRF08 Replenishment</b> menampilkan
+            list stok urut FEFO lalu memindahkannya ke Fix Bin material (saran otomatis dari MM01). Scan barcode
+            PDT mendukung format compound <span className="font-mono">material;batch;...</span> dan EAN
+            (lookup barcode B-POM / barcode produk di MM01). Pembatalan dokumen dilakukan di MIGO mode{' '}
+            <b>Cancellation</b> (102/202/552/562/711/712) dengan data terkunci sesuai dokumen asal.
           </p>
           <p>
             Status akses Anda saat ini:{' '}
             {session?.pdt ? (
-              <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]">AKTIF</span>
+              <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext">AKTIF</span>
             ) : (
-              <span className="sap-badge border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]">NONAKTIF</span>
+              <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext">NONAKTIF</span>
             )}
           </p>
           <p>
@@ -168,7 +174,7 @@ export default async function HelpPage() {
             ['/n<TCODE>', 'Format SAP klasik, mis. /nMIGO'],
             ['/exit', 'Log off dari sistem'],
           ].map(([k, d]) => (
-            <div key={k} className="flex items-center gap-3 px-2 py-1.5 border border-sap-border rounded-[2px] bg-[#242934]">
+            <div key={k} className="flex items-center gap-3 px-2 py-1.5 border border-sap-border rounded-[2px] bg-sap-panelalt">
               <span className="font-mono text-sap-blue w-[90px] shrink-0">{k}</span>
               <span className="text-sap-muted">{d}</span>
             </div>

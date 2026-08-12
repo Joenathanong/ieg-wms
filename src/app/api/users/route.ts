@@ -19,6 +19,8 @@ export async function GET() {
         role: true,
         is_active: true,
         pdt_enabled: true,
+        auth_role_id: true,
+        auth_role: { select: { role_name: true, tcodes: true } },
         last_login: true,
         created_at: true,
       },
@@ -48,6 +50,14 @@ export async function POST(req: NextRequest) {
     const exists = await prisma.user.findUnique({ where: { username } });
     if (exists) throw new HttpError(409, `User ${username} already exists.`);
 
+    // role otorisasi T-Code (opsional)
+    let auth_role_id: string | null = null;
+    if (b.auth_role_id) {
+      const ar = await prisma.authRole.findUnique({ where: { id: String(b.auth_role_id) } });
+      if (!ar) throw new HttpError(400, 'Authorization role does not exist (PFCG).');
+      auth_role_id = ar.id;
+    }
+
     const user = await prisma.user.create({
       data: {
         username,
@@ -56,8 +66,9 @@ export async function POST(req: NextRequest) {
         role,
         is_active: b.is_active === false ? false : true,
         pdt_enabled: b.pdt_enabled === true,
+        auth_role_id,
       },
-      select: { id: true, username: true, full_name: true, role: true, is_active: true, pdt_enabled: true },
+      select: { id: true, username: true, full_name: true, role: true, is_active: true, pdt_enabled: true, auth_role_id: true },
     });
 
     return ok(user, `User ${username} created by ${admin.username}`);

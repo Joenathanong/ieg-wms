@@ -1,9 +1,16 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * SAP GUI 8.0 — Theme "Quartz Dark / Dark Crystal"
- * Palette resmi yang dipakai di seluruh aplikasi.
+ * SAP GUI 8.0 — Dual Theme
+ *   Dark  : "Quartz Dark / Dark Crystal"  (default)
+ *   Light : "SAP Morning Horizon"
+ *
+ * Semua warna menunjuk CSS variable channel RGB di globals.css
+ * (html[data-theme='dark'|'light']) sehingga opacity modifier
+ * seperti bg-sap-blue/15 tetap berfungsi di kedua tema.
  */
+const rgb = (v: string) => `rgb(var(--sap-${v}-rgb) / <alpha-value>)`;
+
 const config: Config = {
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
@@ -15,29 +22,62 @@ const config: Config = {
       colors: {
         sap: {
           /* Top System Bar */
-          sysbar: '#181C24',
+          sysbar: rgb('sysbar'),
           /* Background utama */
-          bg: '#1E232A',
+          bg: rgb('bg'),
           /* Table & panel container */
-          panel: '#2A2F3B',
+          panel: rgb('panel'),
           /* Panel alternatif / header tabel */
-          panelalt: '#242934',
+          panelalt: rgb('panelalt'),
           /* Elemen input & shell */
-          shell: '#2D323E',
+          shell: rgb('shell'),
           /* Border */
-          border: '#3A4050',
+          border: rgb('border'),
           /* Accent SAP Blue */
-          blue: '#367BF5',
-          bluehover: '#2B65CC',
-          bluesoft: 'rgba(54,123,245,0.14)',
+          blue: rgb('blue'),
+          bluehover: rgb('bluehover'),
+          blueactive: rgb('blueactive'),
+          bluesoft: 'var(--sap-blue-soft)',
           /* Text */
-          text: '#E2E8F0',
-          muted: '#94A3B8',
+          text: rgb('text'),
+          muted: rgb('muted'),
+          /* Permukaan tambahan */
+          nav: rgb('nav'),
+          topbar2: rgb('topbar2'),
+          cmd: rgb('cmd'),
+          toolbar: rgb('toolbar'),
+          titlebar: rgb('titlebar'),
+          field: rgb('field'),
+          fielddis: rgb('fielddis'),
+          btn: rgb('btn'),
+          btnhover: rgb('btnhover'),
+          btnactive: rgb('btnactive'),
+          neutralbg: rgb('neutralbg'),
+          neutralborder: rgb('neutralborder'),
+          hover: 'var(--sap-hover)',
+          /* Semantic tones (badge / message) */
+          oktext: rgb('oktext'),
+          okbg: rgb('okbg'),
+          okborder: rgb('okborder'),
+          errtext: rgb('errtext'),
+          errbg: rgb('errbg'),
+          errborder: rgb('errborder'),
+          warntext: rgb('warntext'),
+          warnbg: rgb('warnbg'),
+          warnborder: rgb('warnborder'),
+          infotext: rgb('infotext'),
+          infobg: rgb('infobg'),
+          infoborder: rgb('infoborder'),
+          /* Danger button */
+          dangerbg: rgb('dangerbtn-bg'),
+          dangerborder: rgb('dangerbtn-border'),
+          dangertext: rgb('dangerbtn-text'),
+          dangerhover: rgb('dangerbtn-hover'),
           /* Message semantics */
-          success: '#3FA45B',
-          error: '#E5484D',
-          warning: '#E9A23B',
-          info: '#367BF5',
+          success: rgb('success'),
+          error: rgb('error'),
+          warning: rgb('warning'),
+          info: rgb('blue'),
         },
       },
       fontFamily: {
@@ -49,7 +89,7 @@ const config: Config = {
         '2xs': ['11px', '15px'],
       },
       boxShadow: {
-        sap: '0 2px 10px rgba(0,0,0,0.45)',
+        sap: 'var(--sap-shadow)',
       },
     },
   },

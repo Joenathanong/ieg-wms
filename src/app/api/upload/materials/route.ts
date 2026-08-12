@@ -44,13 +44,22 @@ export async function POST(req: NextRequest) {
         const rawBatch = cleanStr(r.is_batch_managed ?? r.IS_BATCH_MANAGED).toUpperCase();
         const is_batch_managed = rawBatch === '' ? true : !['FALSE', 'N', 'NO', '0', 'X-NO'].includes(rawBatch);
         const min_safety_stock = r.min_safety_stock ? toInt(r.min_safety_stock, 'min_safety_stock') : 0;
+        const barcode_bpom = cleanStr(r.barcode_bpom ?? r.BARCODE_BPOM).toUpperCase() || null;
+        const barcode_produk = cleanStr(r.barcode_produk ?? r.BARCODE_PRODUK).toUpperCase() || null;
+        const kode_ocs = cleanStr(r.kode_ocs ?? r.KODE_OCS).toUpperCase() || null;
+        const fix_bin = cleanStr(r.fix_bin ?? r.FIX_BIN).toUpperCase() || null;
+
+        if (fix_bin) {
+          const bin = await prisma.storageBin.findUnique({ where: { bin_code: fix_bin } });
+          if (!bin) throw new Error(`Fix bin ${fix_bin} does not exist (upload storage bins first).`);
+        }
 
         const existing = await prisma.material.findUnique({ where: { material_code } });
 
         await prisma.material.upsert({
           where: { material_code },
-          create: { material_code, description, uom, is_batch_managed, min_safety_stock },
-          update: { description, uom, is_batch_managed, min_safety_stock },
+          create: { material_code, description, uom, is_batch_managed, min_safety_stock, barcode_bpom, barcode_produk, kode_ocs, fix_bin },
+          update: { description, uom, is_batch_managed, min_safety_stock, barcode_bpom, barcode_produk, kode_ocs, fix_bin },
         });
 
         results.push({ row: lineNo, key: material_code, status: existing ? 'UPDATED' : 'CREATED' });

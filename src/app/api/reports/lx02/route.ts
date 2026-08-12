@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
         batch_number: q.batch_number ?? '',
         mfg_date: q.mfg_date,
         exp_date: q.exp_date,
+        gr_date: q.gr_date,
         days_to_exp,
         expiry_flag:
           days_to_exp === null ? '' : days_to_exp < 0 ? 'EXPIRED' : days_to_exp <= 30 ? 'CRITICAL' : '',

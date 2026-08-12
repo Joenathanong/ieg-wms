@@ -17,6 +17,7 @@ interface Row {
   batch_number: string;
   mfg_date: string | null;
   exp_date: string | null;
+  gr_date: string | null;
   days_to_exp: number | null;
   expiry_flag: '' | 'EXPIRED' | 'CRITICAL';
   qty: number;
@@ -71,6 +72,13 @@ export default function Lx02Page() {
     { key: 'mfg_date', header: 'Mfg. Date', mono: true, width: '100px', render: (r) => fmtDate(r.mfg_date) },
     { key: 'exp_date', header: 'Exp. Date', mono: true, width: '100px', render: (r) => fmtDate(r.exp_date) },
     {
+      key: 'gr_date',
+      header: 'GR Date',
+      mono: true,
+      width: '100px',
+      render: (r) => fmtDate(r.gr_date) || <span className="text-sap-muted">—</span>,
+    },
+    {
       key: 'days_to_exp',
       header: 'Shelf Life',
       align: 'right',
@@ -79,9 +87,9 @@ export default function Lx02Page() {
         if (r.days_to_exp === null) return <span className="text-sap-muted">—</span>;
         const cls =
           r.expiry_flag === 'EXPIRED'
-            ? 'text-[#FF9CA0] font-semibold'
+            ? 'text-sap-errtext font-semibold'
             : r.expiry_flag === 'CRITICAL'
-              ? 'text-[#F3C77B] font-semibold'
+              ? 'text-sap-warntext font-semibold'
               : 'text-sap-muted';
         return <span className={cls}>{r.days_to_exp} d</span>;
       },
@@ -92,9 +100,9 @@ export default function Lx02Page() {
       width: '95px',
       render: (r) =>
         r.expiry_flag === 'EXPIRED' ? (
-          <span className="sap-badge border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]">EXPIRED</span>
+          <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext">EXPIRED</span>
         ) : r.expiry_flag === 'CRITICAL' ? (
-          <span className="sap-badge border-[#7a5b1e] bg-[#3b2f14] text-[#F3C77B]">≤ 30 D</span>
+          <span className="sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext">≤ 30 D</span>
         ) : (
           <span className="text-sap-muted">—</span>
         ),

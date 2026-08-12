@@ -3,19 +3,141 @@
 @tailwind utilities;
 
 /* =====================================================================
-   SAP GUI 8.0 — Theme "Quartz Dark / Dark Crystal"
+   SAP GUI 8.0 — Dual Theme
+   Dark  : "Quartz Dark / Dark Crystal"  (default)
+   Light : "SAP Morning Horizon" (Fiori Horizon palette)
+
+   Semua warna didefinisikan sebagai CSS variable channel RGB ("R G B")
+   sehingga class Tailwind dengan opacity modifier (mis. bg-sap-blue/15)
+   tetap berfungsi. Tema di-switch lewat atribut html[data-theme].
    ===================================================================== */
 
-:root {
-  --sap-sysbar: #181c24;
-  --sap-bg: #1e232a;
-  --sap-panel: #2a2f3b;
-  --sap-panel-alt: #242934;
-  --sap-shell: #2d323e;
-  --sap-border: #3a4050;
-  --sap-blue: #367bf5;
-  --sap-text: #e2e8f0;
-  --sap-muted: #94a3b8;
+:root,
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  --sap-sysbar-rgb: 24 28 36;      /* #181C24 */
+  --sap-bg-rgb: 30 35 42;          /* #1E232A */
+  --sap-panel-rgb: 42 47 59;       /* #2A2F3B */
+  --sap-panelalt-rgb: 36 41 52;    /* #242934 */
+  --sap-shell-rgb: 45 50 62;       /* #2D323E */
+  --sap-border-rgb: 58 64 80;      /* #3A4050 */
+  --sap-blue-rgb: 54 123 245;      /* #367BF5 */
+  --sap-bluehover-rgb: 43 101 204; /* #2B65CC */
+  --sap-blueactive-rgb: 34 83 159; /* #22539F */
+  --sap-text-rgb: 226 232 240;     /* #E2E8F0 */
+  --sap-muted-rgb: 148 163 184;    /* #94A3B8 */
+
+  --sap-nav-rgb: 32 36 45;         /* #20242D sidebar & footer grid */
+  --sap-topbar2-rgb: 31 36 46;     /* #1F242E baris judul transaksi */
+  --sap-cmd-rgb: 18 22 29;         /* #12161D command field */
+  --sap-toolbar-rgb: 37 42 52;     /* #252A34 */
+  --sap-titlebar-rgb: 50 56 71;    /* #323847 judul panel & thead */
+  --sap-field-rgb: 27 31 39;       /* #1B1F27 input */
+  --sap-fielddis-rgb: 35 39 47;    /* #23272F input disabled */
+  --sap-btn-rgb: 51 56 70;         /* #333846 */
+  --sap-btnhover-rgb: 61 67 83;    /* #3D4353 */
+  --sap-btnactive-rgb: 43 48 64;   /* #2B3040 */
+  --sap-rowodd-rgb: 42 47 59;      /* #2A2F3B */
+  --sap-roweven-rgb: 36 41 52;     /* #242934 */
+  --sap-gridline-rgb: 48 54 68;    /* #303644 */
+
+  --sap-neutralbg-rgb: 44 49 61;   /* #2C313D */
+  --sap-neutralborder-rgb: 63 70 87; /* #3F4657 */
+
+  --sap-oktext-rgb: 143 224 164;   /* #8FE0A4 */
+  --sap-okbg-rgb: 30 58 41;        /* #1E3A29 */
+  --sap-okborder-rgb: 44 92 61;    /* #2C5C3D */
+  --sap-errtext-rgb: 255 156 160;  /* #FF9CA0 */
+  --sap-errbg-rgb: 61 26 28;       /* #3D1A1C */
+  --sap-errborder-rgb: 127 37 41;  /* #7F2529 */
+  --sap-warntext-rgb: 243 199 123; /* #F3C77B */
+  --sap-warnbg-rgb: 59 47 20;      /* #3B2F14 */
+  --sap-warnborder-rgb: 122 91 30; /* #7A5B1E */
+  --sap-infotext-rgb: 157 192 255; /* #9DC0FF */
+  --sap-infobg-rgb: 28 52 80;      /* #1C3450 */
+  --sap-infoborder-rgb: 43 84 128; /* #2B5480 */
+
+  --sap-success-rgb: 63 164 91;    /* #3FA45B */
+  --sap-error-rgb: 229 72 77;      /* #E5484D */
+  --sap-warning-rgb: 233 162 59;   /* #E9A23B */
+
+  --sap-dangerbtn-bg-rgb: 95 28 31;    /* #5F1C1F */
+  --sap-dangerbtn-border-rgb: 127 37 41;
+  --sap-dangerbtn-text-rgb: 255 179 181; /* #FFB3B5 */
+  --sap-dangerbtn-hover-rgb: 122 36 39;  /* #7A2427 */
+
+  --sap-hover: rgba(255, 255, 255, 0.05);
+  --sap-blue-soft: rgba(54, 123, 245, 0.14);
+  --sap-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --sap-scroll-thumb: #4a5164;
+  --sap-scroll-thumb-hover: #5c6478;
+}
+
+/* ---------------------------------------------------------------------
+   LIGHT — SAP Morning Horizon
+   Referensi palet Fiori Horizon: shell putih, latar #F5F6F7,
+   aksen biru #0070F2, teks #1D2D3E, semantic Fiori.
+   --------------------------------------------------------------------- */
+html[data-theme='light'] {
+  color-scheme: light;
+
+  --sap-sysbar-rgb: 255 255 255;   /* #FFFFFF shell bar Morning Horizon */
+  --sap-bg-rgb: 245 246 247;       /* #F5F6F7 */
+  --sap-panel-rgb: 255 255 255;    /* #FFFFFF */
+  --sap-panelalt-rgb: 245 246 247; /* #F5F6F7 */
+  --sap-shell-rgb: 234 236 238;    /* #EAECEE */
+  --sap-border-rgb: 216 220 224;   /* #D8DCE0 */
+  --sap-blue-rgb: 0 112 242;       /* #0070F2 */
+  --sap-bluehover-rgb: 0 100 217;  /* #0064D9 */
+  --sap-blueactive-rgb: 0 87 189;  /* #0057BD */
+  --sap-text-rgb: 29 45 62;        /* #1D2D3E */
+  --sap-muted-rgb: 85 107 130;     /* #556B82 */
+
+  --sap-nav-rgb: 255 255 255;
+  --sap-topbar2-rgb: 240 242 244;  /* #F0F2F4 */
+  --sap-cmd-rgb: 245 246 247;
+  --sap-toolbar-rgb: 255 255 255;
+  --sap-titlebar-rgb: 240 242 244;
+  --sap-field-rgb: 255 255 255;
+  --sap-fielddis-rgb: 240 241 242;
+  --sap-btn-rgb: 255 255 255;
+  --sap-btnhover-rgb: 232 240 251; /* #E8F0FB */
+  --sap-btnactive-rgb: 217 232 250;
+  --sap-rowodd-rgb: 255 255 255;
+  --sap-roweven-rgb: 247 248 250;  /* #F7F8FA */
+  --sap-gridline-rgb: 232 234 236; /* #E8EAEC */
+
+  --sap-neutralbg-rgb: 239 241 243;
+  --sap-neutralborder-rgb: 213 218 223;
+
+  --sap-oktext-rgb: 37 111 58;     /* #256F3A Fiori positive */
+  --sap-okbg-rgb: 235 249 238;
+  --sap-okborder-rgb: 169 220 181;
+  --sap-errtext-rgb: 170 8 8;      /* #AA0808 Fiori negative */
+  --sap-errbg-rgb: 253 235 236;
+  --sap-errborder-rgb: 242 180 183;
+  --sap-warntext-rgb: 178 94 9;    /* #B25E09 */
+  --sap-warnbg-rgb: 253 243 231;
+  --sap-warnborder-rgb: 242 206 158;
+  --sap-infotext-rgb: 15 91 194;   /* #0F5BC2 */
+  --sap-infobg-rgb: 234 243 254;
+  --sap-infoborder-rgb: 168 203 245;
+
+  --sap-success-rgb: 37 111 58;
+  --sap-error-rgb: 210 10 10;
+  --sap-warning-rgb: 231 101 0;    /* #E76500 Fiori critical */
+
+  --sap-dangerbtn-bg-rgb: 253 235 236;
+  --sap-dangerbtn-border-rgb: 231 169 172;
+  --sap-dangerbtn-text-rgb: 192 38 44;
+  --sap-dangerbtn-hover-rgb: 249 220 221;
+
+  --sap-hover: rgba(29, 45, 62, 0.05);
+  --sap-blue-soft: rgba(0, 112, 242, 0.1);
+  --sap-shadow: 0 2px 10px rgba(29, 45, 62, 0.14);
+  --sap-scroll-thumb: #c4cbd2;
+  --sap-scroll-thumb-hover: #aeb7c0;
 }
 
 @layer base {
@@ -25,8 +147,8 @@
   }
 
   body {
-    background-color: var(--sap-bg);
-    color: var(--sap-text);
+    background-color: rgb(var(--sap-bg-rgb));
+    color: rgb(var(--sap-text-rgb));
     font-family: 'Segoe UI', '72', Arial, sans-serif;
     font-size: 12px;
     -webkit-font-smoothing: antialiased;
@@ -35,7 +157,7 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #4a5164 var(--sap-panel-alt);
+    scrollbar-color: var(--sap-scroll-thumb) rgb(var(--sap-panelalt-rgb));
   }
 
   ::-webkit-scrollbar {
@@ -43,21 +165,15 @@
     height: 10px;
   }
   ::-webkit-scrollbar-track {
-    background: var(--sap-panel-alt);
+    background: rgb(var(--sap-panelalt-rgb));
   }
   ::-webkit-scrollbar-thumb {
-    background: #4a5164;
-    border: 2px solid var(--sap-panel-alt);
+    background: var(--sap-scroll-thumb);
+    border: 2px solid rgb(var(--sap-panelalt-rgb));
     border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #5c6478;
-  }
-
-  input,
-  select,
-  textarea {
-    color-scheme: dark;
+    background: var(--sap-scroll-thumb-hover);
   }
 
   /* Hilangkan spinner number input agar mirip field SAP */
@@ -74,39 +190,39 @@
 @layer components {
   /* ---------- FIELD ---------- */
   .sap-field {
-    @apply w-full bg-[#1b1f27] border border-sap-border text-sap-text text-2xs px-2 py-[5px]
+    @apply w-full bg-sap-field border border-sap-border text-sap-text text-2xs px-2 py-[5px]
            outline-none rounded-[2px] font-mono transition-colors;
   }
   .sap-field:focus {
     @apply border-sap-blue;
-    box-shadow: 0 0 0 1px rgba(54, 123, 245, 0.55);
+    box-shadow: 0 0 0 1px rgb(var(--sap-blue-rgb) / 0.55);
   }
   .sap-field:disabled {
-    @apply bg-[#23272f] text-sap-muted cursor-not-allowed;
+    @apply bg-sap-fielddis text-sap-muted cursor-not-allowed;
   }
   .sap-field-label {
     @apply block text-2xs text-sap-muted mb-1 tracking-wide;
   }
   .sap-required::after {
     content: ' *';
-    color: #e5484d;
+    color: rgb(var(--sap-error-rgb));
   }
 
   /* ---------- BUTTON ---------- */
   .sap-btn {
     @apply inline-flex items-center gap-1.5 px-3 py-[5px] text-2xs rounded-[2px]
-           border border-sap-border bg-[#333846] text-sap-text
-           hover:bg-[#3d4353] active:bg-[#2b3040] transition-colors
+           border border-sap-border bg-sap-btn text-sap-text
+           hover:bg-sap-btnhover active:bg-sap-btnactive transition-colors
            disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap;
   }
   .sap-btn-primary {
-    @apply border-sap-blue bg-sap-blue text-white hover:bg-sap-bluehover active:bg-[#22539f];
+    @apply border-sap-blue bg-sap-blue text-white hover:bg-sap-bluehover active:bg-sap-blueactive;
   }
   .sap-btn-danger {
-    @apply border-[#7f2529] bg-[#5f1c1f] text-[#ffb3b5] hover:bg-[#7a2427];
+    @apply border-sap-dangerborder bg-sap-dangerbg text-sap-dangertext hover:bg-sap-dangerhover;
   }
   .sap-btn-ghost {
-    @apply bg-transparent border-transparent hover:bg-[#333846];
+    @apply bg-transparent border-transparent hover:bg-sap-btnhover;
   }
 
   /* ---------- PANEL ---------- */
@@ -115,7 +231,7 @@
   }
   .sap-panel-title {
     @apply flex items-center gap-2 px-3 py-2 text-2xs font-semibold tracking-wide
-           uppercase text-sap-text bg-[#323847] border-b border-sap-border rounded-t-[3px];
+           uppercase text-sap-text bg-sap-titlebar border-b border-sap-border rounded-t-[3px];
   }
 
   /* ---------- GRID TABLE (ALV) ---------- */
@@ -123,25 +239,25 @@
     @apply w-full border-collapse text-2xs;
   }
   .sap-grid thead th {
-    @apply sticky top-0 z-10 bg-[#333846] text-sap-muted font-semibold uppercase tracking-wide
+    @apply sticky top-0 z-10 bg-sap-titlebar text-sap-muted font-semibold uppercase tracking-wide
            text-left px-2 py-[6px] border-b border-sap-border border-r last:border-r-0
            whitespace-nowrap;
-    border-right-color: var(--sap-border);
+    border-right-color: rgb(var(--sap-border-rgb));
   }
   .sap-grid tbody td {
     @apply px-2 py-[3px] border-b border-r last:border-r-0 whitespace-nowrap align-middle;
-    border-color: #30364400;
-    border-bottom-color: #303644;
-    border-right-color: #303644;
+    border-color: transparent;
+    border-bottom-color: rgb(var(--sap-gridline-rgb));
+    border-right-color: rgb(var(--sap-gridline-rgb));
   }
   .sap-grid tbody tr:nth-child(odd) {
-    background-color: #2a2f3b;
+    background-color: rgb(var(--sap-rowodd-rgb));
   }
   .sap-grid tbody tr:nth-child(even) {
-    background-color: #242934;
+    background-color: rgb(var(--sap-roweven-rgb));
   }
   .sap-grid tbody tr:hover {
-    background-color: rgba(54, 123, 245, 0.16);
+    background-color: rgb(var(--sap-blue-rgb) / 0.16);
   }
   .sap-num {
     @apply font-mono text-right tabular-nums;

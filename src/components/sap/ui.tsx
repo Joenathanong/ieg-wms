@@ -112,16 +112,16 @@ export function Button({
 /* ------------------------------------------------------------------ */
 
 const BADGE: Record<string, string> = {
-  EMPTY: 'border-[#3f4657] bg-[#2c313d] text-sap-muted',
-  OCCUPIED: 'border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]',
-  BLOCKED: 'border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]',
-  CREATED: 'border-[#3f4657] bg-[#2c313d] text-sap-muted',
-  FROZEN: 'border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]',
-  COUNTED: 'border-[#7a5b1e] bg-[#3b2f14] text-[#F3C77B]',
-  POSTED: 'border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]',
-  ADMIN: 'border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]',
-  OPERATOR: 'border-[#3f4657] bg-[#2c313d] text-sap-muted',
-  VIEWER: 'border-[#3f4657] bg-[#2c313d] text-sap-muted',
+  EMPTY: 'border-sap-neutralborder bg-sap-neutralbg text-sap-muted',
+  OCCUPIED: 'border-sap-okborder bg-sap-okbg text-sap-oktext',
+  BLOCKED: 'border-sap-errborder bg-sap-errbg text-sap-errtext',
+  CREATED: 'border-sap-neutralborder bg-sap-neutralbg text-sap-muted',
+  FROZEN: 'border-sap-infoborder bg-sap-infobg text-sap-infotext',
+  COUNTED: 'border-sap-warnborder bg-sap-warnbg text-sap-warntext',
+  POSTED: 'border-sap-okborder bg-sap-okbg text-sap-oktext',
+  ADMIN: 'border-sap-infoborder bg-sap-infobg text-sap-infotext',
+  OPERATOR: 'border-sap-neutralborder bg-sap-neutralbg text-sap-muted',
+  VIEWER: 'border-sap-neutralborder bg-sap-neutralbg text-sap-muted',
 };
 
 export function Badge({ value, className = '' }: { value: string; className?: string }) {
@@ -218,7 +218,7 @@ export function Grid<T extends Record<string, any>>({
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-between px-2.5 py-1.5 border-t border-sap-border bg-[#20242d] text-xxs text-sap-muted font-mono">
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-t border-sap-border bg-sap-nav text-xxs text-sap-muted font-mono">
         <span>{loading ? '...' : `${rows.length} entries`}</span>
         {footer}
       </div>
@@ -233,7 +233,7 @@ export function Grid<T extends Record<string, any>>({
 export function Toolbar({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
     <div
-      className={`flex flex-wrap items-center gap-1.5 px-2 py-1.5 bg-[#252a34] border border-sap-border
+      className={`flex flex-wrap items-center gap-1.5 px-2 py-1.5 bg-sap-toolbar border border-sap-border
                   rounded-[3px] ${className}`}
     >
       {children}

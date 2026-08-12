@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { PackagePlus, PackageMinus, PackageCheck, ArrowLeftRight, ClipboardList, Search, Smartphone, Lock } from 'lucide-react';
+import { PackagePlus, PackageMinus, PackageCheck, ArrowLeftRight, ClipboardList, Search, Smartphone, Lock, Layers } from 'lucide-react';
 import prisma from '@/lib/prisma';
+import { getSession } from '@/lib/auth';
 import { getSettings, PDT_MODULE_SETTING } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,7 @@ const MENU = [
   { code: 'ZRF02', label: 'Put-away', desc: 'Simpan dari GR zone ke rak', href: '/zrf/putaway', Icon: PackageCheck },
   { code: 'ZRF03', label: 'Picking', desc: 'Ambil dari rak untuk pengeluaran', href: '/zrf/pick', Icon: PackageCheck },
   { code: 'ZRF04', label: 'Bin Transfer', desc: 'Pindah antar rak (301)', href: '/zrf/transfer', Icon: ArrowLeftRight },
+  { code: 'ZRF08', label: 'Replenishment', desc: 'Isi ulang fix bin — list FEFO (301)', href: '/zrf/replenish', Icon: Layers },
   { code: 'ZRF05', label: 'Stock Count', desc: 'Input hasil stock opname', href: '/zrf/count', Icon: ClipboardList },
   { code: 'ZRF07', label: 'Goods Issue', desc: 'Keluarkan barang dari transit-out (201)', href: '/zrf/gi', Icon: PackageMinus },
   { code: 'ZRF06', label: 'Inquiry', desc: 'Cek isi rak / lokasi material', href: '/zrf/inquiry', Icon: Search },
@@ -39,6 +41,16 @@ async function loadCounts() {
 export default async function ZrfMenu() {
   const counts = await loadCounts();
   const settings = await loadSettings();
+  const session = await getSession();
+
+  // pembatasan per user dari role otorisasi (PFCG):
+  // hanya T-Code ZRF yang tercantum di role yang ditampilkan.
+  const menu = MENU.filter(
+    (m) =>
+      !session?.tcodes ||
+      session.role === 'ADMIN' ||
+      session.tcodes.includes(m.code)
+  );
 
   const isOn = (code: string) => {
     if (!settings) return true;
@@ -66,7 +78,7 @@ export default async function ZrfMenu() {
       </div>
 
       <div className="grid grid-cols-1 gap-2">
-        {MENU.map((m) => {
+        {menu.map((m) => {
           const n = badge(m.code);
           const on = isOn(m.code);
 
@@ -74,7 +86,7 @@ export default async function ZrfMenu() {
             <>
               <div
                 className={`w-10 h-10 rounded-[3px] flex items-center justify-center shrink-0 border
-                  ${on ? 'bg-sap-blue/15 border-sap-blue/40' : 'bg-[#2c313d] border-sap-border'}`}
+                  ${on ? 'bg-sap-blue/15 border-sap-blue/40' : 'bg-sap-neutralbg border-sap-border'}`}
               >
                 <m.Icon size={19} className={on ? 'text-sap-blue' : 'text-sap-muted'} />
               </div>
@@ -86,7 +98,7 @@ export default async function ZrfMenu() {
                 <p className="text-xxs text-sap-muted truncate">{on ? m.desc : 'Dinonaktifkan administrator (ZSET)'}</p>
               </div>
               {on && n !== null && (
-                <span className="shrink-0 min-w-[26px] text-center px-2 py-1 rounded-full bg-[#F3C77B]/20 border border-[#7a5b1e] text-[#F3C77B] text-2xs font-mono font-bold">
+                <span className="shrink-0 min-w-[26px] text-center px-2 py-1 rounded-full bg-sap-warntext/20 border border-sap-warnborder text-sap-warntext text-2xs font-mono font-bold">
                   {n}
                 </span>
               )}

@@ -77,7 +77,7 @@ export default function Ls04Page() {
           <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer h-[27px]">
             <input
               type="checkbox"
-              className="accent-[#367BF5]"
+              className="accent-sap-blue"
               checked={includeBlocked}
               onChange={(e) => setIncludeBlocked(e.target.checked)}
             />

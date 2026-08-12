@@ -5,6 +5,7 @@ import { PackagePlus, Save, RotateCcw } from 'lucide-react';
 import { PdtScreen, PdtInput, PdtButton, PdtRow, PdtMessage } from '@/components/pdt/ui';
 import { useMasterData } from '@/components/sap/hooks';
 import { post } from '@/lib/client';
+import { resolveScan } from '@/lib/barcode';
 
 export default function ZrfGrPage() {
   const { materials } = useMasterData();
@@ -21,6 +22,21 @@ export default function ZrfGrPage() {
   const mat = materials.find((m) => m.material_code === material.trim().toUpperCase());
   const pack = mat?.packagings?.find((p) => p.is_default) ?? mat?.packagings?.[0];
   const splitLines = pack && Number(qty) > 0 ? Math.ceil(Number(qty) / pack.qty_per_unit) : 0;
+
+  /**
+   * Handle hasil scan barcode pada field material:
+   * - "MAT;BATCH;..." -> material + batch langsung terisi
+   * - EAN polos      -> lookup barcode B-POM / produk di master data
+   */
+  async function handleMaterialScan() {
+    const raw = material.trim();
+    if (!raw) return;
+    const rs = await resolveScan(raw);
+    if (!rs.ok) return setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
+    setMaterial(rs.material_code);
+    if (rs.batch_number) setBatch(rs.batch_number);
+    if (rs.message) setMsg({ text: rs.message, type: 'S' });
+  }
 
   function reset() {
     setMaterial('');
@@ -80,9 +96,14 @@ export default function ZrfGrPage() {
         autoFocus
         value={material}
         onChange={(e) => setMaterial(e.target.value.toUpperCase())}
+        onKeyDown={(e) => e.key === 'Enter' && handleMaterialScan()}
+        onBlur={() => {
+          if (material.includes(';') || /^\d{8,14}$/.test(material.trim())) handleMaterialScan();
+        }}
+        hint="mendukung barcode ; (material;batch;...) dan EAN B-POM / produk"
       />
       {mat && (
-        <div className="rounded-[3px] border border-sap-border bg-[#242934] px-3 py-2">
+        <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
           <PdtRow label="Deskripsi" value={mat.description} />
           <PdtRow label="UoM" value={mat.uom} />
           <PdtRow label="Batch" value={mat.is_batch_managed ? 'WAJIB' : 'tidak dipakai'} />

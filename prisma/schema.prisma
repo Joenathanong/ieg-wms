@@ -36,6 +36,13 @@ enum MovementType {
   INIT_561     @map("561_INIT_STOCK")
   ADJ_701_PLUS @map("701_ADJ_PLUS")
   ADJ_702_MIN  @map("702_ADJ_MIN")
+  /// Movement pembatalan (reversal). Selalu menunjuk dokumen asal via MigoLog.reversal_of
+  GR_102_CANC  @map("102_GR_CANCEL")
+  GI_202_CANC  @map("202_GI_CANCEL")
+  ADJ_552_CANC @map("552_ADJ_CANCEL")
+  INIT_562_CANC @map("562_INIT_CANCEL")
+  PI_711_CANC  @map("711_PI_CANCEL_MIN")
+  PI_712_CANC  @map("712_PI_CANCEL_PLUS")
 }
 
 enum UserRole {
@@ -76,12 +83,23 @@ model Material {
   uom              String   @default("PC")
   is_batch_managed Boolean  @default(true)
   min_safety_stock Int      @default(0)
+  /// Barcode B-POM (registrasi BPOM) — dipakai lookup scan PDT
+  barcode_bpom     String?
+  /// Barcode produk (EAN/UPC kemasan) — dipakai lookup scan PDT
+  barcode_produk   String?
+  /// Kode OCS — identifier panjang, mis. GIMMICK-HANASUI-EYEMAZING-EYESHADOW-PALETTE-SUNSET
+  kode_ocs         String?
+  /// Fix bin — bin picking tetap material ini; saran tujuan replenishment ZRF08
+  fix_bin          String?
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
   packagings PackagingType[]
 
   @@index([description])
+  @@index([barcode_bpom])
+  @@index([barcode_produk])
+  @@index([kode_ocs])
   @@map("materials")
 }
 
@@ -153,6 +171,8 @@ model StockWM {
   batch_number  String?
   mfg_date      DateTime?
   exp_date      DateTime?
+  /// tanggal goods receipt quant ini (diisi saat 101/561, ikut terbawa saat transfer 301)
+  gr_date       DateTime?
   qty           Int       @default(0)
   updated_at    DateTime  @updatedAt
 
@@ -187,12 +207,17 @@ model MigoLog {
   user_id         String
   /// true bila diposting lewat terminal PDT (ZRF)
   via_pdt         Boolean      @default(false)
+  /// nomor dokumen ASAL yang dibatalkan oleh dokumen ini (khusus movement pembatalan)
+  reversal_of     String?
+  /// nomor dokumen PEMBATALAN — diisi pada dokumen asal saat dibatalkan
+  reversed_by     String?
 
   @@index([material_code])
   @@index([movement_type])
   @@index([doc_date])
   @@index([created_at])
   @@index([tr_number])
+  @@index([reversal_of])
   @@map("migo_logs")
 }
 
@@ -307,6 +332,22 @@ model PhysInvDocItem {
 // USER MANAGEMENT (SU01) & SYSTEM SETTINGS (ZSET)
 // ---------------------------------------------------------------------
 
+/// Role otorisasi T-Code (ala PFCG). Berisi daftar T-Code yang boleh dibuka.
+/// User tanpa role = akses penuh sesuai role dasar (ADMIN/OPERATOR/VIEWER).
+model AuthRole {
+  id          String   @id @default(uuid())
+  role_name   String   @unique
+  description String   @default("")
+  /// daftar T-Code yang diizinkan, mis. ["MIGO","MB51","ZRF04","ZRF08"]
+  tcodes      String[] @default([])
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  users User[]
+
+  @@map("auth_roles")
+}
+
 model User {
   id            String    @id @default(uuid())
   username      String    @unique
@@ -316,10 +357,14 @@ model User {
   is_active     Boolean   @default(true)
   /// izin membuka T-Code terminal PDT (ZRF*) — diatur admin di SU01
   pdt_enabled   Boolean   @default(false)
+  /// role otorisasi T-Code (PFCG). null = tidak dibatasi (full sesuai role dasar)
+  auth_role_id  String?
+  auth_role     AuthRole? @relation(fields: [auth_role_id], references: [id], onDelete: SetNull)
   last_login    DateTime?
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
 
+  @@index([auth_role_id])
   @@map("users")
 }
 

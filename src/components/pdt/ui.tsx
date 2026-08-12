@@ -26,7 +26,7 @@ export function PdtScreen({
   return (
     <div className="mx-auto w-full max-w-[520px]">
       <div className="sap-panel overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-[#323847] border-b border-sap-border">
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-sap-titlebar border-b border-sap-border">
           <Link href={back} className="text-sap-muted hover:text-sap-blue p-1 -ml-1">
             <ChevronLeft size={18} />
           </Link>
@@ -35,7 +35,7 @@ export function PdtScreen({
           <span className="text-sm font-semibold truncate">{title}</span>
         </div>
         <div className="p-3 space-y-3">{children}</div>
-        {footer && <div className="px-3 py-2 border-t border-sap-border bg-[#20242d]">{footer}</div>}
+        {footer && <div className="px-3 py-2 border-t border-sap-border bg-sap-nav">{footer}</div>}
       </div>
     </div>
   );
@@ -53,7 +53,7 @@ export const PdtInput = React.forwardRef<
         spellCheck={false}
         autoComplete="off"
         autoCapitalize="characters"
-        className={`w-full bg-[#12161d] border-2 border-sap-border focus:border-sap-blue outline-none
+        className={`w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
                     rounded-[3px] px-3 py-2.5 text-base font-mono text-sap-text
                     disabled:opacity-50 ${className}`}
         {...rest}
@@ -77,8 +77,8 @@ export function PdtButton({
     variant === 'primary'
       ? 'bg-sap-blue border-sap-blue text-white hover:bg-sap-bluehover'
       : variant === 'danger'
-        ? 'bg-[#5f1c1f] border-[#7f2529] text-[#ffb3b5] hover:bg-[#7a2427]'
-        : 'bg-[#333846] border-sap-border text-sap-text hover:bg-[#3d4353]';
+        ? 'bg-sap-dangerbg border-sap-dangerborder text-sap-dangertext hover:bg-sap-dangerhover'
+        : 'bg-sap-btn border-sap-border text-sap-text hover:bg-sap-btnhover';
   return (
     <button
       className={`w-full flex items-center justify-center gap-2 px-3 py-3 rounded-[3px] border-2
@@ -105,11 +105,11 @@ export function PdtRow({ label, value, accent }: { label: string; value: React.R
 export function PdtMessage({ text, type }: { text: string; type: 'S' | 'E' | 'W' | 'I' }) {
   const style =
     type === 'S'
-      ? 'border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]'
+      ? 'border-sap-okborder bg-sap-okbg text-sap-oktext'
       : type === 'E'
-        ? 'border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]'
+        ? 'border-sap-errborder bg-sap-errbg text-sap-errtext'
         : type === 'W'
-          ? 'border-[#7a5b1e] bg-[#3b2f14] text-[#F3C77B]'
-          : 'border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]';
+          ? 'border-sap-warnborder bg-sap-warnbg text-sap-warntext'
+          : 'border-sap-infoborder bg-sap-infobg text-sap-infotext';
   return <div className={`rounded-[3px] border px-3 py-2 text-2xs leading-relaxed ${style}`}>{text}</div>;
 }

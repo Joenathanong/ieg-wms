@@ -35,7 +35,8 @@ END $$;
 DO $$
 DECLARE v text;
 BEGIN
-  FOREACH v IN ARRAY ARRAY['101_GR','201_GI','301_TR_BIN','551_ADJ_MIN','561_INIT_STOCK','701_ADJ_PLUS','702_ADJ_MIN']
+  FOREACH v IN ARRAY ARRAY['101_GR','201_GI','301_TR_BIN','551_ADJ_MIN','561_INIT_STOCK','701_ADJ_PLUS','702_ADJ_MIN',
+                           '102_GR_CANCEL','202_GI_CANCEL','552_ADJ_CANCEL','562_INIT_CANCEL','711_PI_CANCEL_MIN','712_PI_CANCEL_PLUS']
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
@@ -62,6 +63,18 @@ CREATE TABLE IF NOT EXISTS "materials" (
 
 -- >>>
 ALTER TABLE "materials" ADD COLUMN IF NOT EXISTS "min_safety_stock" INTEGER NOT NULL DEFAULT 0;
+
+-- >>>
+ALTER TABLE "materials" ADD COLUMN IF NOT EXISTS "barcode_bpom" TEXT;
+
+-- >>>
+ALTER TABLE "materials" ADD COLUMN IF NOT EXISTS "barcode_produk" TEXT;
+
+-- >>>
+ALTER TABLE "materials" ADD COLUMN IF NOT EXISTS "kode_ocs" TEXT;
+
+-- >>>
+ALTER TABLE "materials" ADD COLUMN IF NOT EXISTS "fix_bin" TEXT;
 
 -- >>>
 -- ---------- TABEL: packaging_types (palletization) ----------
@@ -137,6 +150,9 @@ CREATE TABLE IF NOT EXISTS "stock_wm" (
 ALTER TABLE "stock_wm" ADD COLUMN IF NOT EXISTS "mfg_date" TIMESTAMP(3);
 
 -- >>>
+ALTER TABLE "stock_wm" ADD COLUMN IF NOT EXISTS "gr_date" TIMESTAMP(3);
+
+-- >>>
 -- ---------- TABEL: migo_logs ----------
 CREATE TABLE IF NOT EXISTS "migo_logs" (
   "id" TEXT NOT NULL,
@@ -169,6 +185,27 @@ ALTER TABLE "migo_logs" ADD COLUMN IF NOT EXISTS "doc_date" TIMESTAMP(3) NOT NUL
 
 -- >>>
 ALTER TABLE "migo_logs" ADD COLUMN IF NOT EXISTS "uom" TEXT NOT NULL DEFAULT 'PC';
+
+-- >>>
+ALTER TABLE "migo_logs" ADD COLUMN IF NOT EXISTS "reversal_of" TEXT;
+
+-- >>>
+ALTER TABLE "migo_logs" ADD COLUMN IF NOT EXISTS "reversed_by" TEXT;
+
+-- >>>
+-- Backfill stock_wm.gr_date quant lama (best effort): tanggal dokumen 101/561
+-- pertama untuk kombinasi material + batch yang sama.
+UPDATE "stock_wm" w
+   SET "gr_date" = sub.first_gr
+  FROM (
+    SELECT "material_code", "batch_number", MIN("doc_date") AS first_gr
+      FROM "migo_logs"
+     WHERE "movement_type" IN ('101_GR','561_INIT_STOCK')
+     GROUP BY "material_code", "batch_number"
+  ) sub
+ WHERE w."gr_date" IS NULL
+   AND w."material_code" = sub."material_code"
+   AND (w."batch_number" IS NOT DISTINCT FROM sub."batch_number");
 
 -- >>>
 -- ---------- TABEL: document_counters ----------
@@ -298,6 +335,21 @@ CREATE TABLE IF NOT EXISTS "users" (
 );
 
 -- >>>
+-- ---------- TABEL: auth_roles (role otorisasi T-Code ala PFCG) ----------
+CREATE TABLE IF NOT EXISTS "auth_roles" (
+  "id" TEXT NOT NULL,
+  "role_name" TEXT NOT NULL,
+  "description" TEXT NOT NULL DEFAULT '',
+  "tcodes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "auth_roles_pkey" PRIMARY KEY ("id")
+);
+
+-- >>>
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "auth_role_id" TEXT;
+
+-- >>>
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pdt_enabled" BOOLEAN NOT NULL DEFAULT false;
 
 -- >>>
@@ -391,6 +443,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS "phys_inv_docs_doc_number_key" ON "phys_inv_do
 CREATE INDEX IF NOT EXISTS "phys_inv_doc_items_doc_id_idx" ON "phys_inv_doc_items"("doc_id");
 -- >>>
 CREATE UNIQUE INDEX IF NOT EXISTS "users_username_key" ON "users"("username");
+-- >>>
+CREATE UNIQUE INDEX IF NOT EXISTS "auth_roles_role_name_key" ON "auth_roles"("role_name");
+-- >>>
+CREATE INDEX IF NOT EXISTS "users_auth_role_id_idx" ON "users"("auth_role_id");
+-- >>>
+CREATE INDEX IF NOT EXISTS "materials_barcode_bpom_idx" ON "materials"("barcode_bpom");
+-- >>>
+CREATE INDEX IF NOT EXISTS "materials_barcode_produk_idx" ON "materials"("barcode_produk");
+-- >>>
+CREATE INDEX IF NOT EXISTS "materials_kode_ocs_idx" ON "materials"("kode_ocs");
+-- >>>
+CREATE INDEX IF NOT EXISTS "migo_logs_reversal_of_idx" ON "migo_logs"("reversal_of");
 
 -- >>>
 -- ---------- FOREIGN KEY ----------
@@ -410,6 +474,11 @@ DO $$ BEGIN
       ADD CONSTRAINT "phys_inv_doc_items_doc_id_fkey"
       FOREIGN KEY ("doc_id") REFERENCES "phys_inv_docs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_auth_role_id_fkey') THEN
+    ALTER TABLE "users"
+      ADD CONSTRAINT "users_auth_role_id_fkey"
+      FOREIGN KEY ("auth_role_id") REFERENCES "auth_roles"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
 END $$;
 
 -- >>>
@@ -423,6 +492,7 @@ SELECT k.key, k.val, 'UPGRADE', CURRENT_TIMESTAMP
     ('DEFAULT_GR_BIN','TRN-IN-01'),
     ('DEFAULT_GI_BIN','TRN-OUT-01'),
     ('PDT_ZRF01','1'),('PDT_ZRF02','1'),('PDT_ZRF03','1'),
-    ('PDT_ZRF04','1'),('PDT_ZRF05','1'),('PDT_ZRF06','1'),('PDT_ZRF07','1')
+    ('PDT_ZRF04','1'),('PDT_ZRF05','1'),('PDT_ZRF06','1'),('PDT_ZRF07','1'),
+    ('PDT_ZRF08','1')
   ) AS k(key,val)
  WHERE NOT EXISTS (SELECT 1 FROM "system_settings" s WHERE s."key" = k.key);

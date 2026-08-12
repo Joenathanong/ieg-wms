@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
+import { pathAllowed } from '@/lib/tcodes';
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/health'];
-const ADMIN_PATHS = ['/su01', '/zset'];
+const ADMIN_PATHS = ['/su01', '/zset', '/pfcg'];
 const PDT_PATHS = ['/zrf'];
 
 export async function middleware(req: NextRequest) {
@@ -48,6 +49,13 @@ export async function middleware(req: NextRequest) {
 
   if (PDT_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/')) && !session.pdt) {
     return deny('PDT terminal is not enabled for this user. Contact your administrator (SU01).');
+  }
+
+  // Pembatasan T-Code per user via role otorisasi (PFCG).
+  // Hanya berlaku untuk halaman transaksi (bukan /api) — API tetap dijaga
+  // oleh role dasar (ADMIN/OPERATOR/VIEWER) di masing-masing route.
+  if (!pathname.startsWith('/api/') && !pathAllowed(pathname, session.role, session.pdt, session.tcodes)) {
+    return deny('No authorization for this transaction (S_TCODE). Contact your administrator (PFCG/SU01).');
   }
 
   return NextResponse.next();

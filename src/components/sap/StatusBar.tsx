@@ -42,10 +42,10 @@ export function StatusProvider({ children }: { children: React.ReactNode }) {
 }
 
 const STYLE: Record<MsgType, { color: string; bg: string; Icon: typeof Info }> = {
-  S: { color: '#8FE0A4', bg: 'rgba(63,164,91,0.14)', Icon: CheckCircle2 },
-  E: { color: '#FF9CA0', bg: 'rgba(229,72,77,0.16)', Icon: XCircle },
-  W: { color: '#F3C77B', bg: 'rgba(233,162,59,0.14)', Icon: AlertTriangle },
-  I: { color: '#9DC0FF', bg: 'rgba(54,123,245,0.14)', Icon: Info },
+  S: { color: 'rgb(var(--sap-oktext-rgb))', bg: 'rgb(var(--sap-success-rgb) / 0.14)', Icon: CheckCircle2 },
+  E: { color: 'rgb(var(--sap-errtext-rgb))', bg: 'rgb(var(--sap-error-rgb) / 0.16)', Icon: XCircle },
+  W: { color: 'rgb(var(--sap-warntext-rgb))', bg: 'rgb(var(--sap-warning-rgb) / 0.14)', Icon: AlertTriangle },
+  I: { color: 'rgb(var(--sap-infotext-rgb))', bg: 'rgb(var(--sap-blue-rgb) / 0.14)', Icon: Info },
 };
 
 /** Status Bar khas SAP di baris paling bawah layar. */
