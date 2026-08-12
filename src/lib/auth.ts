@@ -18,7 +18,10 @@ export async function getSession(): Promise<SessionPayload | null> {
 }
 
 export class HttpError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string
+  ) {
     super(message);
   }
 }
@@ -38,5 +41,17 @@ export async function requireAdmin(): Promise<SessionPayload> {
 export async function requireWrite(): Promise<SessionPayload> {
   const s = await requireUser();
   if (s.role === 'VIEWER') throw new HttpError(403, 'Display-only user. Posting not allowed.');
+  return s;
+}
+
+/**
+ * Untuk endpoint terminal PDT (ZRF).
+ * Butuh flag pdt pada session — flag itu sudah menggabungkan izin per user
+ * (users.pdt_enabled) dan master switch sistem (ZSET / PDT_ENABLED).
+ */
+export async function requirePdt(): Promise<SessionPayload> {
+  const s = await requireWrite();
+  if (!s.pdt)
+    throw new HttpError(403, 'PDT terminal is not enabled for this user. Contact your administrator (SU01).');
   return s;
 }

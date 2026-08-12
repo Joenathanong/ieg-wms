@@ -20,209 +20,373 @@ Siap deploy gratis di **Vercel** (Serverless Next.js) + **Neon.tech / Supabase**
 
 > **Catatan keamanan dependensi.** `npm audit` = **0 vulnerabilities**.
 > Next.js dinaikkan ke 16.x karena Next 15.1.6 terkena **CVE-2025-66478 / React2Shell**
-> (RCE, CVSS 10.0) — Vercel menolak deployment dengan versi tersebut.
-> SheetJS diambil dari **CDN resmi SheetJS** (`cdn.sheetjs.com`), bukan npm registry,
-> karena versi npm (0.18.5) sudah tidak di-maintain dan punya 2 advisory terbuka.
-> Kalau CDN tidak bisa diakses dari jaringan Anda, ganti baris `xlsx` di `package.json`
-> menjadi `"xlsx": "^0.18.5"` — fungsional sama, tapi `npm audit` akan kembali menandai 2 high.
+> (RCE, CVSS 10.0). SheetJS diambil dari **CDN resmi SheetJS** (`cdn.sheetjs.com`), bukan npm registry,
+> karena versi npm (0.18.5) sudah tidak di-maintain. Kalau CDN tidak bisa diakses dari jaringan Anda,
+> ganti baris `xlsx` di `package.json` menjadi `"xlsx": "^0.18.5"`.
 
 ---
 
-## 2. Instalasi Lokal
+## 2. Konsep Inti — Pemisahan Level IM dan WM (2-step)
+
+Ini perbedaan terbesar dibanding WMS sederhana: **MIGO tidak pernah menyentuh rak.**
+
+```
+INBOUND
+  MIGO 101 ──► IM +qty, WM +qty di bin interim TRANSIT-IN
+           └─► Transfer Requirement PUTAWAY (sudah dipecah per pallet)
+  LB10 ─────► antrean pekerjaan gudang
+  LB12 ─────► operator isi rak tujuan  ──► movement 301  TRANSIT-IN → rak final
+              (atau ZRF02 di perangkat PDT)
+
+OUTBOUND  (3 langkah)
+  1. MIGO 201  mode "Buat permintaan picking"
+               ──► hanya membuat Transfer Requirement PICK. Stok belum berkurang.
+                   Ditolak bila stok masih menunggu put-away di TRANSIT-IN.
+  2. LB12 / ZRF03
+               ──► operator pilih rak asal (saran FEFO) ──► 301  rak → TRANSIT-OUT
+                   Stock IM masih TETAP. Barang sudah siap kirim di GI zone.
+  3. MIGO 201  mode "Post goods issue dari GI zone"
+               ──► IM − dan WM − dari TRANSIT-OUT. Dokumen 201 terbit di sini.
+
+KOREKSI
+  551 / 701 / 702 ──► tetap menunjuk bin langsung (sifatnya penyesuaian)
+```
+
+Konsekuensi praktis: stok tidak bisa "hilang" di antara dokumen dan lantai gudang —
+selalu ada bin interim yang menahannya dan Transfer Requirement yang mencatat siapa
+yang belum menyelesaikan pekerjaan.
+
+---
+
+## 3. Instalasi Lokal
 
 ```bash
 npm install
 
-# salin & isi environment variable
-cp .env.example .env
+cp .env.example .env      # isi kredensial Neon / Supabase
+npx prisma db push        # buat tabel
+npm run db:seed           # data contoh + user + konfigurasi awal
 
-# buat tabel di database
-npx prisma db push
-
-# (opsional) isi data contoh + user ADMIN
-npm run db:seed
-
-npm run dev          # http://localhost:3000
+npm run dev               # http://localhost:3000
 ```
 
-Login pertama: **ADMIN / admin123** (dibuat otomatis saat login pertama jika tabel user masih kosong).
-Segera ubah password lewat transaksi **SU01**.
+User hasil seed:
+
+| User | Password | Role | PDT |
+|---|---|---|---|
+| `ADMIN` | `admin123` | ADMIN | aktif |
+| `WHOPR01` | `operator123` | OPERATOR | aktif |
+| `WHOPR02` | `operator123` | OPERATOR | nonaktif |
+
+Kalau tabel user masih kosong, `ADMIN / admin123` dibuat otomatis saat login pertama.
 
 ### Environment Variable
 
 ```env
-DATABASE_URL="postgresql://user:pass@ep-xxx.neon.tech/wms?sslmode=require"
+DATABASE_URL="postgresql://user:pass@ep-xxx-pooler.neon.tech/wms?sslmode=require"
 DIRECT_URL="postgresql://user:pass@ep-xxx.neon.tech/wms?sslmode=require"
 AUTH_SECRET="random-string-minimal-32-karakter"
 ```
 
-* **Neon.tech** — `DATABASE_URL` pakai host `-pooler`, `DIRECT_URL` pakai host tanpa `-pooler`.
-* **Supabase** — `DATABASE_URL` pakai port `6543` (pooler), `DIRECT_URL` pakai port `5432`.
+* **Neon.tech** — `DATABASE_URL` pakai host `-pooler`, `DIRECT_URL` tanpa `-pooler`.
+* **Supabase** — `DATABASE_URL` port `6543`, `DIRECT_URL` port `5432`.
 
----
+### Deploy ke Vercel
 
-## 3. Deploy ke Vercel
-
-1. Push repo ini ke GitHub.
-2. Di Vercel: **New Project** → pilih repo.
-3. Isi Environment Variables: `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`.
-4. Deploy. Script `build` sudah menjalankan `prisma generate` otomatis.
-5. Jalankan sekali dari komputer lokal (dengan `.env` produksi): `npx prisma db push`.
-
-Semua API route sudah `dynamic = 'force-dynamic'` dan memakai koneksi pooled,
-sehingga aman untuk lingkungan serverless.
+Push ke GitHub → import di Vercel → isi 3 environment variable di atas untuk scope
+Production/Preview/Development → Deploy. Script `build` sudah menjalankan `prisma generate`.
+Jalankan `npx prisma db push` sekali dari lokal dengan `.env` produksi.
 
 ---
 
 ## 4. Daftar T-Code
 
-Ketik T-Code pada **Command Field** di pojok kiri atas lalu tekan **Enter**
-(shortcut fokus: `Ctrl + /`, format `/nMIGO` juga didukung).
+Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`, format `/nMIGO` juga didukung).
 
-### Transactions
+### Transactions — level Inventory Management
 
 | T-Code | Fungsi |
 |---|---|
-| `MIGO` | Goods Movement — 101 GR, 201 GI, 551/701/702 Adjustment (multi line item) |
+| `MIGO` | Goods Movement — 101 GR, 201 GI (2 mode: request picking / post goods issue), 551/701/702 koreksi. Multi line item. |
+| `LI01N` | Create Physical Inventory Document — **multi-bin** (zona / daftar bin / seluruh gudang) |
+| `LI11N` | Enter Count Result **multi-line** → posting seluruh selisih 701/702 sekaligus |
+
+### Warehouse — level bin
+
+| T-Code | Fungsi |
+|---|---|
+| `LB10` | Transfer Requirement List — antrean kerja gudang, filter tipe/status/material |
+| `LB12` | Process Transfer Requirement — put-away & picking, konfirmasi parsial diperbolehkan |
 | `LT01` | Create Transfer Order — single bin to bin (301) |
-| `LT10` | Mass Bin Transfer (301) — banyak baris sekaligus |
-| `LI01N` | Create Physical Inventory Document — **freeze bin** |
-| `LI11N` | Enter Count Result → posting selisih via 701 / 702 |
+| `LT10` | Mass Bin Transfer (301) |
 
 ### Reports
 
 | T-Code | Fungsi |
 |---|---|
-| `MB52` | Global Stock Summary (level IM) + indikator safety stock & konsistensi IM vs WM |
-| `LX02` | Stock per Storage Bin (level WM) — Bin, Batch, Mfg/Exp Date, FEFO alert |
-| `MB51` | Material Document History — filter range tanggal, material, movement type, bin, batch, user |
+| `MB52` | Global Stock Summary (IM) + indikator safety stock & konsistensi IM vs WM |
+| `LX02` | Stock per Storage Bin — Bin, Batch, Mfg/Exp, alert FEFO |
+| `MB51` | Material Document History — filter tanggal, material, movement, bin, batch, user |
 | `LS04` | Empty Bin List |
 
 ### Master Data
 
 | T-Code | Fungsi |
 |---|---|
-| `MM01` / `MM02` | Create / Change Material Master |
-| `LS01N` / `LS02N` | Create / Change Storage Bin (+ mass generate Aisle-Rack-Level) |
-| `LS06` | Block / Unblock Storage Bin |
-| `ZUPLOAD` | Upload Center — Master Material, Master Bin, Initial Stock |
+| `MM01` / `MM02` | Material Master **+ tabel palletization per kelompok gudang** |
+| `LS01N` / `LS02N` / `LS06` | Storage Bin: create / change / block, plus mass generate |
+| `ZUPLOAD` | Upload Center — 5 tipe file |
 
-### Administration
+### PDT Terminal (operator)
 
 | T-Code | Fungsi |
 |---|---|
-| `SU01` | User Maintenance — hanya role **ADMIN** |
+| `ZRF` | Menu utama PDT (badge jumlah pekerjaan terbuka) |
+| `ZRF01` | Goods Receipt (101) |
+| `ZRF02` | Put-away — proses TR PUTAWAY |
+| `ZRF03` | Picking — proses TR PICK |
+| `ZRF04` | Bin to Bin Transfer (301) |
+| `ZRF05` | Stock Count — input hasil opname per bin |
+| `ZRF06` | Inquiry — cek isi rak / lokasi material |
+| `ZRF07` | Goods Issue — keluarkan barang dari transit-out (201) |
+
+### System
+
+| T-Code | Fungsi |
+|---|---|
+| `SU01` | User Maintenance (ADMIN) — termasuk flag **Akses PDT** per user |
+| `ZSET` | System Configuration (ADMIN) — master switch PDT, **toggle per T-Code ZRF01–ZRF07**, bin transit, auto-split pallet |
 
 ---
 
-## 5. Logika Transaksi (ACID)
+## 5. Palletization (MM01)
+
+Tabel **material × SU type × kelompok gudang** — satu produk boleh punya cara simpan
+berbeda di Gudang Besar dan Gudang Kecil.
+
+```
+material  pack_code     su_type  zone_group  qty_per_unit  default
+FG-0001   PAL-GB        PAL      BESAR       1000          X
+FG-0001   PAL-GB-HALF   PAL      BESAR        500
+FG-0001   BOX-GK        BINBOX   KECIL        100          X
+SP-1001   PAL-GB        PAL      (kosong)     500          X
+```
+
+`zone_group` kosong berarti berlaku untuk semua gudang. Boleh ada satu baris default
+**per kelompok gudang**.
+
+Di MIGO 101 ada dropdown **Gudang Tujuan**; baris palletization dipilih otomatis dari situ:
+
+| Input | Hasil auto-split |
+|---|---|
+| FG-0001 2500 PC → Gudang Besar | 3 line: **1000 / 1000 / 500** (PAL-GB) |
+| FG-0001 250 PC → Gudang Kecil | 3 line: **100 / 100 / 50** (BOX-GK) |
+
+Sisa selalu menjadi baris tersendiri. Operator tinggal mengisi rak tiap line di LB12 atau ZRF02.
+Material tanpa baris palletization tidak dipecah (1 line utuh).
+Auto-split bisa dimatikan global lewat `AUTO_SPLIT_PALLET` di ZSET.
+
+---
+
+## 6. Zona Gudang & Penamaan Bin
+
+Skema: **prefix gudang + tipe penyimpanan**, sehingga kode bin sendiri sudah
+menjelaskan lokasi fisiknya tanpa perlu melihat kolom zona.
+
+| Zone ID | Keterangan | Format bin | Contoh |
+|---|---|---|---|
+| `GB-HDR` | Gudang Besar — Heavy Duty Racking | `GB-<Aisle>-<Rack>-<Level>-<Posisi>` | `GB-A-01-02-1` |
+| `GB-PICK` | Gudang Besar — Pick Bin | `GB-PICK-<Aisle>-<NN>` | `GB-PICK-A-01` |
+| `GK-BIN` | Gudang Kecil — Bin Box | `GK-<Aisle>-<Rack>-<Level>-<Box>` | `GK-B-03-01-2` |
+| `GK-PICK` | Gudang Kecil — Pick Bin | `GK-PICK-<Aisle>-<NN>` | `GK-PICK-B-03` |
+| `TRANSIT-IN` | Transit penerimaan (hasil MIGO 101) | `TRN-IN-<NN>` | `TRN-IN-01` |
+| `TRANSIT-OUT` | Transit pengeluaran (siap goods issue) | `TRN-OUT-<NN>` | `TRN-OUT-01` |
+| `STAGING` / `REJECT` / `QUARANTINE` | Area pendukung | — | `STG-01` |
+| `RACK-FAST` / `RACK-SLOW` / `RACK-BULK` | Zona lama, tetap didukung | — | `A-01-02-1` |
+
+Bin di zona `TRANSIT-IN` / `TRANSIT-OUT` otomatis ditandai **interim**: tidak boleh jadi
+tujuan put-away, tidak boleh jadi sumber picking, dan tidak pernah ikut dihitung saat stock opname.
+
+LS01N punya **mass generate** dengan kolom prefix gudang, jadi membuat 24 bin `GB-A-01-01-1`
+sampai `GB-B-04-03-1` cukup sekali klik.
+
+---
+
+## 7. Stock Opname Multi-Line (LI01N / LI11N)
+
+Satu nomor dokumen mencakup **banyak bin dan banyak baris**:
+
+1. **LI01N** — pilih cakupan: satu zona, daftar bin manual, atau seluruh gudang.
+   Semua bin di-set `BLOCKED`, snapshot stok direkam sebagai book quantity.
+2. **ZRF05** (opsional) — operator input hasil hitung per bin lewat PDT.
+3. **LI11N** — admin melengkapi/mengoreksi seluruh baris, bisa menambah item yang
+   ditemukan fisik tapi tidak tercatat sistem. Ada tombol "isi sisa = book qty".
+4. **Post All Differences** — selisih (+) jadi **701**, selisih (−) jadi **702**,
+   semuanya dalam satu database transaction, lalu seluruh bin dilepas kembali.
+
+---
+
+## 8. ZUPLOAD — Upload Excel
+
+Pembacaan file `.xlsx` / `.csv` dilakukan **100% di browser** memakai SheetJS, lalu dikirim
+ke API secara **ter-chunk (25–100 baris per request)** agar tidak kena batas waktu Serverless
+Function. Tombol **Download Sample Excel Template** tersedia untuk kelima tipe.
+
+**Urutan yang benar: Material → Pallet → Storage Bin → Initial Stock → Safety Stock.**
+
+| # | File | Kolom |
+|---|---|---|
+| 1 | `master_materials.xlsx` | material_code, description, uom, is_batch_managed, min_safety_stock |
+| 2 | `master_packaging.xlsx` | material_code, pack_code, su_type, zone_group, description, qty_per_unit, is_default |
+| 3 | `master_storage_bins.xlsx` | bin_code, zone_id, max_weight_kg, status |
+| 4 | `initial_stock.xlsx` | material_code, bin_code, batch_number, mfg_date, exp_date, qty |
+| 5 | `safety_stock.xlsx` | material_code, min_safety_stock |
+
+* **Initial stock** punya mode `ADD` (tambah) dan `SET` (samakan dengan file, sistem posting selisih).
+* **Safety stock** bersifat **replace**: hanya material yang tercantum di file yang diubah,
+  material lain tidak tersentuh. Cocok untuk mengubah banyak baris sekaligus.
+* Baris yang gagal tidak membatalkan baris lain — log per baris bisa diekspor ke Excel.
+
+---
+
+## 9. Terminal PDT (ZRF)
+
+Layar khusus perangkat genggam: font besar, tombol tinggi, input siap barcode scanner,
+sidebar otomatis disembunyikan. Semua posting dari PDT ditandai `via_pdt` sehingga bisa
+dibedakan dari posting admin.
+
+### Kontrol aktif/nonaktif
+
+Admin mengatur semuanya di **ZSET**:
+
+| Setting | Efek |
+|---|---|
+| `PDT_ENABLED` | Master switch — mematikan seluruh modul PDT sekaligus |
+| `PDT_ZRF01` … `PDT_ZRF07` | Toggle **per T-Code**, bisa dimatikan satu per satu |
+
+Modul yang dimatikan langsung terkunci **tanpa perlu login ulang**: di menu ZRF entri-nya
+tampil abu-abu dengan ikon gembok, dan bila route-nya dibuka langsung akan muncul layar
+*Transaction is locked*.
+
+Sebagai lapisan tambahan (opsional), setiap user punya flag **Akses PDT** di `SU01`.
+Biarkan menyala untuk semua operator kalau Anda hanya ingin memakai kontrol per T-Code.
+Flag per user disematkan di token session sehingga perubahannya berlaku pada login berikutnya.
+
+---
+
+## 10. Logika Transaksi (ACID)
 
 Semua perubahan stok dibungkus `prisma.$transaction()` — bila satu baris gagal,
 seluruh dokumen di-rollback.
 
-| Movement | Stock IM | Stock WM | Bin Status | Log |
+| Movement | Stock IM | Stock WM | Bin Status | Dipicu oleh |
 |---|---|---|---|---|
-| **101** Goods Receipt | `+` | `+` di target bin | target → `OCCUPIED` | `101_GR` |
-| **201** Goods Issue | `−` | `−` di source bin | source → `EMPTY` bila qty 0 | `201_GI` |
-| **301** Bin Transfer | **tidak berubah** | `−` source, `+` target | source & target di-refresh | `301_TR_BIN` |
-| **551** Scrapping | `−` | `−` | source → `EMPTY` bila qty 0 | `551_ADJ_MIN` |
-| **561** Initial Stock | `+` | `+` | target → `OCCUPIED` | `561_INIT_STOCK` |
-| **701** Phys. Inv. (+) | `+` | `+` | di-refresh | `701_ADJ_PLUS` |
-| **702** Phys. Inv. (−) | `−` | `−` | di-refresh | `702_ADJ_MIN` |
+| **101** Goods Receipt | `+` | `+` di TRANSIT-IN | TRANSIT-IN → `OCCUPIED` | MIGO / ZRF01 |
+| **301** Bin Transfer | **tidak berubah** | `−` source, `+` target | keduanya di-refresh | LB12 / LT01 / LT10 / ZRF02-04 |
+| **201** Goods Issue | `−` | `−` di TRANSIT-OUT | TRANSIT-OUT → `EMPTY` bila 0 | MIGO 201 mode ISSUE |
+| **551** Scrapping | `−` | `−` | source → `EMPTY` bila 0 | MIGO |
+| **561** Initial Stock | `+` | `+` | target → `OCCUPIED` | ZUPLOAD |
+| **701 / 702** Phys. Inv. | `+` / `−` | `+` / `−` | di-refresh | LI11N |
 
 Validasi yang diberlakukan:
 
 * Material & bin harus ada di master data.
-* Bin berstatus `BLOCKED` tidak menerima pergerakan stok.
-* Material batch-managed **wajib** isi nomor batch; yang non-batch **wajib** kosong.
+* Bin `BLOCKED` tidak menerima pergerakan stok.
+* Bin interim tidak boleh jadi tujuan put-away maupun sumber picking.
+* Material batch-managed **wajib** isi batch; non-batch **wajib** kosong.
 * Stok tidak boleh negatif (level IM maupun level quant bin/batch).
-* Nomor dokumen dibuat atomik lewat tabel `document_counters` (number range object).
-
-### Alur Stock Opname
-
-```
-LI01N  → pilih bin → dokumen dibuat, snapshot book qty, bin di-set BLOCKED
-LI11N  → input counted qty (boleh menambah item yang tidak tercatat sistem)
-       → Post Difference → selisih (+) posting 701, selisih (−) posting 702
-       → bin di-release kembali ke OCCUPIED / EMPTY
-```
+* MIGO 201 menolak permintaan melebihi stok yang tersedia di rak.
+* Nomor dokumen atomik lewat tabel `document_counters` (number range object).
 
 ---
 
-## 6. ZUPLOAD — Upload Excel
-
-Pembacaan file `.xlsx` / `.csv` dilakukan **100% di browser** menggunakan SheetJS,
-lalu dikirim ke API secara **ter-chunk (25–100 baris per request)** sehingga tidak
-terkena batas waktu eksekusi Serverless Function di Vercel.
-
-Tombol **Download Sample Excel Template** tersedia untuk ketiga tipe file.
-
-**Urutan upload yang benar: Material → Storage Bin → Initial Stock.**
-
-### `master_materials.xlsx`
-
-| material_code | description | uom | is_batch_managed | min_safety_stock |
-|---|---|---|---|---|
-| FG-0001 | Sabun Cair Botol 500ml | PC | TRUE | 100 |
-
-### `master_storage_bins.xlsx`
-
-| bin_code | zone_id | max_weight_kg | status |
-|---|---|---|---|
-| A-01-01-1 | RACK-FAST | 1200 | EMPTY |
-
-### `initial_stock.xlsx`
-
-| material_code | bin_code | batch_number | mfg_date | exp_date | qty |
-|---|---|---|---|---|---|
-| FG-0001 | A-01-01-1 | B2608A | 01.08.2026 | 01.08.2028 | 480 |
-
-Mode posting:
-
-* **ADD** — kuantitas di file ditambahkan ke stok yang ada (default).
-* **SET** — stok disamakan dengan nilai di file, sistem memposting selisihnya.
-
-Baris yang gagal tidak membatalkan baris lain — log per baris bisa diekspor ke Excel.
-
----
-
-## 7. Struktur Project
+## 11. Struktur Project
 
 ```
 prisma/
-  schema.prisma            # 9 model: materials, storage_bins, stock_im, stock_wm,
-                           # migo_logs, document_counters, phys_inv_docs, items, users
-  seed.ts                  # data contoh + user ADMIN
+  schema.prisma            # 12 model
+  seed.ts                  # user, setting, material+pallet, bin, saldo awal
 src/
   lib/
     prisma.ts              # singleton Prisma Client
-    wms.ts                 # CORE ENGINE — applyStockIM / applyStockWM /
-                           # refreshBinStatus / postGoodsMovement / postBinTransfer
-    docnum.ts              # number range object (nomor dokumen atomik)
-    movement.ts            # mapping movement type & arah stok
-    api.ts                 # helper response ala SAP + parser tanggal Excel
-    auth.ts / session.ts   # JWT session, role guard (ADMIN / OPERATOR / VIEWER)
-    tcodes.ts              # registry T-Code → route
-    client.ts              # fetch wrapper sisi browser
-  components/sap/
-    Shell.tsx              # layout utama (top bar + sidebar + status bar)
-    CommandField.tsx       # command field T-Code dengan autocomplete
-    StatusBar.tsx          # status bar bawah layar (hijau / merah ala SAP)
-    Sidebar.tsx  ui.tsx  hooks.ts
+    wms.ts                 # CORE ENGINE — stok, bin status, Transfer Requirement,
+                           # split pallet, put-away & picking confirmation, saran FEFO
+    settings.ts            # konfigurasi sistem (ZSET)
+    zones.ts               # definisi zona & pola penamaan bin
+    docnum.ts              # number range (MATDOC / TRDOC / TRREQ / PIDOC)
+    movement.ts  api.ts  auth.ts  session.ts  tcodes.ts  client.ts
+  components/
+    sap/                   # Shell, CommandField, StatusBar, Sidebar, ui, hooks
+    pdt/                   # UI terminal PDT + TrScreen (put-away & picking)
   app/
-    (sap)/                 # semua halaman transaksi (butuh login)
+    (sap)/                 # halaman desktop (butuh login)
+    (sap)/zrf/             # halaman terminal PDT
     api/                   # route handler backend
-  middleware.ts            # proteksi route + API
+  middleware.ts            # proteksi route + guard ADMIN & PDT
 ```
 
 ---
 
-## 8. Role Authorization
+## 12. Role Authorization
 
 | Role | Hak akses |
 |---|---|
-| `ADMIN` | Semua transaksi + SU01 (manajemen user) + hapus master data |
+| `ADMIN` | Semua transaksi + SU01 + ZSET + hapus master data |
 | `OPERATOR` | Posting transaksi, master data, upload, laporan |
 | `VIEWER` | Hanya laporan (display only) |
 
 Minimal satu ADMIN aktif harus selalu ada; user tidak dapat menghapus atau mengunci dirinya sendiri.
+
+---
+
+## Perawatan Database
+
+| Perintah | Fungsi |
+|---|---|
+| `npm run db:check` | Diagnosa koneksi + deteksi skema tertinggal. **Jalankan ini dulu bila ada error.** |
+| `npm run db:upgrade` | Upgrade skema ke versi terbaru **tanpa menghapus data**. Aman diulang. |
+| `npm run db:push` | Sinkronkan skema (hanya untuk database kosong / dev) |
+| `npm run db:seed` | Isi data contoh. Tidak menimpa user & password yang sudah ada. |
+
+### Upgrade dari versi lama tanpa kehilangan data
+
+Bila `npx prisma db push` menolak dengan pesan seperti:
+
+```
+⚠️ We found changes that cannot be executed:
+  • Added the required column `bin_code` to the `phys_inv_doc_items` table
+    without a default value. There are 3 rows in this table.
+```
+
+**jangan** pakai `--force-reset` (itu menghapus seluruh isi database). Pakai:
+
+```bash
+npm run db:upgrade
+```
+
+Skrip ini menambah tabel, kolom, index, dan foreign key yang belum ada, lalu mengisi
+kolom wajib baru:
+
+- `phys_inv_doc_items.bin_code` — ditebak dari quant yang cocok; bila tidak bisa ditebak
+  diberi kode `*MIGRASI*` (dokumen PI lama sebaiknya dibatalkan lalu dibuat ulang di LI01N)
+- `storage_bins.is_interim` — bin transit lama (`GR-01`, `GI-01`, zona `GR-ZONE`/`GI-ZONE`)
+  otomatis ditandai interim
+- `users.pdt_enabled` — semua ADMIN otomatis diaktifkan
+- konfigurasi ZSET yang belum ada diisi nilai default
+
+Setelah itu `npx prisma db push` akan bersih dan `npm run db:seed` bisa dijalankan.
+Bin dan zona lama tetap berfungsi berdampingan dengan skema `GB-`/`GK-` yang baru.
+
+### Kalau muncul "Can't reach database server" (P1001)
+
+Jalankan `npm run db:check` — ia mencetak host yang dipakai dan penyebab yang paling sering:
+
+1. **Compute Neon suspend atau kuota jam-compute bulan ini habis.** Buka
+   [console.neon.tech](https://console.neon.tech) → pilih project → lihat status Compute.
+   Ini penyebab paling umum bila sebelumnya koneksi sempat berhasil lalu tiba-tiba gagal.
+2. Jaringan kantor memblokir port 5432 keluar.
+3. Endpoint berubah setelah branch di-reset — salin ulang connection string ke `.env`.
+
+Catatan: `DATABASE_URL` memakai host `-pooler`, `DIRECT_URL` memakai host tanpa `-pooler`.
+Keduanya harus dari project Neon yang sama.
+

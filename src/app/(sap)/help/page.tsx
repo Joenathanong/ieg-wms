@@ -1,52 +1,131 @@
-import { HelpCircle, Keyboard, Workflow } from 'lucide-react';
+import { HelpCircle, Keyboard, Workflow, Smartphone } from 'lucide-react';
 import { TCODES } from '@/lib/tcodes';
+import { ZONES } from '@/lib/zones';
+import { getSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-const FLOW = [
-  ['1', 'ZUPLOAD', 'Upload master material, storage bin, lalu saldo awal (561).'],
-  ['2', 'MM01 / LS01N', 'Tambah material & bin baru secara manual bila diperlukan.'],
-  ['3', 'MIGO 101', 'Penerimaan barang (GR) ke bin tujuan — Stock IM & WM bertambah.'],
-  ['4', 'LT01 / LT10', 'Pindah stok antar bin (301) — Stock IM global tidak berubah.'],
-  ['5', 'MIGO 201', 'Pengeluaran barang (GI) dari bin sumber — Stock IM & WM berkurang.'],
-  ['6', 'LI01N → LI11N', 'Stock opname: freeze bin → input counting → posting selisih 701/702.'],
-  ['7', 'MB52 / LX02 / MB51 / LS04', 'Laporan stok global, stok per bin, riwayat dokumen, dan bin kosong.'],
+const FLOW_IN = [
+  ['1', 'ZUPLOAD', 'Upload master material → pallet → storage bin → saldo awal → safety stock.'],
+  ['2', 'MIGO 101', 'Terima barang di level IM. Stok masuk bin interim TRANSIT-IN dan sistem membuat Transfer Requirement yang sudah dipecah per pallet.'],
+  ['3', 'LB10', 'Lihat antrean pekerjaan gudang (TR terbuka).'],
+  ['4', 'LB12 / ZRF02', 'Put-away: tentukan rak final tiap line. Movement 301, stok global tidak berubah.'],
 ];
 
-export default function HelpPage() {
+const FLOW_OUT = [
+  ['1', 'MIGO 201 (REQUEST)', 'Buat permintaan picking. Belum ada posting stok — hanya Transfer Requirement PICK. Ditolak bila stok masih menunggu put-away.'],
+  ['2', 'LB12 / ZRF03', 'Picking: pilih rak asal (saran FEFO). Stok pindah ke bin interim TRANSIT-OUT lewat 301. Stock IM masih tetap.'],
+  ['3', 'MIGO 201 (ISSUE)', 'Post goods issue dari GI zone. Di sinilah Stock IM & WM berkurang dan dokumen 201 terbit.'],
+];
+
+const FLOW_SO = [
+  ['1', 'LI01N', 'Pilih cakupan (zona / daftar bin / seluruh gudang). Semua bin di-freeze, snapshot stok direkam.'],
+  ['2', 'ZRF05', 'Operator input hasil hitung per bin lewat PDT.'],
+  ['3', 'LI11N', 'Admin melengkapi/mengoreksi hasil counting seluruh baris dalam satu dokumen.'],
+  ['4', 'LI11N', 'Post All Differences → selisih (+) jadi 701, selisih (−) jadi 702, semua bin dilepas.'],
+];
+
+function FlowTable({ title, rows }: { title: string; rows: string[][] }) {
+  return (
+    <div className="mb-4 last:mb-0">
+      <p className="text-2xs uppercase tracking-wide text-sap-blue mb-1.5">{title}</p>
+      <table className="sap-grid">
+        <thead>
+          <tr>
+            <th className="w-[50px] text-center">Step</th>
+            <th className="w-[170px]">T-Code</th>
+            <th>Keterangan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([n, t, d]) => (
+            <tr key={`${title}-${n}`}>
+              <td className="text-center font-mono text-sap-muted">{n}</td>
+              <td className="font-mono text-sap-blue">{t}</td>
+              <td className="text-sap-muted">{d}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default async function HelpPage() {
+  const session = await getSession();
+
   return (
     <div className="space-y-3 max-w-[1100px]">
       <div className="sap-panel px-4 py-3 flex items-center gap-3">
         <HelpCircle size={20} className="text-sap-blue" />
         <div>
           <h1 className="text-sm font-semibold">Application Help — WMS Lightweight</h1>
-          <p className="text-2xs text-sap-muted">Daftar T-Code, alur proses, dan shortcut keyboard.</p>
+          <p className="text-2xs text-sap-muted">Alur 2-step IM/WM, daftar T-Code, zona, dan shortcut.</p>
         </div>
       </div>
 
       <section className="sap-panel">
         <div className="sap-panel-title">
-          <Workflow size={13} className="text-sap-blue" /> Alur Proses Standar
+          <Workflow size={13} className="text-sap-blue" /> Alur Proses
         </div>
+        <div className="p-3">
+          <FlowTable title="Penerimaan barang (inbound)" rows={FLOW_IN} />
+          <FlowTable title="Pengeluaran barang (outbound)" rows={FLOW_OUT} />
+          <FlowTable title="Stock opname" rows={FLOW_SO} />
+          <p className="text-xxs text-sap-muted/80 leading-relaxed mt-2">
+            MIGO bekerja di level <b>Inventory Management</b> — tidak menyentuh rak sama sekali untuk movement
+            101 dan 201. Penentuan rak selalu lewat LB12 (desktop) atau ZRF02/ZRF03 (PDT). Movement koreksi
+            551 / 701 / 702 tetap menunjuk bin langsung karena sifatnya penyesuaian.
+          </p>
+        </div>
+      </section>
+
+      <section className="sap-panel">
+        <div className="sap-panel-title">Zona Gudang</div>
         <div className="p-3">
           <table className="sap-grid">
             <thead>
               <tr>
-                <th className="w-[50px] text-center">Step</th>
-                <th className="w-[190px]">T-Code</th>
+                <th className="w-[160px]">Zone Code</th>
                 <th>Keterangan</th>
+                <th className="w-[150px]">Contoh Bin</th>
               </tr>
             </thead>
             <tbody>
-              {FLOW.map(([n, t, d]) => (
-                <tr key={n}>
-                  <td className="text-center font-mono text-sap-muted">{n}</td>
-                  <td className="font-mono text-sap-blue">{t}</td>
-                  <td className="text-sap-muted">{d}</td>
+              {ZONES.map((z) => (
+                <tr key={z.code}>
+                  <td className="font-mono text-sap-blue">{z.code}</td>
+                  <td className="text-sap-muted">{z.label}</td>
+                  <td className="font-mono">{z.binPattern}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="sap-panel">
+        <div className="sap-panel-title">
+          <Smartphone size={13} className="text-sap-blue" /> Terminal PDT
+        </div>
+        <div className="p-3 text-2xs text-sap-muted leading-relaxed space-y-1.5">
+          <p>
+            T-Code <b className="text-sap-blue">ZRF</b> adalah menu operator untuk perangkat PDT / RF scanner.
+            Admin mengatur aktif/nonaktifnya di <b className="text-sap-blue">ZSET</b>: ada master switch{' '}
+            <b>Modul PDT</b> plus toggle terpisah untuk tiap T-Code (ZRF01–ZRF06). Modul yang dimatikan langsung
+            terkunci tanpa perlu login ulang. Sebagai lapisan tambahan, tiap user punya flag <b>Akses PDT</b> di SU01.
+          </p>
+          <p>
+            Status akses Anda saat ini:{' '}
+            {session?.pdt ? (
+              <span className="sap-badge border-[#2c5c3d] bg-[#1e3a29] text-[#8FE0A4]">AKTIF</span>
+            ) : (
+              <span className="sap-badge border-[#7f2529] bg-[#3d1a1c] text-[#FF9CA0]">NONAKTIF</span>
+            )}
+          </p>
+          <p>
+            Semua posting dari PDT ditandai <b>via PDT</b> sehingga bisa dibedakan dari posting admin di MB51.
+          </p>
         </div>
       </section>
 
@@ -57,9 +136,9 @@ export default function HelpPage() {
             <thead>
               <tr>
                 <th className="w-[150px]">T-Code</th>
-                <th className="w-[130px]">Group</th>
+                <th className="w-[140px]">Group</th>
                 <th>Description</th>
-                <th className="w-[130px]">Route</th>
+                <th className="w-[140px]">Route</th>
               </tr>
             </thead>
             <tbody>

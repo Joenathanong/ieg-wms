@@ -42,6 +42,20 @@ export const MIGO_MOVEMENTS: MovementType[] = [
   MovementType.ADJ_702_MIN,
 ];
 
+/**
+ * Movement yang diproses 2-step (level IM di MIGO, level WM di LB10/LB12).
+ * 101 -> stok masuk GR-ZONE + TR PUTAWAY
+ * 201 -> hanya membuat TR PICK, goods issue diposting saat TR selesai
+ */
+export const TWO_STEP_MOVEMENTS: MovementType[] = [MovementType.GR_101, MovementType.GI_201];
+
+/** Movement koreksi yang tetap menunjuk bin secara langsung. */
+export const DIRECT_BIN_MOVEMENTS: MovementType[] = [
+  MovementType.ADJ_551_MIN,
+  MovementType.ADJ_701_PLUS,
+  MovementType.ADJ_702_MIN,
+];
+
 /** Terima "101", "101_GR", "GR_101" -> MovementType */
 export function parseMovement(input: string): MovementType | null {
   const v = String(input ?? '').trim().toUpperCase();

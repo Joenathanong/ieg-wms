@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { BinStatus } from '@prisma/client';
+import { isInterimZone } from '@/lib/zones';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
         zone_id,
         max_weight_kg: Number(b.max_weight_kg ?? 1000) || 1000,
         status: (cleanStr(b.status).toUpperCase() as BinStatus) || BinStatus.EMPTY,
+        is_interim: isInterimZone(zone_id),
       },
     });
 

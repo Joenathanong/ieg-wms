@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { BinStatus } from '@prisma/client';
+import { isInterimZone } from '@/lib/zones';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -56,10 +57,11 @@ export async function POST(req: NextRequest) {
 
         await prisma.storageBin.upsert({
           where: { bin_code },
-          create: { bin_code, zone_id, max_weight_kg, status },
+          create: { bin_code, zone_id, max_weight_kg, status, is_interim: isInterimZone(zone_id) },
           update: {
             zone_id,
             max_weight_kg,
+            is_interim: isInterimZone(zone_id),
             status: hasStock ? BinStatus.OCCUPIED : status,
           },
         });

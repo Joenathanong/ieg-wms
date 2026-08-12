@@ -6,6 +6,7 @@ import { nextDocNumber } from '@/lib/docnum';
 import { BinStatus, PhysInvStatus } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /** GET /api/physinv?status=&bin= — daftar dokumen stock opname */
 export async function GET(req: NextRequest) {
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
           status && Object.values(PhysInvStatus).includes(status as PhysInvStatus)
             ? { status: status as PhysInvStatus }
             : {},
-          bin ? { bin_code: { contains: bin, mode: 'insensitive' } } : {},
+          bin ? { items: { some: { bin_code: { contains: bin, mode: 'insensitive' } } } } : {},
         ],
       },
       include: { items: true },
@@ -32,7 +33,9 @@ export async function GET(req: NextRequest) {
     const rows = docs.map((d) => ({
       id: d.id,
       doc_number: d.doc_number,
-      bin_code: d.bin_code,
+      scope_type: d.scope_type,
+      scope_value: d.scope_value,
+      bin_count: d.frozen_bins.length,
       status: d.status,
       planned_date: d.planned_date,
       counted_at: d.counted_at,
@@ -50,62 +53,128 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/physinv — LI01N Create Physical Inventory Document (Freeze Bin)
- * Body: { bin_code, planned_date? }
- * Bin di-set BLOCKED sehingga tidak ada pergerakan stok selama counting.
+ * POST /api/physinv — LI01N Create Physical Inventory Document (multi-bin).
+ * Body:
+ *   { scope_type: 'BIN_LIST', bins: ['A-01-01-1','A-01-02-1'], planned_date? }
+ *   { scope_type: 'ZONE',     zone: 'RACK-FAST' }
+ *   { scope_type: 'ALL' }
+ *
+ * Semua bin dalam cakupan di-freeze (BLOCKED) dan snapshot stok direkam
+ * sebagai baris dokumen. Satu nomor dokumen memuat banyak baris lintas bin.
  */
 export async function POST(req: NextRequest) {
   return handle(async () => {
     const user = await requireWrite();
     const b = await req.json();
-    const bin_code = cleanStr(b.bin_code).toUpperCase();
-    if (!bin_code) throw new HttpError(400, 'Storage bin is mandatory.');
 
-    const result = await prisma.$transaction(async (tx) => {
-      const bin = await tx.storageBin.findUnique({ where: { bin_code } });
-      if (!bin) throw new HttpError(400, `Storage bin ${bin_code} does not exist.`);
+    const scope_type = (cleanStr(b.scope_type).toUpperCase() || 'BIN_LIST') as
+      | 'BIN_LIST'
+      | 'ZONE'
+      | 'ALL';
 
-      const open = await tx.physInvDoc.findFirst({
-        where: { bin_code, status: { in: [PhysInvStatus.CREATED, PhysInvStatus.FROZEN, PhysInvStatus.COUNTED] } },
-      });
-      if (open)
-        throw new HttpError(
-          400,
-          `Physical inventory document ${open.doc_number} is still open for bin ${bin_code}.`
-        );
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // ---- tentukan daftar bin dalam cakupan ----
+        let bins: { bin_code: string }[] = [];
+        let scope_value = '';
 
-      const quants = await tx.stockWM.findMany({ where: { bin_code } });
+        if (scope_type === 'ZONE') {
+          const zone = cleanStr(b.zone).toUpperCase();
+          if (!zone) throw new HttpError(400, 'Zone is mandatory for scope type ZONE.');
+          bins = await tx.storageBin.findMany({
+            where: { zone_id: zone, is_interim: false },
+            select: { bin_code: true },
+            orderBy: { bin_code: 'asc' },
+          });
+          scope_value = zone;
+        } else if (scope_type === 'ALL') {
+          bins = await tx.storageBin.findMany({
+            where: { is_interim: false },
+            select: { bin_code: true },
+            orderBy: { bin_code: 'asc' },
+          });
+          scope_value = 'ALL STORAGE BINS';
+        } else {
+          const list: string[] = (Array.isArray(b.bins) ? b.bins : [])
+            .map((x: unknown) => cleanStr(x).toUpperCase())
+            .filter(Boolean);
+          if (list.length === 0) throw new HttpError(400, 'At least one storage bin must be selected.');
+          bins = await tx.storageBin.findMany({
+            where: { bin_code: { in: list } },
+            select: { bin_code: true },
+            orderBy: { bin_code: 'asc' },
+          });
+          const missing = list.filter((c) => !bins.some((x) => x.bin_code === c));
+          if (missing.length > 0)
+            throw new HttpError(400, `Storage bin ${missing.join(', ')} does not exist (LS01N).`);
+          scope_value = list.join(', ');
+        }
 
-      const doc_number = await nextDocNumber(tx, 'PIDOC');
-      const doc = await tx.physInvDoc.create({
-        data: {
-          doc_number,
-          bin_code,
-          status: PhysInvStatus.FROZEN,
-          planned_date: toDate(b.planned_date) ?? new Date(),
-          created_by: user.username,
-          items: {
-            create: quants.map((q) => ({
-              material_code: q.material_code,
-              batch_number: q.batch_number,
-              book_qty: q.qty,
-              counted_qty: null,
-              diff_qty: 0,
-            })),
+        if (bins.length === 0) throw new HttpError(400, 'No storage bin found for the selected scope.');
+        if (bins.length > 500) throw new HttpError(400, 'Maximum 500 storage bins per physical inventory document.');
+
+        const binCodes = bins.map((x) => x.bin_code);
+
+        // ---- pastikan tidak ada dokumen lain yang masih terbuka untuk bin ini ----
+        const open = await tx.physInvDoc.findMany({
+          where: {
+            status: { in: [PhysInvStatus.CREATED, PhysInvStatus.FROZEN, PhysInvStatus.COUNTED] },
           },
-        },
-        include: { items: true },
-      });
+          select: { doc_number: true, frozen_bins: true },
+        });
+        for (const o of open) {
+          const clash = o.frozen_bins.filter((x) => binCodes.includes(x));
+          if (clash.length > 0)
+            throw new HttpError(
+              400,
+              `Document ${o.doc_number} is still open for bin ${clash.slice(0, 5).join(', ')}${clash.length > 5 ? ' …' : ''}.`
+            );
+        }
 
-      // Freeze bin
-      await tx.storageBin.update({ where: { bin_code }, data: { status: BinStatus.BLOCKED } });
+        // ---- snapshot stok ----
+        const quants = await tx.stockWM.findMany({
+          where: { bin_code: { in: binCodes } },
+          orderBy: [{ bin_code: 'asc' }, { material_code: 'asc' }],
+        });
 
-      return doc;
-    });
+        const doc_number = await nextDocNumber(tx, 'PIDOC');
+        const doc = await tx.physInvDoc.create({
+          data: {
+            doc_number,
+            scope_type,
+            scope_value: scope_value.slice(0, 500),
+            frozen_bins: binCodes,
+            status: PhysInvStatus.FROZEN,
+            planned_date: toDate(b.planned_date) ?? new Date(),
+            created_by: user.username,
+            items: {
+              create: quants.map((q) => ({
+                bin_code: q.bin_code,
+                material_code: q.material_code,
+                batch_number: q.batch_number,
+                book_qty: q.qty,
+                counted_qty: null,
+                diff_qty: 0,
+              })),
+            },
+          },
+          include: { items: true },
+        });
+
+        // ---- freeze semua bin ----
+        await tx.storageBin.updateMany({
+          where: { bin_code: { in: binCodes } },
+          data: { status: BinStatus.BLOCKED },
+        });
+
+        return doc;
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
 
     return ok(
       result,
-      `Physical inventory document ${result.doc_number} created — bin ${bin_code} is frozen (${result.items.length} item(s))`
+      `Physical inventory document ${result.doc_number} created — ${result.frozen_bins.length} bin(s) frozen, ${result.items.length} line(s) snapshot`
     );
   });
 }

@@ -18,6 +18,10 @@ import {
   Folder,
   ScanBarcode,
   SquareStack,
+  ListTodo,
+  PackageCheck,
+  Smartphone,
+  Settings,
 } from 'lucide-react';
 
 interface Item {
@@ -26,17 +30,25 @@ interface Item {
   href: string;
   Icon: typeof Boxes;
   adminOnly?: boolean;
+  pdtOnly?: boolean;
 }
 
 const GROUPS: { title: string; items: Item[] }[] = [
   {
-    title: 'Transactions',
+    title: 'Transactions (IM)',
     items: [
       { code: 'MIGO', label: 'Goods Movement', href: '/migo', Icon: PackagePlus },
-      { code: 'LT01', label: 'Transfer Bin (Single)', href: '/lt01', Icon: ArrowLeftRight },
-      { code: 'LT10', label: 'Mass Bin Transfer', href: '/lt10', Icon: Layers3 },
       { code: 'LI01N', label: 'Create Phys. Inv. Doc', href: '/li01n', Icon: ScanBarcode },
       { code: 'LI11N', label: 'Enter Count / Post Diff', href: '/li11n', Icon: ClipboardList },
+    ],
+  },
+  {
+    title: 'Warehouse (WM)',
+    items: [
+      { code: 'LB10', label: 'TR Work Queue', href: '/lb10', Icon: ListTodo },
+      { code: 'LB12', label: 'Put-away / Picking', href: '/lb12', Icon: PackageCheck },
+      { code: 'LT01', label: 'Transfer Bin (Single)', href: '/lt01', Icon: ArrowLeftRight },
+      { code: 'LT10', label: 'Mass Bin Transfer', href: '/lt10', Icon: Layers3 },
     ],
   },
   {
@@ -51,18 +63,33 @@ const GROUPS: { title: string; items: Item[] }[] = [
   {
     title: 'Master Data',
     items: [
-      { code: 'MM01', label: 'Material Master', href: '/mm01', Icon: Boxes },
+      { code: 'MM01', label: 'Material & Pallet', href: '/mm01', Icon: Boxes },
       { code: 'LS01N', label: 'Storage Bin', href: '/ls01n', Icon: Folder },
       { code: 'ZUPLOAD', label: 'Upload Center', href: '/zupload', Icon: Upload },
     ],
   },
   {
+    title: 'PDT Terminal',
+    items: [{ code: 'ZRF', label: 'RF Menu (Operator)', href: '/zrf', Icon: Smartphone, pdtOnly: true }],
+  },
+  {
     title: 'Administration',
-    items: [{ code: 'SU01', label: 'User Maintenance', href: '/su01', Icon: Users, adminOnly: true }],
+    items: [
+      { code: 'SU01', label: 'User Maintenance', href: '/su01', Icon: Users, adminOnly: true },
+      { code: 'ZSET', label: 'System Configuration', href: '/zset', Icon: Settings, adminOnly: true },
+    ],
   },
 ];
 
-export function Sidebar({ role, collapsed }: { role: string; collapsed: boolean }) {
+export function Sidebar({
+  role,
+  pdt,
+  collapsed,
+}: {
+  role: string;
+  pdt: boolean;
+  collapsed: boolean;
+}) {
   const pathname = usePathname();
   const [closed, setClosed] = useState<Record<string, boolean>>({});
 
@@ -72,7 +99,9 @@ export function Sidebar({ role, collapsed }: { role: string; collapsed: boolean 
                   transition-all duration-150 ${collapsed ? 'w-[46px]' : 'w-[218px]'}`}
     >
       {GROUPS.map((g) => {
-        const items = g.items.filter((i) => !i.adminOnly || role === 'ADMIN');
+        const items = g.items.filter(
+          (i) => (!i.adminOnly || role === 'ADMIN') && (!i.pdtOnly || pdt)
+        );
         if (items.length === 0) return null;
         const isClosed = closed[g.title];
         return (
@@ -94,7 +123,7 @@ export function Sidebar({ role, collapsed }: { role: string; collapsed: boolean 
             {!isClosed && (
               <ul>
                 {items.map((it) => {
-                  const active = pathname === it.href;
+                  const active = pathname === it.href || pathname.startsWith(it.href + '/');
                   return (
                     <li key={it.code}>
                       <Link

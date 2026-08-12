@@ -9,7 +9,7 @@ import { useStatus } from './StatusBar';
 /**
  * Command Field ala SAP GUI: ketik T-Code (MIGO, MB52, /nLX02 ...) lalu Enter.
  */
-export function CommandField({ role }: { role: string }) {
+export function CommandField({ role, pdt }: { role: string; pdt: boolean }) {
   const [value, setValue] = useState('');
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -44,7 +44,8 @@ export function CommandField({ role }: { role: string }) {
     ? TCODES.filter(
         (t) =>
           (t.code.startsWith(q) || t.title.toUpperCase().includes(q)) &&
-          (!t.adminOnly || role === 'ADMIN')
+          (!t.adminOnly || role === 'ADMIN') &&
+          (!t.pdtOnly || pdt)
       ).slice(0, 8)
     : [];
 
@@ -72,6 +73,10 @@ export function CommandField({ role }: { role: string }) {
     }
     if (t.adminOnly && role !== 'ADMIN') {
       setStatus(`No authorization for transaction ${t.code}`, 'E');
+      return;
+    }
+    if (t.pdtOnly && !pdt) {
+      setStatus(`PDT terminal is not enabled for this user (${t.code})`, 'E');
       return;
     }
     go(t.path, t.code);

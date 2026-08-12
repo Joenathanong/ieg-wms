@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ClipboardList, Save, CheckCheck, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { ClipboardList, Save, CheckCheck, RefreshCw, Plus, Trash2, Wand2, Filter } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Badge, Separator } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
@@ -10,6 +10,7 @@ import { api, post, patch, fmtDate } from '@/lib/client';
 
 interface Item {
   id: string;
+  bin_code: string;
   material_code: string;
   description: string;
   uom: string;
@@ -23,7 +24,9 @@ interface Item {
 interface Doc {
   id: string;
   doc_number: string;
-  bin_code: string;
+  scope_type: string;
+  scope_value: string;
+  frozen_bins: string[];
   status: 'CREATED' | 'FROZEN' | 'COUNTED' | 'POSTED';
   planned_date: string;
   created_by: string;
@@ -33,12 +36,14 @@ interface Doc {
 interface DocRow {
   id: string;
   doc_number: string;
-  bin_code: string;
+  scope_value: string;
+  bin_count: number;
   status: Doc['status'];
 }
 
 interface NewRow {
   key: string;
+  bin_code: string;
   material_code: string;
   batch_number: string;
   counted_qty: string;
@@ -62,6 +67,7 @@ function Li11nInner() {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [extra, setExtra] = useState<NewRow[]>([]);
+  const [binFilter, setBinFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -82,9 +88,11 @@ function Li11nInner() {
       if (!r.ok) return setStatus(r.message, 'E');
       const d = r.data!;
       setDoc(d);
-      setCounts(Object.fromEntries(d.items.map((i) => [i.id, i.counted_qty === null ? '' : String(i.counted_qty)])));
+      setCounts(
+        Object.fromEntries(d.items.map((i) => [i.id, i.counted_qty === null ? '' : String(i.counted_qty)]))
+      );
       setExtra([]);
-      setStatus(`Document ${d.doc_number} — bin ${d.bin_code} (${d.items.length} item)`, 'I');
+      setStatus(r.message, 'I');
     },
     [setStatus]
   );
@@ -99,22 +107,49 @@ function Li11nInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId]);
 
+  const visibleItems = useMemo(
+    () =>
+      (doc?.items ?? []).filter((i) =>
+        binFilter ? i.bin_code.toUpperCase().includes(binFilter.toUpperCase()) : true
+      ),
+    [doc, binFilter]
+  );
+
+  function fillBookQty() {
+    if (!doc) return;
+    setCounts((s) => {
+      const n = { ...s };
+      visibleItems.forEach((i) => {
+        if (!n[i.id]) n[i.id] = String(i.book_qty);
+      });
+      return n;
+    });
+    setStatus('Baris kosong diisi dengan book quantity (dianggap sesuai)', 'I');
+  }
+
   async function saveCount() {
     if (!doc) return;
     const items = [
       ...doc.items
         .filter((i) => counts[i.id] !== '' && counts[i.id] !== undefined)
-        .map((i) => ({ id: i.id, material_code: i.material_code, batch_number: i.batch_number, counted_qty: Number(counts[i.id]) })),
+        .map((i) => ({
+          id: i.id,
+          bin_code: i.bin_code,
+          material_code: i.material_code,
+          batch_number: i.batch_number,
+          counted_qty: Number(counts[i.id]),
+        })),
       ...extra
-        .filter((e) => e.material_code.trim() && e.counted_qty !== '')
+        .filter((e) => e.material_code.trim() && e.bin_code.trim() && e.counted_qty !== '')
         .map((e) => ({
+          bin_code: e.bin_code.trim().toUpperCase(),
           material_code: e.material_code.trim().toUpperCase(),
           batch_number: e.batch_number.trim().toUpperCase() || null,
           counted_qty: Number(e.counted_qty),
         })),
     ];
 
-    if (items.length === 0) return setStatus('Enter at least one count result', 'E');
+    if (items.length === 0) return setStatus('Belum ada hasil counting yang diisi', 'E');
 
     setBusy(true);
     const r = await patch(`/api/physinv/${doc.id}`, { items });
@@ -137,32 +172,49 @@ function Li11nInner() {
 
   const totalBook = doc?.items.reduce((a, i) => a + i.book_qty, 0) ?? 0;
   const totalCounted =
-    doc?.items.reduce((a, i) => a + (counts[i.id] === '' || counts[i.id] === undefined ? i.book_qty : Number(counts[i.id])), 0) ?? 0;
+    doc?.items.reduce(
+      (a, i) => a + (counts[i.id] === '' || counts[i.id] === undefined ? i.book_qty : Number(counts[i.id])),
+      0
+    ) ?? 0;
   const totalDiff = totalCounted - totalBook;
+  const filledCount = doc?.items.filter((i) => counts[i.id] !== '' && counts[i.id] !== undefined).length ?? 0;
+
+  let lastBin = '';
 
   return (
     <div className="space-y-3">
-      <Panel title="LI11N — Enter Physical Inventory Count" icon={<ClipboardList size={13} className="text-sap-blue" />}>
+      <Panel title="LI11N — Enter Physical Inventory Count (Multi-Line)" icon={<ClipboardList size={13} className="text-sap-blue" />}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
           <Field label="Physical Inventory Document" required>
             <Select value={docId} onChange={(e) => setDocId(e.target.value)}>
               <option value="">— pilih dokumen —</option>
               {docs.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.doc_number} · Bin {d.bin_code} · {d.status}
+                  {d.doc_number} · {d.bin_count} bin · {d.scope_value.slice(0, 40)} · {d.status}
                 </option>
               ))}
             </Select>
           </Field>
           <div>
-            <Button onClick={() => { loadDocs(); loadDoc(docId); }} loading={loading}>
+            <Button
+              onClick={() => {
+                loadDocs();
+                loadDoc(docId);
+              }}
+              loading={loading}
+            >
               <RefreshCw size={13} /> Refresh
             </Button>
           </div>
           {doc && (
             <div className="md:col-span-2 flex flex-wrap items-center gap-3 text-2xs font-mono text-sap-muted">
               <Badge value={doc.status} />
-              <span>Bin: <b className="text-sap-text">{doc.bin_code}</b></span>
+              <span>
+                Bins: <b className="text-sap-text">{doc.frozen_bins.length}</b>
+              </span>
+              <span>
+                Lines: <b className="text-sap-text">{doc.items.length}</b>
+              </span>
               <span>Planned: {fmtDate(doc.planned_date)}</span>
               <span>By: {doc.created_by}</span>
             </div>
@@ -172,38 +224,80 @@ function Li11nInner() {
 
       {doc && (
         <>
-          <Panel title={`Count Items — ${doc.doc_number}`} bodyClassName="p-0">
-            <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 460px)' }}>
-              <table className="sap-grid min-w-[900px]">
+          <Toolbar>
+            <Input
+              className="!w-[190px] uppercase"
+              placeholder="Filter bin"
+              value={binFilter}
+              onChange={(e) => setBinFilter(e.target.value)}
+            />
+            <span className="text-xxs text-sap-muted flex items-center gap-1">
+              <Filter size={11} /> {visibleItems.length}/{doc.items.length} line
+            </span>
+            <Separator />
+            <Button onClick={fillBookQty} disabled={doc.status === 'POSTED'}>
+              <Wand2 size={13} /> Isi sisa = book qty
+            </Button>
+            <Button
+              onClick={() =>
+                setExtra((s) => [
+                  ...s,
+                  {
+                    key: Math.random().toString(36).slice(2),
+                    bin_code: binFilter.toUpperCase() || doc.frozen_bins[0] || '',
+                    material_code: '',
+                    batch_number: '',
+                    counted_qty: '',
+                  },
+                ])
+              }
+              disabled={doc.status === 'POSTED'}
+            >
+              <Plus size={13} /> Tambah item tak tercatat
+            </Button>
+            <span className="ml-auto font-mono text-xxs text-sap-muted">
+              Terisi {filledCount}/{doc.items.length}
+            </span>
+          </Toolbar>
+
+          <Panel title={`Count Lines — ${doc.doc_number}`} bodyClassName="p-0">
+            <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 430px)' }}>
+              <table className="sap-grid min-w-[980px]">
                 <thead>
                   <tr>
                     <th className="w-[40px] text-center">#</th>
-                    <th className="w-[150px]">Material</th>
-                    <th className="w-[240px]">Description</th>
-                    <th className="w-[140px]">Batch</th>
-                    <th className="w-[95px] text-right">Book Qty</th>
-                    <th className="w-[110px] text-right">Counted Qty</th>
-                    <th className="w-[95px] text-right">Difference</th>
-                    <th className="w-[60px]">UoM</th>
-                    <th className="w-[80px] text-center">Posted</th>
+                    <th className="w-[140px]">Storage Bin</th>
+                    <th className="w-[145px]">Material</th>
+                    <th className="w-[220px]">Description</th>
+                    <th className="w-[130px]">Batch</th>
+                    <th className="w-[90px] text-right">Book Qty</th>
+                    <th className="w-[105px] text-right">Counted Qty</th>
+                    <th className="w-[90px] text-right">Difference</th>
+                    <th className="w-[58px]">UoM</th>
+                    <th className="w-[70px] text-center">Posted</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {doc.items.length === 0 && extra.length === 0 && (
+                  {visibleItems.length === 0 && extra.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="py-6 text-center text-sap-muted">
-                        Bin kosong saat di-freeze. Tambahkan item bila ditemukan barang fisik.
+                      <td colSpan={10} className="py-6 text-center text-sap-muted">
+                        Tidak ada stok tercatat pada bin dalam cakupan. Tambahkan item bila ditemukan barang fisik.
                       </td>
                     </tr>
                   )}
-                  {doc.items.map((it, i) => {
+                  {visibleItems.map((it, i) => {
                     const c = counts[it.id];
                     const diff = c === '' || c === undefined ? null : Number(c) - it.book_qty;
+                    const newBin = it.bin_code !== lastBin;
+                    lastBin = it.bin_code;
                     return (
                       <tr key={it.id}>
                         <td className="text-center font-mono text-sap-muted/60">{i + 1}</td>
+                        <td className={`font-mono ${newBin ? 'text-sap-blue font-semibold' : 'text-sap-muted/60'}`}>
+                          {it.bin_code}
+                        </td>
                         <td className="font-mono">{it.material_code}</td>
-                        <td className="text-sap-muted truncate max-w-[240px]">{it.description}</td>
+                        <td className="text-sap-muted truncate max-w-[220px]">{it.description}</td>
                         <td className="font-mono">{it.batch_number || '—'}</td>
                         <td className="text-right font-mono tabular-nums">{it.book_qty}</td>
                         <td>
@@ -238,10 +332,19 @@ function Li11nInner() {
                     );
                   })}
 
-                  {/* baris tambahan: barang ditemukan tapi tidak tercatat di sistem */}
                   {extra.map((e, i) => (
                     <tr key={e.key}>
                       <td className="text-center font-mono text-sap-blue">+{i + 1}</td>
+                      <td>
+                        <Input
+                          list="dl-frozen-bins"
+                          className="uppercase !py-[3px]"
+                          value={e.bin_code}
+                          onChange={(ev) =>
+                            setExtra((s) => s.map((x) => (x.key === e.key ? { ...x, bin_code: ev.target.value } : x)))
+                          }
+                        />
+                      </td>
                       <td>
                         <Input
                           list="dl-materials"
@@ -297,14 +400,6 @@ function Li11nInner() {
           </Panel>
 
           <Toolbar>
-            <Button
-              onClick={() =>
-                setExtra((s) => [...s, { key: Math.random().toString(36).slice(2), material_code: '', batch_number: '', counted_qty: '' }])
-              }
-              disabled={doc.status === 'POSTED'}
-            >
-              <Plus size={13} /> Add Unlisted Item
-            </Button>
             <Button variant="primary" onClick={saveCount} loading={busy} disabled={doc.status === 'POSTED'}>
               <Save size={13} /> Save Count Result
             </Button>
@@ -313,9 +408,9 @@ function Li11nInner() {
               onClick={postDiff}
               loading={busy}
               disabled={doc.status !== 'COUNTED'}
-              title="Posting selisih via movement 701 / 702"
+              title="Posting seluruh selisih via movement 701 / 702"
             >
-              <CheckCheck size={13} /> Post Difference (701/702)
+              <CheckCheck size={13} /> Post All Differences (701/702)
             </Button>
             <Separator />
             <span className="font-mono text-xxs text-sap-muted">
@@ -327,6 +422,12 @@ function Li11nInner() {
               </b>
             </span>
           </Toolbar>
+
+          <datalist id="dl-frozen-bins">
+            {doc.frozen_bins.map((b) => (
+              <option key={b} value={b} />
+            ))}
+          </datalist>
         </>
       )}
 

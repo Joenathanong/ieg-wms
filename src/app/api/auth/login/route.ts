@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { comparePassword, hashPassword } from '@/lib/auth';
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/session';
 import { handle, fail, cleanStr } from '@/lib/api';
+import { isTrue } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
           full_name: 'System Administrator',
           password_hash: await hashPassword('admin123'),
           role: 'ADMIN',
+          pdt_enabled: true,
         },
       });
     }
@@ -36,18 +38,23 @@ export async function POST(req: NextRequest) {
 
     await prisma.user.update({ where: { id: user.id }, data: { last_login: new Date() } });
 
+    // izin PDT = flag user DAN master switch sistem
+    const pdtGlobal = await isTrue(prisma, 'PDT_ENABLED');
+    const pdt = pdtGlobal && user.pdt_enabled;
+
     const token = await signSession({
       uid: user.id,
       username: user.username,
       name: user.full_name,
       role: user.role,
+      pdt,
     });
 
     const res = NextResponse.json({
       ok: true,
       msgType: 'S',
       message: `Welcome, ${user.full_name}`,
-      data: { username: user.username, role: user.role, name: user.full_name },
+      data: { username: user.username, role: user.role, name: user.full_name, pdt },
     });
 
     res.cookies.set(SESSION_COOKIE, token, {

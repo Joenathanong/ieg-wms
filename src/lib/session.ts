@@ -8,6 +8,8 @@ export interface SessionPayload {
   username: string;
   name: string;
   role: 'ADMIN' | 'OPERATOR' | 'VIEWER';
+  /** izin membuka T-Code PDT (flag user DAN master switch sistem) */
+  pdt: boolean;
 }
 
 function secretKey(): Uint8Array {
@@ -34,6 +36,7 @@ export async function verifySession(token?: string | null): Promise<SessionPaylo
       username: String(payload.username),
       name: String(payload.name),
       role: payload.role as SessionPayload['role'],
+      pdt: payload.pdt === true,
     };
   } catch {
     return null;

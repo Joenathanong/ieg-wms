@@ -3,6 +3,17 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/client';
 
+export interface PackagingLite {
+  id: string;
+  material_code: string;
+  pack_code: string;
+  su_type: string;
+  zone_group: string | null;
+  description: string;
+  qty_per_unit: number;
+  is_default: boolean;
+}
+
 export interface MaterialLite {
   id: string;
   material_code: string;
@@ -10,6 +21,7 @@ export interface MaterialLite {
   uom: string;
   is_batch_managed: boolean;
   min_safety_stock: number;
+  packagings?: PackagingLite[];
 }
 
 export interface BinLite {
@@ -18,6 +30,7 @@ export interface BinLite {
   zone_id: string;
   max_weight_kg: number;
   status: 'EMPTY' | 'OCCUPIED' | 'BLOCKED';
+  is_interim: boolean;
 }
 
 /** Cache sederhana agar master data tidak di-fetch berulang antar halaman. */

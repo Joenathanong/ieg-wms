@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
             target_bin,
             doc_date: docDate,
             remarks: cleanStr(it.remarks) || null,
+            via_pdt: body.via_pdt === true,
             user_id: user.username,
           });
 

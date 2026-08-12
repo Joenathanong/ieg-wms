@@ -6,6 +6,7 @@ import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, exportCsv, t
 import { useStatus } from '@/components/sap/StatusBar';
 import { invalidateMasterData } from '@/components/sap/hooks';
 import { api, post, patch, del, qs } from '@/lib/client';
+import { ZONES as ZONE_DEFS } from '@/lib/zones';
 
 interface Row {
   id: string;
@@ -13,11 +14,12 @@ interface Row {
   zone_id: string;
   max_weight_kg: number;
   status: 'EMPTY' | 'OCCUPIED' | 'BLOCKED';
+  is_interim: boolean;
 }
 
-const ZONES = ['RACK-FAST', 'RACK-SLOW', 'RACK-BULK', 'STAGING', 'PICKING', 'REJECT', 'QUARANTINE'];
+const ZONES = ZONE_DEFS.map((z) => z.code);
 
-const emptyForm = { bin_code: '', zone_id: 'RACK-FAST', max_weight_kg: 1000 };
+const emptyForm = { bin_code: '', zone_id: 'GB-HDR', max_weight_kg: 1000 };
 
 export default function Ls01nPage() {
   const { setStatus } = useStatus();
@@ -30,7 +32,15 @@ export default function Ls01nPage() {
   const [form, setForm] = useState({ ...emptyForm });
 
   // Mass generator (Aisle-Rack-Level)
-  const [gen, setGen] = useState({ aisle: 'A', rackFrom: 1, rackTo: 5, levelFrom: 1, levelTo: 4, zone: 'RACK-FAST' });
+  const [gen, setGen] = useState({
+    prefix: 'GB',
+    aisle: 'A',
+    rackFrom: 1,
+    rackTo: 5,
+    levelFrom: 1,
+    levelTo: 4,
+    zone: 'GB-HDR',
+  });
 
   const run = useCallback(async () => {
     setLoading(true);
@@ -91,7 +101,10 @@ export default function Ls01nPage() {
     const list: string[] = [];
     for (let rk = gen.rackFrom; rk <= gen.rackTo; rk++) {
       for (let lv = gen.levelFrom; lv <= gen.levelTo; lv++) {
-        list.push(`${gen.aisle.toUpperCase()}-${String(rk).padStart(2, '0')}-${String(lv).padStart(2, '0')}-1`);
+        const pfx = gen.prefix.trim().toUpperCase();
+        list.push(
+          `${pfx ? pfx + '-' : ''}${gen.aisle.toUpperCase()}-${String(rk).padStart(2, '0')}-${String(lv).padStart(2, '0')}-1`
+        );
       }
     }
     if (list.length === 0) return setStatus('Range tidak valid', 'E');
@@ -115,6 +128,18 @@ export default function Ls01nPage() {
     { key: 'zone_id', header: 'Zone / Section', mono: true, width: '150px' },
     { key: 'status', header: 'Status', width: '115px', render: (r) => <Badge value={r.status} /> },
     { key: 'max_weight_kg', header: 'Max Weight (kg)', align: 'right', width: '130px' },
+    {
+      key: 'is_interim',
+      header: 'Interim',
+      align: 'center',
+      width: '80px',
+      render: (r) =>
+        r.is_interim ? (
+          <span className="sap-badge border-[#2b5480] bg-[#1c3450] text-[#9DC0FF]">GR/GI</span>
+        ) : (
+          <span className="text-sap-muted">—</span>
+        ),
+    },
     {
       key: 'act',
       header: '',
@@ -157,7 +182,7 @@ export default function Ls01nPage() {
           icon={<Folder size={13} className="text-sap-blue" />}
         >
           <div className="space-y-3">
-            <Field label="Storage Bin" required hint="Format Aisle-Rack-Level, mis. A-01-02-1">
+            <Field label="Storage Bin" required hint="Format: prefix gudang + Aisle-Rack-Level, mis. GB-A-01-02-1">
               <Input
                 className="uppercase"
                 disabled={mode === 'CHANGE'}
@@ -165,7 +190,11 @@ export default function Ls01nPage() {
                 onChange={(e) => setForm({ ...form, bin_code: e.target.value })}
               />
             </Field>
-            <Field label="Zone / Storage Section" required>
+            <Field
+              label="Zone / Storage Section"
+              required
+              hint={ZONE_DEFS.find((z) => z.code === form.zone_id)?.label}
+            >
               <Input
                 list="dl-zones"
                 className="uppercase"
@@ -200,6 +229,14 @@ export default function Ls01nPage() {
 
         <Panel title="Mass Generate Bins" icon={<Wand2 size={13} className="text-sap-blue" />}>
           <div className="grid grid-cols-2 gap-2">
+            <Field label="Prefix Gudang">
+              <Input
+                className="uppercase"
+                placeholder="GB / GK"
+                value={gen.prefix}
+                onChange={(e) => setGen({ ...gen, prefix: e.target.value })}
+              />
+            </Field>
             <Field label="Aisle">
               <Input
                 className="uppercase"
@@ -304,7 +341,9 @@ export default function Ls01nPage() {
 
       <datalist id="dl-zones">
         {[...new Set([...ZONES, ...rows.map((r) => r.zone_id)])].sort().map((z) => (
-          <option key={z} value={z} />
+          <option key={z} value={z}>
+            {ZONE_DEFS.find((d) => d.code === z)?.label ?? ''}
+          </option>
         ))}
       </datalist>
     </div>

@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireWrite, requireAdmin, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { BinStatus } from '@prisma/client';
+import { isInterimZone } from '@/lib/zones';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       where: { bin_code },
       data: {
         zone_id: b.zone_id !== undefined ? cleanStr(b.zone_id).toUpperCase() : undefined,
+        is_interim:
+          b.zone_id !== undefined ? isInterimZone(cleanStr(b.zone_id).toUpperCase()) : undefined,
         max_weight_kg: b.max_weight_kg !== undefined ? Number(b.max_weight_kg) || 0 : undefined,
         status: nextStatus,
       },

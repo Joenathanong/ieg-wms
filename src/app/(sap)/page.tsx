@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
+  ListTodo,
 } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
@@ -17,7 +18,7 @@ export const dynamic = 'force-dynamic';
 
 async function loadKpi() {
   try {
-    const [materials, bins, emptyBins, blockedBins, imAgg, docsToday, lowStock] = await Promise.all([
+    const [materials, bins, emptyBins, blockedBins, imAgg, docsToday, lowStock, openTr] = await Promise.all([
       prisma.material.count(),
       prisma.storageBin.count(),
       prisma.storageBin.count({ where: { status: 'EMPTY' } }),
@@ -32,6 +33,7 @@ async function loadKpi() {
         LEFT JOIN stock_im s ON s.material_code = m.material_code
         WHERE COALESCE(s.total_qty, 0) < m.min_safety_stock AND m.min_safety_stock > 0
       `,
+      prisma.transferReq.count({ where: { status: { in: ['OPEN', 'PARTIAL'] } } }),
     ]);
     return {
       online: true,
@@ -42,6 +44,7 @@ async function loadKpi() {
       totalQty: imAgg._sum.total_qty ?? 0,
       docsToday,
       lowStock: Number(lowStock?.[0]?.count ?? 0),
+      openTr,
     };
   } catch {
     return null;
@@ -86,9 +89,11 @@ export default async function EasyAccess() {
   const kpi = await loadKpi();
 
   const groups: { title: string; key: string }[] = [
-    { title: 'Transactions', key: 'TRANSACTION' },
+    { title: 'Transactions (IM)', key: 'TRANSACTION' },
+    { title: 'Warehouse (WM)', key: 'WAREHOUSE' },
     { title: 'Reports', key: 'REPORT' },
     { title: 'Master Data', key: 'MASTER' },
+    { title: 'PDT Terminal', key: 'PDT' },
     { title: 'Administration', key: 'SYSTEM' },
   ];
 
@@ -117,11 +122,19 @@ export default async function EasyAccess() {
 
       {/* KPI */}
       {kpi && (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
           <Tile label="Total Stock (IM)" value={kpi.totalQty.toLocaleString('de-DE')} Icon={PackageCheck} href="/mb52" />
           <Tile label="Material Master" value={kpi.materials} Icon={Boxes} accent="#8B5CF6" href="/mm01" />
           <Tile label="Storage Bins" value={kpi.bins} sub={`${kpi.blockedBins} blocked`} Icon={Grid3x3} accent="#14B8A6" href="/ls01n" />
           <Tile label="Empty Bins" value={kpi.emptyBins} Icon={Folder} accent="#94A3B8" href="/ls04" />
+          <Tile
+            label="Open Transfer Req."
+            value={kpi.openTr}
+            sub="menunggu put-away / picking"
+            Icon={ListTodo}
+            accent={kpi.openTr > 0 ? '#E9A23B' : '#3FA45B'}
+            href="/lb10"
+          />
           <Tile label="Docs Today" value={kpi.docsToday} Icon={FileClock} accent="#367BF5" href="/mb51" />
           <Tile
             label="Below Safety Stock"
@@ -142,8 +155,16 @@ export default async function EasyAccess() {
         <div className="p-3 grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-1">
           {groups.map((g) => {
             const items = TCODES.filter(
-              (t) => t.group === g.key && (!t.adminOnly || session?.role === 'ADMIN')
-            ).filter((t) => t.code !== 'SESSION_MANAGER' && t.code !== 'MM02' && t.code !== 'LS02N');
+              (t) =>
+                t.group === g.key &&
+                (!t.adminOnly || session?.role === 'ADMIN') &&
+                (!t.pdtOnly || session?.pdt)
+            ).filter(
+              (t) =>
+                !['SESSION_MANAGER', 'MM02', 'LS02N', 'ZRF01', 'ZRF02', 'ZRF03', 'ZRF04', 'ZRF05', 'ZRF06'].includes(
+                  t.code
+                )
+            );
             if (items.length === 0) return null;
             return (
               <div key={g.key} className="mb-2">

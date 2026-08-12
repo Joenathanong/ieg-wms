@@ -7,14 +7,15 @@ import { applyStockIM, applyStockWM } from '@/lib/wms';
 import { BinStatus, MovementType, PhysInvStatus } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * POST /api/physinv/:id/post — LI21 Post Physical Inventory Difference
- * Selisih (+) diposting sebagai movement 701, selisih (-) sebagai 702.
- * Semuanya dalam satu transaction; bin di-unfreeze di akhir.
+ * POST /api/physinv/:id/post — LI21 Post Physical Inventory Difference.
+ * Seluruh baris (lintas bin) diproses dalam satu transaction:
+ * selisih (+) -> movement 701, selisih (-) -> movement 702.
+ * Semua bin yang di-freeze dilepas kembali di akhir.
  */
 export async function POST(_req: NextRequest, ctx: Ctx) {
   return handle(async () => {
@@ -23,28 +24,41 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
 
     const result = await prisma.$transaction(
       async (tx) => {
-        const doc = await tx.physInvDoc.findUnique({ where: { id }, include: { items: true } });
+        const doc = await tx.physInvDoc.findFirst({
+          where: { OR: [{ id: decodeURIComponent(id) }, { doc_number: decodeURIComponent(id) }] },
+          include: { items: true },
+        });
         if (!doc) throw new HttpError(404, 'Physical inventory document does not exist.');
         if (doc.status === PhysInvStatus.POSTED)
           throw new HttpError(400, `Document ${doc.doc_number} is already posted.`);
         if (doc.status !== PhysInvStatus.COUNTED)
           throw new HttpError(400, 'Count results must be entered before posting (LI11N).');
 
-        const pending = doc.items.filter((i) => i.counted_qty !== null && i.diff_qty !== 0 && !i.posted);
-        const docs: { document_number: string; material_code: string; diff: number }[] = [];
+        const pending = doc.items.filter(
+          (i) => i.counted_qty !== null && i.diff_qty !== 0 && !i.posted
+        );
+
+        const docs: {
+          document_number: string;
+          bin_code: string;
+          material_code: string;
+          batch_number: string | null;
+          diff: number;
+        }[] = [];
 
         for (const item of pending) {
           const diff = item.diff_qty;
           const movement = diff > 0 ? MovementType.ADJ_701_PLUS : MovementType.ADJ_702_MIN;
 
-          const material = await tx.material.findUnique({ where: { material_code: item.material_code } });
+          const material = await tx.material.findUnique({
+            where: { material_code: item.material_code },
+          });
           if (!material) throw new HttpError(400, `Material ${item.material_code} does not exist.`);
 
-          // ambil tanggal batch dari quant lama (kalau ada) supaya tidak hilang
           const quant = await tx.stockWM.findFirst({
             where: {
               material_code: item.material_code,
-              bin_code: doc.bin_code,
+              bin_code: item.bin_code,
               batch_number: item.batch_number,
             },
           });
@@ -53,7 +67,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
             tx,
             {
               material_code: item.material_code,
-              bin_code: doc.bin_code,
+              bin_code: item.bin_code,
               batch_number: item.batch_number,
             },
             diff,
@@ -68,8 +82,8 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
               document_number,
               movement_type: movement,
               material_code: item.material_code,
-              source_bin: diff > 0 ? null : doc.bin_code,
-              target_bin: diff > 0 ? doc.bin_code : null,
+              source_bin: diff > 0 ? null : item.bin_code,
+              target_bin: diff > 0 ? item.bin_code : null,
               batch_number: item.batch_number,
               qty: Math.abs(diff),
               uom: material.uom,
@@ -81,32 +95,40 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
           });
 
           await tx.physInvDocItem.update({ where: { id: item.id }, data: { posted: true } });
-          docs.push({ document_number, material_code: item.material_code, diff });
+          docs.push({
+            document_number,
+            bin_code: item.bin_code,
+            material_code: item.material_code,
+            batch_number: item.batch_number,
+            diff,
+          });
         }
 
-        // unfreeze bin
-        const agg = await tx.stockWM.aggregate({ where: { bin_code: doc.bin_code }, _sum: { qty: true } });
-        await tx.storageBin.update({
-          where: { bin_code: doc.bin_code },
-          data: { status: (agg._sum.qty ?? 0) > 0 ? BinStatus.OCCUPIED : BinStatus.EMPTY },
-        });
+        // release semua bin yang di-freeze
+        for (const bin_code of doc.frozen_bins) {
+          const agg = await tx.stockWM.aggregate({ where: { bin_code }, _sum: { qty: true } });
+          await tx.storageBin.updateMany({
+            where: { bin_code },
+            data: { status: (agg._sum.qty ?? 0) > 0 ? BinStatus.OCCUPIED : BinStatus.EMPTY },
+          });
+        }
 
         await tx.physInvDoc.update({
-          where: { id },
+          where: { id: doc.id },
           data: { status: PhysInvStatus.POSTED, posted_at: new Date() },
         });
 
-        return { doc_number: doc.doc_number, bin_code: doc.bin_code, documents: docs };
+        return { doc_number: doc.doc_number, bins: doc.frozen_bins.length, documents: docs };
       },
-      { timeout: 25000, maxWait: 10000 }
+      { timeout: 60000, maxWait: 15000 }
     );
 
     const n = result.documents.length;
     return ok(
       result,
       n === 0
-        ? `Document ${result.doc_number} posted — no differences found, bin ${result.bin_code} released`
-        : `Document ${result.doc_number} posted — ${n} difference document(s) created, bin ${result.bin_code} released`
+        ? `Document ${result.doc_number} posted — no differences found, ${result.bins} bin(s) released`
+        : `Document ${result.doc_number} posted — ${n} difference document(s) created, ${result.bins} bin(s) released`
     );
   });
 }

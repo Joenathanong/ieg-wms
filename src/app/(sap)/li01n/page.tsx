@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ScanBarcode, Snowflake, RefreshCw, Trash2, ArrowRight } from 'lucide-react';
-import { Panel, Field, Input, Button, Toolbar, Grid, Badge, type Column } from '@/components/sap/ui';
+import { ScanBarcode, Snowflake, RefreshCw, Trash2, ArrowRight, CheckSquare, Square, Search } from 'lucide-react';
+import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, del, fmtDate, fmtDateTime } from '@/lib/client';
@@ -11,7 +11,9 @@ import { api, post, del, fmtDate, fmtDateTime } from '@/lib/client';
 interface DocRow {
   id: string;
   doc_number: string;
-  bin_code: string;
+  scope_type: string;
+  scope_value: string;
+  bin_count: number;
   status: 'CREATED' | 'FROZEN' | 'COUNTED' | 'POSTED';
   planned_date: string;
   counted_at: string | null;
@@ -28,8 +30,12 @@ export default function Li01nPage() {
   const { setStatus } = useStatus();
   const { bins } = useMasterData();
 
-  const [bin, setBin] = useState('');
+  const [scopeType, setScopeType] = useState<'BIN_LIST' | 'ZONE' | 'ALL'>('ZONE');
+  const [zone, setZone] = useState('');
+  const [binFilter, setBinFilter] = useState('');
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [plannedDate, setPlannedDate] = useState(new Date().toISOString().slice(0, 10));
+
   const [docs, setDocs] = useState<DocRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -47,14 +53,38 @@ export default function Li01nPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const zones = useMemo(
+    () => [...new Set(bins.filter((b) => !b.is_interim).map((b) => b.zone_id))].sort(),
+    [bins]
+  );
+
+  const selectableBins = useMemo(
+    () =>
+      bins
+        .filter((b) => !b.is_interim)
+        .filter((b) => (binFilter ? b.bin_code.toUpperCase().includes(binFilter.toUpperCase()) : true))
+        .slice(0, 400),
+    [bins, binFilter]
+  );
+
+  const pickedList = Object.keys(picked).filter((k) => picked[k]);
+
   async function freeze() {
-    if (!bin.trim()) return setStatus('Storage bin is mandatory', 'E');
+    const body: Record<string, unknown> = { scope_type: scopeType, planned_date: plannedDate };
+    if (scopeType === 'ZONE') {
+      if (!zone) return setStatus('Pilih zona terlebih dahulu', 'E');
+      body.zone = zone;
+    } else if (scopeType === 'BIN_LIST') {
+      if (pickedList.length === 0) return setStatus('Pilih minimal satu storage bin', 'E');
+      body.bins = pickedList;
+    }
+
     setBusy(true);
-    const r = await post('/api/physinv', { bin_code: bin.trim().toUpperCase(), planned_date: plannedDate });
+    const r = await post('/api/physinv', body);
     setBusy(false);
     setStatus(r.message, r.ok ? 'S' : 'E');
     if (r.ok) {
-      setBin('');
+      setPicked({});
       load();
     }
   }
@@ -68,23 +98,25 @@ export default function Li01nPage() {
   }
 
   const cols: Column<DocRow>[] = [
-    { key: 'doc_number', header: 'PI Document', mono: true, width: '130px' },
-    { key: 'bin_code', header: 'Storage Bin', mono: true, width: '140px' },
-    { key: 'status', header: 'Status', width: '110px', render: (r) => <Badge value={r.status} /> },
-    { key: 'item_count', header: 'Items', align: 'right', width: '70px' },
+    { key: 'doc_number', header: 'PI Document', mono: true, width: '125px' },
+    { key: 'scope_type', header: 'Scope', mono: true, width: '95px' },
+    { key: 'scope_value', header: 'Scope Detail', width: '220px' },
+    { key: 'bin_count', header: 'Bins', align: 'right', width: '65px' },
+    { key: 'status', header: 'Status', width: '105px', render: (r) => <Badge value={r.status} /> },
+    { key: 'item_count', header: 'Lines', align: 'right', width: '65px' },
     { key: 'book_total', header: 'Book Qty', align: 'right', width: '95px' },
     {
       key: 'counted_total',
       header: 'Counted',
       align: 'right',
-      width: '95px',
+      width: '90px',
       render: (r) => (r.status === 'FROZEN' ? <span className="text-sap-muted">—</span> : r.counted_total),
     },
     {
       key: 'diff_total',
       header: 'Difference',
       align: 'right',
-      width: '100px',
+      width: '95px',
       render: (r) =>
         r.status === 'FROZEN' ? (
           <span className="text-sap-muted">—</span>
@@ -95,9 +127,9 @@ export default function Li01nPage() {
           </span>
         ),
     },
-    { key: 'planned_date', header: 'Planned', mono: true, width: '100px', render: (r) => fmtDate(r.planned_date) },
-    { key: 'created_by', header: 'Created By', mono: true, width: '110px' },
-    { key: 'created_at', header: 'Created On', mono: true, width: '150px', render: (r) => fmtDateTime(r.created_at) },
+    { key: 'planned_date', header: 'Planned', mono: true, width: '95px', render: (r) => fmtDate(r.planned_date) },
+    { key: 'created_by', header: 'Created By', mono: true, width: '105px' },
+    { key: 'created_at', header: 'Created On', mono: true, width: '145px', render: (r) => fmtDateTime(r.created_at) },
     {
       key: 'act',
       header: '',
@@ -113,7 +145,7 @@ export default function Li01nPage() {
           {r.status !== 'POSTED' && (
             <button
               type="button"
-              title="Cancel document & release bin"
+              title="Cancel document & release bins"
               onClick={() => cancel(r.id)}
               className="text-sap-muted hover:text-sap-error p-1"
             >
@@ -127,31 +159,94 @@ export default function Li01nPage() {
 
   return (
     <div className="space-y-3">
-      <Panel title="LI01N — Create Physical Inventory Document (Freeze Bin)" icon={<ScanBarcode size={13} className="text-sap-blue" />}>
+      <Panel title="LI01N — Create Physical Inventory Document (Multi-Bin)" icon={<ScanBarcode size={13} className="text-sap-blue" />}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-          <Field label="Storage Bin" required>
-            <Input
-              list="dl-bins"
-              className="uppercase"
-              value={bin}
-              onChange={(e) => setBin(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && freeze()}
-            />
+          <Field label="Scope" required>
+            <Select value={scopeType} onChange={(e) => setScopeType(e.target.value as typeof scopeType)}>
+              <option value="ZONE">ZONE — semua bin dalam satu zona</option>
+              <option value="BIN_LIST">BIN LIST — pilih bin manual</option>
+              <option value="ALL">ALL — seluruh gudang</option>
+            </Select>
           </Field>
+
+          {scopeType === 'ZONE' && (
+            <Field label="Zone / Storage Section" required>
+              <Select value={zone} onChange={(e) => setZone(e.target.value)}>
+                <option value="">— pilih zona —</option>
+                {zones.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+
           <Field label="Planned Count Date">
             <Input type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
           </Field>
+
           <div>
             <Button variant="primary" onClick={freeze} loading={busy}>
-              <Snowflake size={13} /> Freeze Bin &amp; Create Doc
+              <Snowflake size={13} /> Freeze &amp; Create Document
             </Button>
           </div>
-          <p className="text-xxs text-sap-muted leading-relaxed">
-            Saat dokumen dibuat, bin di-set <b>BLOCKED</b> sehingga tidak ada pergerakan stok selama proses
-            counting. Snapshot stok sistem (book quantity) direkam otomatis.
-          </p>
         </div>
+
+        <p className="mt-3 text-xxs text-sap-muted leading-relaxed">
+          Satu dokumen mencakup <b>banyak bin dan banyak baris</b>. Semua bin dalam cakupan di-set{' '}
+          <b>BLOCKED</b> selama counting, snapshot stok sistem direkam sebagai book quantity, dan seluruh
+          selisih nanti diposting sekaligus di LI11N. Bin interim (GR/GI) tidak pernah ikut dihitung.
+        </p>
       </Panel>
+
+      {scopeType === 'BIN_LIST' && (
+        <Panel title={`Pilih Storage Bin (${pickedList.length} dipilih)`} bodyClassName="p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Input
+              className="!w-[220px] uppercase"
+              placeholder="Filter bin, mis. A-01"
+              value={binFilter}
+              onChange={(e) => setBinFilter(e.target.value)}
+            />
+            <Button
+              onClick={() =>
+                setPicked((s) => {
+                  const n = { ...s };
+                  selectableBins.forEach((b) => (n[b.bin_code] = true));
+                  return n;
+                })
+              }
+            >
+              <CheckSquare size={13} /> Pilih semua hasil filter
+            </Button>
+            <Button onClick={() => setPicked({})}>
+              <Square size={13} /> Kosongkan
+            </Button>
+            <span className="ml-auto text-xxs text-sap-muted">
+              <Search size={11} className="inline mr-1" />
+              {selectableBins.length} bin ditampilkan
+            </span>
+          </div>
+          <div className="max-h-[260px] overflow-auto border border-sap-border rounded-[2px] p-2 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-1">
+            {selectableBins.map((b) => {
+              const on = !!picked[b.bin_code];
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setPicked((s) => ({ ...s, [b.bin_code]: !on }))}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-[2px] border text-2xs font-mono text-left
+                    ${on ? 'border-sap-blue bg-sap-blue/15 text-sap-text' : 'border-sap-border bg-[#242934] text-sap-muted hover:border-sap-blue/50'}`}
+                >
+                  {on ? <CheckSquare size={12} className="text-sap-blue shrink-0" /> : <Square size={12} className="shrink-0" />}
+                  <span className="truncate">{b.bin_code}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Panel>
+      )}
 
       <Toolbar>
         <Button onClick={load} loading={loading}>
@@ -162,15 +257,7 @@ export default function Li01nPage() {
         </span>
       </Toolbar>
 
-      <Grid columns={cols} rows={docs} loading={loading} rowKey={(r) => r.id} maxHeight="calc(100vh - 330px)" />
-
-      <datalist id="dl-bins">
-        {bins.map((b) => (
-          <option key={b.id} value={b.bin_code}>
-            {b.zone_id} · {b.status}
-          </option>
-        ))}
-      </datalist>
+      <Grid columns={cols} rows={docs} loading={loading} rowKey={(r) => r.id} maxHeight="calc(100vh - 400px)" />
     </div>
   );
 }

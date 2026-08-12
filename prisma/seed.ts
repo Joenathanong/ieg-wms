@@ -1,7 +1,8 @@
 /**
  * Seed data awal:
- *  - user ADMIN / admin123
- *  - contoh material, storage bin, dan saldo awal
+ *  - user ADMIN / admin123, operator dengan akses PDT
+ *  - konfigurasi sistem (ZSET)
+ *  - contoh material + master pallet, storage bin (termasuk GR/GI interim), dan saldo awal
  *
  * Jalankan:  npm run db:seed
  */
@@ -18,32 +19,93 @@ const MATERIALS = [
   { material_code: 'SP-1002', description: 'Lakban Bening 2 inch', uom: 'ROL', is_batch_managed: false, min_safety_stock: 30 },
 ];
 
+/** Tabel palletization: material x SU type x kelompok gudang */
+const PACKAGINGS = [
+  { material_code: 'FG-0001', pack_code: 'PAL-GB', su_type: 'PAL', zone_group: 'BESAR', description: 'Pallet Gudang Besar (10 layer)', qty_per_unit: 1000, is_default: true },
+  { material_code: 'FG-0001', pack_code: 'PAL-GB-HALF', su_type: 'PAL', zone_group: 'BESAR', description: 'Setengah pallet', qty_per_unit: 500, is_default: false },
+  { material_code: 'FG-0001', pack_code: 'BOX-GK', su_type: 'BINBOX', zone_group: 'KECIL', description: 'Bin box Gudang Kecil', qty_per_unit: 100, is_default: true },
+  { material_code: 'FG-0002', pack_code: 'PAL-GB', su_type: 'PAL', zone_group: 'BESAR', description: 'Pallet standar', qty_per_unit: 120, is_default: true },
+  { material_code: 'FG-0003', pack_code: 'PAL-GB', su_type: 'PAL', zone_group: 'BESAR', description: 'Pallet standar', qty_per_unit: 600, is_default: true },
+  { material_code: 'FG-0003', pack_code: 'BOX-GK', su_type: 'BINBOX', zone_group: 'KECIL', description: 'Bin box', qty_per_unit: 60, is_default: true },
+  { material_code: 'SP-1001', pack_code: 'PAL-GB', su_type: 'PAL', zone_group: null as string | null, description: 'Pallet karton (semua gudang)', qty_per_unit: 500, is_default: true },
+];
+
 function buildBins() {
-  const bins: { bin_code: string; zone_id: string; max_weight_kg: number }[] = [];
+  const bins: { bin_code: string; zone_id: string; max_weight_kg: number; is_interim?: boolean }[] = [];
+
+  // Gudang Besar — Heavy Duty Racking: GB-<Aisle>-<Rack>-<Level>-<Posisi>
   for (const aisle of ['A', 'B']) {
     for (let rack = 1; rack <= 4; rack++) {
       for (let lvl = 1; lvl <= 3; lvl++) {
         bins.push({
-          bin_code: `${aisle}-${String(rack).padStart(2, '0')}-${String(lvl).padStart(2, '0')}-1`,
-          zone_id: aisle === 'A' ? 'RACK-FAST' : 'RACK-SLOW',
-          max_weight_kg: 1200,
+          bin_code: `GB-${aisle}-${String(rack).padStart(2, '0')}-${String(lvl).padStart(2, '0')}-1`,
+          zone_id: 'GB-HDR',
+          max_weight_kg: 1500,
         });
       }
     }
   }
+
+  // Pick Bin Gudang Besar: GB-PICK-<Aisle>-<NN>
+  for (let i = 1; i <= 4; i++) {
+    bins.push({ bin_code: `GB-PICK-A-${String(i).padStart(2, '0')}`, zone_id: 'GB-PICK', max_weight_kg: 300 });
+  }
+
+  // Gudang Kecil — Bin Box: GK-<Aisle>-<Rack>-<Level>-<Box>
+  for (const aisle of ['B', 'C']) {
+    for (let rack = 1; rack <= 3; rack++) {
+      for (let lvl = 1; lvl <= 2; lvl++) {
+        for (let box = 1; box <= 2; box++) {
+          bins.push({
+            bin_code: `GK-${aisle}-${String(rack).padStart(2, '0')}-${String(lvl).padStart(2, '0')}-${box}`,
+            zone_id: 'GK-BIN',
+            max_weight_kg: 60,
+          });
+        }
+      }
+    }
+  }
+
+  // Pick Bin Gudang Kecil: GK-PICK-<Aisle>-<NN>
+  for (let i = 1; i <= 4; i++) {
+    bins.push({ bin_code: `GK-PICK-B-${String(i).padStart(2, '0')}`, zone_id: 'GK-PICK', max_weight_kg: 80 });
+  }
+
+  // Staging & reject
   bins.push({ bin_code: 'STG-01', zone_id: 'STAGING', max_weight_kg: 5000 });
-  bins.push({ bin_code: 'STG-02', zone_id: 'STAGING', max_weight_kg: 5000 });
   bins.push({ bin_code: 'RJ-01', zone_id: 'REJECT', max_weight_kg: 800 });
+
+  // Transit in/out — wajib untuk alur 2-step
+  bins.push({ bin_code: 'TRN-IN-01', zone_id: 'TRANSIT-IN', max_weight_kg: 10000, is_interim: true });
+  bins.push({ bin_code: 'TRN-IN-02', zone_id: 'TRANSIT-IN', max_weight_kg: 10000, is_interim: true });
+  bins.push({ bin_code: 'TRN-OUT-01', zone_id: 'TRANSIT-OUT', max_weight_kg: 10000, is_interim: true });
+  bins.push({ bin_code: 'TRN-OUT-02', zone_id: 'TRANSIT-OUT', max_weight_kg: 10000, is_interim: true });
+
   return bins;
 }
 
 const INITIAL = [
-  { material_code: 'FG-0001', bin_code: 'A-01-01-1', batch: 'B2608A', mfg: '2026-08-01', exp: '2028-08-01', qty: 480 },
-  { material_code: 'FG-0001', bin_code: 'A-01-02-1', batch: 'B2607C', mfg: '2026-07-05', exp: '2026-09-05', qty: 120 },
-  { material_code: 'FG-0002', bin_code: 'A-02-01-1', batch: 'B2608B', mfg: '2026-08-05', exp: '2028-02-05', qty: 240 },
-  { material_code: 'FG-0003', bin_code: 'A-02-02-1', batch: 'B2606X', mfg: '2026-06-10', exp: '2026-08-25', qty: 60 },
-  { material_code: 'SP-1001', bin_code: 'B-01-01-1', batch: null, mfg: null, exp: null, qty: 1000 },
-  { material_code: 'SP-1002', bin_code: 'B-01-02-1', batch: null, mfg: null, exp: null, qty: 25 },
+  { material_code: 'FG-0001', bin_code: 'GB-A-01-01-1', batch: 'B2608A', mfg: '2026-08-01', exp: '2028-08-01', qty: 480 },
+  { material_code: 'FG-0001', bin_code: 'GB-A-01-02-1', batch: 'B2607C', mfg: '2026-07-05', exp: '2026-09-05', qty: 120 },
+  { material_code: 'FG-0002', bin_code: 'GB-A-02-01-1', batch: 'B2608B', mfg: '2026-08-05', exp: '2028-02-05', qty: 240 },
+  { material_code: 'FG-0003', bin_code: 'GB-PICK-A-01', batch: 'B2606X', mfg: '2026-06-10', exp: '2026-08-25', qty: 60 },
+  { material_code: 'SP-1001', bin_code: 'GK-B-01-01-1', batch: null, mfg: null, exp: null, qty: 1000 },
+  { material_code: 'SP-1002', bin_code: 'GK-B-01-02-1', batch: null, mfg: null, exp: null, qty: 25 },
+];
+
+const SETTINGS = [
+  { key: 'PDT_ENABLED', value: '1' },
+  { key: 'AUTO_SPLIT_PALLET', value: '1' },
+  { key: 'PDT_STRICT_FEFO', value: '0' },
+  { key: 'DEFAULT_GR_BIN', value: 'TRN-IN-01' },
+  { key: 'DEFAULT_GI_BIN', value: 'TRN-OUT-01' },
+  { key: 'PDT_ZRF01', value: '1' },
+  { key: 'PDT_ZRF02', value: '1' },
+  { key: 'PDT_ZRF03', value: '1' },
+  { key: 'PDT_ZRF04', value: '1' },
+  { key: 'PDT_ZRF05', value: '1' },
+  { key: 'PDT_ZRF06', value: '1' },
+  { key: 'PDT_ZRF07', value: '1' },
 ];
 
 async function main() {
@@ -55,8 +117,9 @@ async function main() {
       full_name: 'System Administrator',
       password_hash: await bcrypt.hash('admin123', 10),
       role: 'ADMIN',
+      pdt_enabled: true,
     },
-    update: {},
+    update: { pdt_enabled: true },
   });
   await prisma.user.upsert({
     where: { username: 'WHOPR01' },
@@ -65,21 +128,51 @@ async function main() {
       full_name: 'Warehouse Operator 01',
       password_hash: await bcrypt.hash('operator123', 10),
       role: 'OPERATOR',
+      pdt_enabled: true,
+    },
+    update: { pdt_enabled: true },
+  });
+  await prisma.user.upsert({
+    where: { username: 'WHOPR02' },
+    create: {
+      username: 'WHOPR02',
+      full_name: 'Warehouse Operator 02 (tanpa PDT)',
+      password_hash: await bcrypt.hash('operator123', 10),
+      role: 'OPERATOR',
+      pdt_enabled: false,
     },
     update: {},
   });
+
+  console.log('→ Seeding system settings ...');
+  for (const s of SETTINGS) {
+    await prisma.systemSetting.upsert({
+      where: { key: s.key },
+      create: { ...s, updated_by: 'SEED' },
+      update: {},
+    });
+  }
 
   console.log('→ Seeding materials ...');
   for (const m of MATERIALS) {
     await prisma.material.upsert({ where: { material_code: m.material_code }, create: m, update: m });
   }
 
+  console.log('→ Seeding palletization master ...');
+  for (const p of PACKAGINGS) {
+    await prisma.packagingType.upsert({
+      where: { material_code_pack_code: { material_code: p.material_code, pack_code: p.pack_code } },
+      create: p,
+      update: p,
+    });
+  }
+
   console.log('→ Seeding storage bins ...');
   for (const b of buildBins()) {
     await prisma.storageBin.upsert({
       where: { bin_code: b.bin_code },
-      create: { ...b, status: BinStatus.EMPTY },
-      update: { zone_id: b.zone_id, max_weight_kg: b.max_weight_kg },
+      create: { ...b, is_interim: b.is_interim ?? false, status: BinStatus.EMPTY },
+      update: { zone_id: b.zone_id, max_weight_kg: b.max_weight_kg, is_interim: b.is_interim ?? false },
     });
   }
 
@@ -138,7 +231,10 @@ async function main() {
     });
   }
 
-  console.log('✔ Seed selesai. Login: ADMIN / admin123');
+  console.log('✔ Seed selesai.');
+  console.log('  Login admin    : ADMIN / admin123        (PDT aktif)');
+  console.log('  Login operator : WHOPR01 / operator123   (PDT aktif)');
+  console.log('  Login operator : WHOPR02 / operator123   (PDT nonaktif)');
 }
 
 main()

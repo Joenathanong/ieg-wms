@@ -1,12 +1,19 @@
-import { Prisma, BinStatus, MovementType } from '@prisma/client';
+import { Prisma, BinStatus, MovementType, TrStatus, TrType, type PrismaClient } from '@prisma/client';
 import { HttpError } from './auth';
 import { nextDocNumber } from './docnum';
 import { MOVEMENT_SIGN, MOVEMENT_CODE } from './movement';
+import { getSetting, isTrue } from './settings';
 
 /* =====================================================================
  *  CORE WMS ENGINE
  *  Semua fungsi di file ini WAJIB dipanggil di dalam prisma.$transaction()
  *  agar perubahan Stock IM, Stock WM, Bin Status, dan Log bersifat ACID.
+ *
+ *  ALUR 2-STEP
+ *    MIGO 101  -> IM+ / WM+ di TRANSIT-IN  -> Transfer Requirement PUTAWAY
+ *    LB12      -> konfirmasi 301 TRANSIT-IN -> rak final
+ *    MIGO 201  -> Transfer Requirement PICK (belum ada posting stok)
+ *    LB12      -> konfirmasi 301 rak -> TRANSIT-OUT, lalu 201 otomatis diposting
  * ===================================================================== */
 
 export interface MovementInput {
@@ -21,6 +28,8 @@ export interface MovementInput {
   doc_date?: Date | null;
   reference?: string | null;
   remarks?: string | null;
+  tr_number?: string | null;
+  via_pdt?: boolean;
   user_id: string;
 }
 
@@ -44,6 +53,21 @@ export async function getBinOrThrow(
   if (!allowBlocked && b.status === BinStatus.BLOCKED)
     throw new HttpError(400, `Storage bin ${code} is BLOCKED. Movement not allowed.`);
   return b;
+}
+
+/** Ambil bin interim dari konfigurasi sistem, pastikan ada di master. */
+export async function getInterimBin(
+  tx: Prisma.TransactionClient,
+  which: 'DEFAULT_GR_BIN' | 'DEFAULT_GI_BIN'
+) {
+  const code = (await getSetting(tx, which)).toUpperCase();
+  const bin = await tx.storageBin.findUnique({ where: { bin_code: code } });
+  if (!bin)
+    throw new HttpError(
+      400,
+      `Interim bin ${code} is not defined in master data. Maintain it in LS01N or change the setting in ZSET.`
+    );
+  return bin;
 }
 
 /* ------------------------------------------------------------------ */
@@ -161,7 +185,69 @@ export function validateBatch(isBatchManaged: boolean, batch: string | null, mat
 }
 
 /* ------------------------------------------------------------------ */
-/* MIGO — Goods Movement (101 / 201 / 551 / 561 / 701 / 702)            */
+/* SPLIT PER PALLET (master kemasan)                                   */
+/* ------------------------------------------------------------------ */
+
+export interface SplitLine {
+  qty: number;
+  pack_code: string | null;
+}
+
+/**
+ * Memecah qty menjadi beberapa line sesuai tabel palletization.
+ * 2500 PC dengan pallet 1000 -> [1000, 1000, 500] (sisa jadi line sendiri).
+ *
+ * Pemilihan baris palletization:
+ *   1. pack_code eksplisit bila diisi
+ *   2. baris yang zone_group-nya sama dengan gudang tujuan, prioritas is_default
+ *   3. baris tanpa zone_group (berlaku umum), prioritas is_default
+ * Bila material tidak punya master kemasan, dikembalikan satu line utuh.
+ */
+export async function splitByPackaging(
+  tx: Prisma.TransactionClient,
+  material_code: string,
+  qty: number,
+  packCode?: string | null,
+  zoneGroup?: string | null
+): Promise<SplitLine[]> {
+  if (!(await isTrue(tx, 'AUTO_SPLIT_PALLET'))) return [{ qty, pack_code: null }];
+
+  const packs = await tx.packagingType.findMany({
+    where: { material_code },
+    orderBy: [{ is_default: 'desc' }, { qty_per_unit: 'desc' }],
+  });
+  if (packs.length === 0) return [{ qty, pack_code: null }];
+
+  const group = zoneGroup ? zoneGroup.toUpperCase() : null;
+
+  const chosen = packCode
+    ? packs.find((p) => p.pack_code === packCode.toUpperCase())
+    : group
+      ? (packs.find((p) => p.zone_group === group && p.is_default) ??
+        packs.find((p) => p.zone_group === group) ??
+        packs.find((p) => !p.zone_group && p.is_default) ??
+        packs.find((p) => !p.zone_group) ??
+        packs.find((p) => p.is_default) ??
+        packs[0])
+      : (packs.find((p) => p.is_default) ?? packs[0]);
+
+  if (!chosen || chosen.qty_per_unit <= 0) return [{ qty, pack_code: null }];
+
+  const lines: SplitLine[] = [];
+  let rest = qty;
+  // batas aman supaya tidak membuat ribuan line
+  const maxLines = 200;
+  while (rest > 0 && lines.length < maxLines) {
+    const take = Math.min(rest, chosen.qty_per_unit);
+    lines.push({ qty: take, pack_code: chosen.pack_code });
+    rest -= take;
+  }
+  if (rest > 0) lines.push({ qty: rest, pack_code: chosen.pack_code });
+  return lines;
+}
+
+/* ------------------------------------------------------------------ */
+/* MIGO — Goods Movement langsung (551 / 561 / 701 / 702)               */
 /* ------------------------------------------------------------------ */
 
 export async function postGoodsMovement(
@@ -173,13 +259,12 @@ export async function postGoodsMovement(
 
   const sign = MOVEMENT_SIGN[input.movement_type];
   if (sign === 0)
-    throw new HttpError(400, 'Movement 301 must be posted via transfer function (LT01/LT10).');
+    throw new HttpError(400, 'Movement 301 must be posted via transfer function (LT01/LT10/LB12).');
 
   const material = await getMaterialOrThrow(tx, input.material_code);
   const batch = material.is_batch_managed ? (input.batch_number ?? null) : null;
   validateBatch(material.is_batch_managed, input.batch_number ?? null, material.material_code);
 
-  // tentukan bin yang terpengaruh
   const bin_code = sign > 0 ? input.target_bin : input.source_bin;
   if (!bin_code)
     throw new HttpError(
@@ -189,23 +274,17 @@ export async function postGoodsMovement(
         : `Source storage bin is mandatory for movement ${MOVEMENT_CODE[input.movement_type]}.`
     );
 
-  await getBinOrThrow(tx, bin_code);
+  await getBinOrThrow(tx, bin_code, input.movement_type === MovementType.ADJ_701_PLUS || input.movement_type === MovementType.ADJ_702_MIN);
 
-  // 1) update Stock WM (bin + batch)
   await applyStockWM(
     tx,
     { material_code: material.material_code, bin_code, batch_number: batch },
     sign * qty,
     { mfg_date: input.mfg_date ?? null, exp_date: input.exp_date ?? null }
   );
-
-  // 2) update Stock IM (global)
   await applyStockIM(tx, material.material_code, sign * qty);
-
-  // 3) refresh status bin
   await refreshBinStatus(tx, bin_code);
 
-  // 4) audit trail
   const document_number = await nextDocNumber(tx, 'MATDOC');
   await tx.migoLog.create({
     data: {
@@ -219,6 +298,8 @@ export async function postGoodsMovement(
       uom: material.uom,
       reference: input.reference ?? null,
       remarks: input.remarks ?? null,
+      tr_number: input.tr_number ?? null,
+      via_pdt: input.via_pdt ?? false,
       doc_date: input.doc_date ?? new Date(),
       user_id: input.user_id,
     },
@@ -228,7 +309,7 @@ export async function postGoodsMovement(
 }
 
 /* ------------------------------------------------------------------ */
-/* LT01 / LT10 — Bin to Bin Transfer (301). Stock IM TIDAK berubah.     */
+/* Bin to Bin Transfer (301). Stock IM TIDAK berubah.                   */
 /* ------------------------------------------------------------------ */
 
 export interface TransferInput {
@@ -240,6 +321,8 @@ export interface TransferInput {
   user_id: string;
   doc_date?: Date | null;
   remarks?: string | null;
+  tr_number?: string | null;
+  via_pdt?: boolean;
 }
 
 export async function postBinTransfer(
@@ -258,7 +341,6 @@ export async function postBinTransfer(
   await getBinOrThrow(tx, input.source_bin);
   await getBinOrThrow(tx, input.target_bin);
 
-  // ambil quant sumber untuk mewarisi mfg/exp date
   const src = await tx.stockWM.findFirst({
     where: {
       material_code: material.material_code,
@@ -272,13 +354,11 @@ export async function postBinTransfer(
       `Deficiency of stock in source bin ${input.source_bin}: available ${src?.qty ?? 0}, requested ${qty}.`
     );
 
-  // 1) kurangi source
   await applyStockWM(
     tx,
     { material_code: material.material_code, bin_code: input.source_bin, batch_number: batch },
     -qty
   );
-  // 2) tambah target (bawa mfg/exp date)
   await applyStockWM(
     tx,
     { material_code: material.material_code, bin_code: input.target_bin, batch_number: batch },
@@ -286,11 +366,9 @@ export async function postBinTransfer(
     { mfg_date: src.mfg_date, exp_date: src.exp_date }
   );
 
-  // 3) Stock IM global TIDAK berubah — hanya status bin yang di-refresh
   await refreshBinStatus(tx, input.source_bin);
   await refreshBinStatus(tx, input.target_bin);
 
-  // 4) log 301
   const document_number = await nextDocNumber(tx, 'TRDOC');
   await tx.migoLog.create({
     data: {
@@ -303,10 +381,439 @@ export async function postBinTransfer(
       qty,
       uom: material.uom,
       remarks: input.remarks ?? null,
+      tr_number: input.tr_number ?? null,
+      via_pdt: input.via_pdt ?? false,
       doc_date: input.doc_date ?? new Date(),
       user_id: input.user_id,
     },
   });
 
   return { document_number };
+}
+
+/* ==================================================================== */
+/* TRANSFER REQUIREMENT — LB10 / LB12                                    */
+/* ==================================================================== */
+
+export interface TrItemInput {
+  material_code: string;
+  batch_number?: string | null;
+  mfg_date?: Date | null;
+  exp_date?: Date | null;
+  pack_code?: string | null;
+  qty: number;
+  source_bin?: string | null;
+  target_bin?: string | null;
+}
+
+export async function createTransferReq(
+  tx: Prisma.TransactionClient,
+  args: {
+    tr_type: TrType;
+    items: TrItemInput[];
+    ref_doc?: string | null;
+    reference?: string | null;
+    remarks?: string | null;
+    user_id: string;
+  }
+) {
+  if (args.items.length === 0) throw new HttpError(400, 'Transfer requirement has no items.');
+  const tr_number = await nextDocNumber(tx, 'TRREQ');
+
+  return tx.transferReq.create({
+    data: {
+      tr_number,
+      tr_type: args.tr_type,
+      ref_doc: args.ref_doc ?? null,
+      reference: args.reference ?? null,
+      remarks: args.remarks ?? null,
+      created_by: args.user_id,
+      items: {
+        create: args.items.map((it, i) => ({
+          line_no: i + 1,
+          material_code: it.material_code,
+          batch_number: it.batch_number ?? null,
+          mfg_date: it.mfg_date ?? null,
+          exp_date: it.exp_date ?? null,
+          pack_code: it.pack_code ?? null,
+          qty: it.qty,
+          source_bin: it.source_bin ?? null,
+          target_bin: it.target_bin ?? null,
+        })),
+      },
+    },
+    include: { items: { orderBy: { line_no: 'asc' } } },
+  });
+}
+
+/**
+ * MIGO 101 — Goods Receipt (level IM).
+ * Stok masuk ke bin interim TRANSIT-IN, lalu dibuatkan TR PUTAWAY yang dipecah per pallet.
+ */
+export async function postGoodsReceipt(
+  tx: Prisma.TransactionClient,
+  args: {
+    material_code: string;
+    qty: number;
+    batch_number?: string | null;
+    mfg_date?: Date | null;
+    exp_date?: Date | null;
+    pack_code?: string | null;
+    /** kelompok gudang tujuan: BESAR | KECIL — menentukan baris palletization */
+    zone_group?: string | null;
+    reference?: string | null;
+    remarks?: string | null;
+    doc_date?: Date | null;
+    user_id: string;
+    via_pdt?: boolean;
+  }
+) {
+  const qty = Math.trunc(args.qty);
+  if (qty <= 0) throw new HttpError(400, 'Quantity must be greater than zero.');
+
+  const material = await getMaterialOrThrow(tx, args.material_code);
+  const batch = material.is_batch_managed ? (args.batch_number ?? null) : null;
+  validateBatch(material.is_batch_managed, args.batch_number ?? null, material.material_code);
+
+  const grBin = await getInterimBin(tx, 'DEFAULT_GR_BIN');
+
+  // 1) posting IM + WM ke bin interim
+  await applyStockWM(
+    tx,
+    { material_code: material.material_code, bin_code: grBin.bin_code, batch_number: batch },
+    qty,
+    { mfg_date: args.mfg_date ?? null, exp_date: args.exp_date ?? null }
+  );
+  await applyStockIM(tx, material.material_code, qty);
+  await refreshBinStatus(tx, grBin.bin_code);
+
+  // 2) material document 101
+  const document_number = await nextDocNumber(tx, 'MATDOC');
+
+  // 3) TR PUTAWAY, dipecah per pallet
+  const split = await splitByPackaging(tx, material.material_code, qty, args.pack_code, args.zone_group);
+  const tr = await createTransferReq(tx, {
+    tr_type: TrType.PUTAWAY,
+    ref_doc: document_number,
+    reference: args.reference ?? null,
+    remarks: args.remarks ?? null,
+    user_id: args.user_id,
+    items: split.map((s) => ({
+      material_code: material.material_code,
+      batch_number: batch,
+      mfg_date: args.mfg_date ?? null,
+      exp_date: args.exp_date ?? null,
+      pack_code: s.pack_code,
+      qty: s.qty,
+      source_bin: grBin.bin_code,
+      target_bin: null,
+    })),
+  });
+
+  await tx.migoLog.create({
+    data: {
+      document_number,
+      movement_type: MovementType.GR_101,
+      material_code: material.material_code,
+      target_bin: grBin.bin_code,
+      batch_number: batch,
+      qty,
+      uom: material.uom,
+      reference: args.reference ?? null,
+      remarks: args.remarks ?? null,
+      tr_number: tr.tr_number,
+      via_pdt: args.via_pdt ?? false,
+      doc_date: args.doc_date ?? new Date(),
+      user_id: args.user_id,
+    },
+  });
+
+  return { document_number, tr };
+}
+
+/**
+ * MIGO 201 — Goods Issue Request (level IM).
+ * BELUM memposting stok; hanya membuat TR PICK. Goods issue diposting otomatis
+ * saat seluruh item TR dikonfirmasi di LB12.
+ */
+export async function createPickRequest(
+  tx: Prisma.TransactionClient,
+  args: {
+    material_code: string;
+    qty: number;
+    batch_number?: string | null;
+    pack_code?: string | null;
+    zone_group?: string | null;
+    reference?: string | null;
+    remarks?: string | null;
+    user_id: string;
+  }
+) {
+  const qty = Math.trunc(args.qty);
+  if (qty <= 0) throw new HttpError(400, 'Quantity must be greater than zero.');
+
+  const material = await getMaterialOrThrow(tx, args.material_code);
+  const batch = material.is_batch_managed ? (args.batch_number ?? null) : null;
+  if (material.is_batch_managed && !batch)
+    throw new HttpError(
+      400,
+      `Material ${material.material_code} is batch managed. Batch number is mandatory.`
+    );
+
+  const giBin = await getInterimBin(tx, 'DEFAULT_GI_BIN');
+
+  // Ketersediaan dihitung HANYA dari rak penyimpanan.
+  // Stok yang masih menunggu put-away di GR zone belum boleh dijanjikan untuk picking.
+  const interimBins = await tx.storageBin.findMany({
+    where: { is_interim: true },
+    select: { bin_code: true },
+  });
+  const interimCodes = interimBins.map((b) => b.bin_code);
+
+  const available = await tx.stockWM.aggregate({
+    where: {
+      material_code: material.material_code,
+      batch_number: batch,
+      bin_code: { notIn: interimCodes.length ? interimCodes : [giBin.bin_code] },
+    },
+    _sum: { qty: true },
+  });
+
+  if ((available._sum.qty ?? 0) < qty) {
+    const pending = await tx.stockWM.aggregate({
+      where: {
+        material_code: material.material_code,
+        batch_number: batch,
+        bin_code: { in: interimCodes },
+      },
+      _sum: { qty: true },
+    });
+    const waiting = pending._sum.qty ?? 0;
+    throw new HttpError(
+      400,
+      `Deficiency of stock: only ${available._sum.qty ?? 0} available on racks for ${material.material_code}${batch ? ' / batch ' + batch : ''}.` +
+        (waiting > 0
+          ? ` ${waiting} unit(s) are still waiting for put-away in the interim zone — process the transfer requirement in LB12 first.`
+          : '')
+    );
+  }
+
+  const split = await splitByPackaging(tx, material.material_code, qty, args.pack_code, args.zone_group);
+
+  const tr = await createTransferReq(tx, {
+    tr_type: TrType.PICK,
+    reference: args.reference ?? null,
+    remarks: args.remarks ?? null,
+    user_id: args.user_id,
+    items: split.map((s) => ({
+      material_code: material.material_code,
+      batch_number: batch,
+      pack_code: s.pack_code,
+      qty: s.qty,
+      source_bin: null,
+      target_bin: giBin.bin_code,
+    })),
+  });
+
+  return { tr };
+}
+
+/**
+ * LB12 — Konfirmasi satu item Transfer Requirement.
+ * PUTAWAY : 301 dari TRANSIT-IN  -> target_bin (diisi operator)
+ * PICK    : 301 dari source_bin (diisi operator) -> TRANSIT-OUT
+ * INTERNAL: 301 dari source_bin -> target_bin
+ */
+export async function confirmTrItem(
+  tx: Prisma.TransactionClient,
+  args: {
+    item_id: string;
+    qty: number;
+    bin: string;
+    user_id: string;
+    via_pdt?: boolean;
+  }
+) {
+  const item = await tx.transferReqItem.findUnique({
+    where: { id: args.item_id },
+    include: { tr: true },
+  });
+  if (!item) throw new HttpError(404, 'Transfer requirement item does not exist.');
+  if (item.status === TrStatus.CLOSED)
+    throw new HttpError(400, `Line ${item.line_no} is already confirmed.`);
+  if (item.tr.status === TrStatus.CANCELLED)
+    throw new HttpError(400, `Transfer requirement ${item.tr.tr_number} is cancelled.`);
+
+  const qty = Math.trunc(args.qty);
+  const open = item.qty - item.qty_confirmed;
+  if (qty <= 0) throw new HttpError(400, 'Confirmation quantity must be greater than zero.');
+  if (qty > open)
+    throw new HttpError(400, `Line ${item.line_no}: only ${open} open for confirmation.`);
+
+  const bin = args.bin.toUpperCase();
+  const binRow = await getBinOrThrow(tx, bin);
+
+  let source_bin: string;
+  let target_bin: string;
+
+  if (item.tr.tr_type === TrType.PUTAWAY) {
+    if (binRow.is_interim)
+      throw new HttpError(400, `Bin ${bin} is an interim bin and cannot be used for put-away.`);
+    source_bin = item.source_bin ?? (await getInterimBin(tx, 'DEFAULT_GR_BIN')).bin_code;
+    target_bin = bin;
+  } else if (item.tr.tr_type === TrType.PICK) {
+    if (binRow.is_interim)
+      throw new HttpError(400, `Bin ${bin} is an interim bin and cannot be used as picking source.`);
+    source_bin = bin;
+    target_bin = item.target_bin ?? (await getInterimBin(tx, 'DEFAULT_GI_BIN')).bin_code;
+  } else {
+    source_bin = item.source_bin ?? bin;
+    target_bin = item.target_bin ?? bin;
+    if (source_bin === target_bin)
+      throw new HttpError(400, 'Source and target storage bin must be different.');
+  }
+
+  const transfer = await postBinTransfer(tx, {
+    material_code: item.material_code,
+    qty,
+    batch_number: item.batch_number,
+    source_bin,
+    target_bin,
+    user_id: args.user_id,
+    tr_number: item.tr.tr_number,
+    via_pdt: args.via_pdt,
+    remarks: `TR ${item.tr.tr_number} line ${item.line_no}`,
+  });
+
+  const newConfirmed = item.qty_confirmed + qty;
+  await tx.transferReqItem.update({
+    where: { id: item.id },
+    data: {
+      qty_confirmed: newConfirmed,
+      status: newConfirmed >= item.qty ? TrStatus.CLOSED : TrStatus.PARTIAL,
+      source_bin,
+      target_bin,
+    },
+  });
+
+  // hitung ulang status header
+  const siblings = await tx.transferReqItem.findMany({ where: { tr_id: item.tr_id } });
+  const allClosed = siblings.every((s) => (s.id === item.id ? newConfirmed >= s.qty : s.status === TrStatus.CLOSED));
+  const anyProgress = siblings.some((s) => (s.id === item.id ? newConfirmed > 0 : s.qty_confirmed > 0));
+
+  if (allClosed) {
+    await tx.transferReq.update({
+      where: { id: item.tr_id },
+      data: { status: TrStatus.CLOSED, closed_at: new Date() },
+    });
+  } else if (anyProgress) {
+    await tx.transferReq.update({ where: { id: item.tr_id }, data: { status: TrStatus.PARTIAL } });
+  }
+
+  return {
+    document_number: transfer.document_number,
+    tr_number: item.tr.tr_number,
+    line_no: item.line_no,
+    source_bin,
+    target_bin,
+    qty,
+    tr_closed: allClosed,
+    /** PICK selesai: stok siap dikeluarkan lewat MIGO 201 dari bin interim ini */
+    ready_for_issue: allClosed && item.tr.tr_type === TrType.PICK ? target_bin : null,
+  };
+}
+
+/**
+ * MIGO 201 — Post Goods Issue dari bin interim TRANSIT-OUT.
+ * Dipanggil setelah picking selesai (LB12 / ZRF03) memindahkan stok ke GI zone.
+ */
+export async function postGoodsIssue(
+  tx: Prisma.TransactionClient,
+  args: {
+    material_code: string;
+    qty: number;
+    batch_number?: string | null;
+    reference?: string | null;
+    remarks?: string | null;
+    tr_number?: string | null;
+    doc_date?: Date | null;
+    user_id: string;
+    via_pdt?: boolean;
+  }
+) {
+  const giBin = await getInterimBin(tx, 'DEFAULT_GI_BIN');
+  const material = await getMaterialOrThrow(tx, args.material_code);
+  const batch = material.is_batch_managed ? (args.batch_number ?? null) : null;
+
+  const quant = await tx.stockWM.findFirst({
+    where: {
+      material_code: material.material_code,
+      bin_code: giBin.bin_code,
+      batch_number: batch,
+    },
+  });
+  if (!quant || quant.qty < args.qty)
+    throw new HttpError(
+      400,
+      `Deficiency of stock in GI zone ${giBin.bin_code}: available ${quant?.qty ?? 0}, requested ${args.qty}. ` +
+        `Confirm the picking transfer requirement in LB12 first.`
+    );
+
+  return postGoodsMovement(tx, {
+    movement_type: MovementType.GI_201,
+    material_code: material.material_code,
+    qty: args.qty,
+    batch_number: batch,
+    source_bin: giBin.bin_code,
+    reference: args.reference ?? null,
+    remarks: args.remarks ?? null,
+    tr_number: args.tr_number ?? null,
+    doc_date: args.doc_date ?? null,
+    via_pdt: args.via_pdt,
+    user_id: args.user_id,
+  });
+}
+
+/** Bisa dipanggil dengan PrismaClient biasa maupun di dalam transaction. */
+type ReadDb = Prisma.TransactionClient | PrismaClient;
+
+/** Saran bin sumber untuk picking, urut FEFO (expired terdekat lebih dulu). */
+export async function suggestPickBins(
+  tx: ReadDb,
+  material_code: string,
+  batch_number: string | null,
+  excludeBin?: string
+) {
+  const quants = await tx.stockWM.findMany({
+    where: {
+      material_code,
+      batch_number,
+      qty: { gt: 0 },
+      ...(excludeBin ? { bin_code: { not: excludeBin } } : {}),
+    },
+    orderBy: [{ exp_date: 'asc' }, { bin_code: 'asc' }],
+    take: 50,
+  });
+  const bins = await tx.storageBin.findMany({
+    where: { bin_code: { in: quants.map((q) => q.bin_code) } },
+  });
+  const bMap = new Map(bins.map((b) => [b.bin_code, b]));
+  return quants
+    .filter((q) => !bMap.get(q.bin_code)?.is_interim)
+    .map((q) => ({
+      bin_code: q.bin_code,
+      zone_id: bMap.get(q.bin_code)?.zone_id ?? '',
+      qty: q.qty,
+      exp_date: q.exp_date,
+    }));
+}
+
+/** Saran bin kosong untuk put-away, prioritas zona pick lalu reserve. */
+export async function suggestPutawayBins(tx: ReadDb, limit = 20) {
+  const bins = await tx.storageBin.findMany({
+    where: { status: BinStatus.EMPTY, is_interim: false },
+    orderBy: [{ zone_id: 'asc' }, { bin_code: 'asc' }],
+    take: limit,
+  });
+  return bins.map((b) => ({ bin_code: b.bin_code, zone_id: b.zone_id, status: b.status }));
 }

@@ -13,6 +13,8 @@ import {
   Boxes,
   Grid3x3,
   PackagePlus,
+  Package,
+  ShieldAlert,
 } from 'lucide-react';
 import { Panel, Field, Select, Button, Toolbar, Separator } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
@@ -23,7 +25,7 @@ import { post } from '@/lib/client';
 /* Definisi 3 tipe upload                                              */
 /* ------------------------------------------------------------------ */
 
-type UploadKind = 'materials' | 'bins' | 'initial-stock';
+type UploadKind = 'materials' | 'packaging' | 'bins' | 'initial-stock' | 'safety-stock';
 
 interface KindDef {
   id: UploadKind;
@@ -51,9 +53,23 @@ const KINDS: Record<UploadKind, KindDef> = {
     ],
     note: 'is_batch_managed: TRUE / FALSE. Material yang sudah ada akan di-update (upsert).',
   },
+  packaging: {
+    id: 'packaging',
+    title: '2. Palletization (MM01)',
+    endpoint: '/api/upload/packaging',
+    file: 'master_packaging.xlsx',
+    Icon: Package,
+    columns: ['material_code', 'pack_code', 'su_type', 'zone_group', 'description', 'qty_per_unit', 'is_default'],
+    sample: [
+      { material_code: 'FG-0001', pack_code: 'PAL-GB', su_type: 'PAL', zone_group: 'BESAR', description: 'Pallet Gudang Besar', qty_per_unit: 1000, is_default: 'TRUE' },
+      { material_code: 'FG-0001', pack_code: 'BOX-GK', su_type: 'BINBOX', zone_group: 'KECIL', description: 'Bin box Gudang Kecil', qty_per_unit: 100, is_default: 'TRUE' },
+      { material_code: 'FG-0002', pack_code: 'PAL-GB', su_type: 'PAL', zone_group: 'BESAR', description: 'Pallet standar', qty_per_unit: 480, is_default: 'TRUE' },
+    ],
+    note: 'Tabel palletization: material × SU type × kelompok gudang. su_type: PAL / BINBOX / CTN. zone_group: BESAR / KECIL (kosongkan bila berlaku semua gudang). Satu baris default per kelompok gudang.',
+  },
   bins: {
     id: 'bins',
-    title: '2. Master Storage Bin (LS01N)',
+    title: '3. Master Storage Bin (LS01N)',
     endpoint: '/api/upload/bins',
     file: 'master_storage_bins.xlsx',
     Icon: Grid3x3,
@@ -68,7 +84,7 @@ const KINDS: Record<UploadKind, KindDef> = {
   },
   'initial-stock': {
     id: 'initial-stock',
-    title: '3. Initial Stock / Saldo Awal (Movement 561)',
+    title: '4. Initial Stock / Saldo Awal (Movement 561)',
     endpoint: '/api/upload/initial-stock',
     file: 'initial_stock.xlsx',
     Icon: PackagePlus,
@@ -79,6 +95,20 @@ const KINDS: Record<UploadKind, KindDef> = {
       { material_code: 'SP-1001', bin_code: 'STG-01', batch_number: '', mfg_date: '', exp_date: '', qty: 1000 },
     ],
     note: 'Master material & bin harus sudah ada. Tanggal format dd.mm.yyyy atau date Excel. Mengisi Stock IM + Stock WM + status Bin + log 561.',
+  },
+  'safety-stock': {
+    id: 'safety-stock',
+    title: '5. Update Safety Stock (replace)',
+    endpoint: '/api/upload/safety-stock',
+    file: 'safety_stock.xlsx',
+    Icon: ShieldAlert,
+    columns: ['material_code', 'min_safety_stock'],
+    sample: [
+      { material_code: 'FG-0001', min_safety_stock: 150 },
+      { material_code: 'FG-0002', min_safety_stock: 80 },
+      { material_code: 'SP-1001', min_safety_stock: 250 },
+    ],
+    note: 'REPLACE nilai safety stock untuk material yang tercantum di file. Material yang tidak ada di file tidak diubah. Bisa dipakai untuk mengubah banyak baris sekaligus.',
   },
 };
 
@@ -200,7 +230,7 @@ export default function ZuploadPage() {
     <div className="space-y-3">
       {/* PILIH TIPE */}
       <Panel title="ZUPLOAD — Master Data & Initial Stock Upload Center" icon={<Upload size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-2">
           {(Object.keys(KINDS) as UploadKind[]).map((k) => {
             const d = KINDS[k];
             const active = k === kind;
@@ -413,7 +443,7 @@ export default function ZuploadPage() {
         </span>
         <Separator />
         <span className="text-xxs text-sap-muted font-mono">
-          Urutan yang benar: Material → Storage Bin → Initial Stock
+          Urutan yang benar: Material → Pallet → Storage Bin → Initial Stock → Safety Stock
         </span>
       </Toolbar>
     </div>

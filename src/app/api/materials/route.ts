@@ -24,6 +24,9 @@ export async function GET(req: NextRequest) {
         : undefined,
       orderBy: { material_code: 'asc' },
       take: limit,
+      include: {
+        packagings: { orderBy: [{ is_default: 'desc' }, { qty_per_unit: 'desc' }] },
+      },
     });
 
     return ok(materials, `${materials.length} material(s) selected`);

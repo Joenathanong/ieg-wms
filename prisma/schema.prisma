@@ -1,6 +1,9 @@
 // =====================================================================
 //  WMS SAP LITE — Prisma Schema (PostgreSQL / Neon.tech / Supabase)
 //  Mengadopsi logika SAP S/4HANA Modul WM (Warehouse Mgmt) & IM (Inventory Mgmt)
+//
+//  Alur 2-step:
+//    MIGO (level IM/MM)  ->  Transfer Requirement  ->  LB10 / LB12 (level WM)
 // =====================================================================
 
 generator client {
@@ -48,6 +51,20 @@ enum PhysInvStatus {
   POSTED // selisih sudah di-clearing via 701/702
 }
 
+/// Jenis Transfer Requirement
+enum TrType {
+  PUTAWAY // dari GR-ZONE ke rak penyimpanan (hasil MIGO 101)
+  PICK // dari rak ke GI-ZONE (permintaan MIGO 201)
+  INTERNAL // pemindahan internal manual (LT01 / LT10 / PDT)
+}
+
+enum TrStatus {
+  OPEN
+  PARTIAL
+  CLOSED
+  CANCELLED
+}
+
 // ---------------------------------------------------------------------
 // MASTER DATA
 // ---------------------------------------------------------------------
@@ -62,23 +79,54 @@ model Material {
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
+  packagings PackagingType[]
+
   @@index([description])
   @@map("materials")
+}
+
+/// Tabel palletization — material x tipe storage unit x kelompok gudang.
+/// Contoh: FG-0001 = 1000 PC per PAL di Gudang Besar, 100 PC per BINBOX di Gudang Kecil.
+/// Dipakai MIGO untuk auto-split qty menjadi beberapa line pallet.
+model PackagingType {
+  id            String   @id @default(uuid())
+  material_code String
+  material      Material @relation(fields: [material_code], references: [material_code], onDelete: Cascade)
+  /// kode kemasan, contoh: PALLET-STD, PALLET-HALF, BOX-24
+  pack_code     String
+  /// tipe storage unit: PAL | BINBOX | CTN
+  su_type       String   @default("PAL")
+  /// kelompok gudang: BESAR | KECIL | null (berlaku untuk semua)
+  zone_group    String?
+  description   String   @default("")
+  /// jumlah base UoM per 1 unit kemasan (mis. 1000 PC per pallet)
+  qty_per_unit  Int
+  is_default    Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@unique([material_code, pack_code])
+  @@index([material_code])
+  @@index([material_code, zone_group])
+  @@map("packaging_types")
 }
 
 model StorageBin {
   id            String    @id @default(uuid())
   /// Format: Aisle-Rack-Level, contoh: A-01-02-1
   bin_code      String    @unique
-  /// contoh: RACK-FAST, RACK-SLOW, STAGING, REJECT
+  /// contoh: RACK-FAST, RACK-HEAVY, RACK-BINBOX, PICK-BIN, TRANSIT, GR-ZONE, GI-ZONE
   zone_id       String
   max_weight_kg Float     @default(1000)
   status        BinStatus @default(EMPTY)
+  /// true untuk GR-ZONE / GI-ZONE — bin interim, tidak dihitung sebagai lokasi penyimpanan final
+  is_interim    Boolean   @default(false)
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
 
   @@index([zone_id])
   @@index([status])
+  @@index([is_interim])
   @@map("storage_bins")
 }
 
@@ -132,21 +180,26 @@ model MigoLog {
   uom             String       @default("PC")
   reference       String?
   remarks         String?
+  /// nomor Transfer Requirement terkait (bila ada)
+  tr_number       String?
   doc_date        DateTime     @default(now())
   created_at      DateTime     @default(now())
   user_id         String
+  /// true bila diposting lewat terminal PDT (ZRF)
+  via_pdt         Boolean      @default(false)
 
   @@index([material_code])
   @@index([movement_type])
   @@index([doc_date])
   @@index([created_at])
+  @@index([tr_number])
   @@map("migo_logs")
 }
 
 /// Penomoran dokumen ala SAP (number range object)
 model DocumentCounter {
   id       String @id @default(uuid())
-  /// contoh: MATDOC, TRDOC, PIDOC
+  /// contoh: MATDOC, TRDOC, PIDOC, TRREQ
   key      String @unique
   last_num Int    @default(0)
 
@@ -154,23 +207,77 @@ model DocumentCounter {
 }
 
 // ---------------------------------------------------------------------
+// TRANSFER REQUIREMENT — LB10 / LB12
+// ---------------------------------------------------------------------
+
+model TransferReq {
+  id         String   @id @default(uuid())
+  tr_number  String   @unique
+  tr_type    TrType
+  status     TrStatus @default(OPEN)
+  /// nomor material document asal (MIGO 101) bila ada
+  ref_doc    String?
+  reference  String?
+  remarks    String?
+  created_by String
+  created_at DateTime @default(now())
+  closed_at  DateTime?
+
+  items TransferReqItem[]
+
+  @@index([status])
+  @@index([tr_type])
+  @@index([created_at])
+  @@map("transfer_reqs")
+}
+
+model TransferReqItem {
+  id            String      @id @default(uuid())
+  tr_id         String
+  tr            TransferReq @relation(fields: [tr_id], references: [id], onDelete: Cascade)
+  line_no       Int
+  material_code String
+  batch_number  String?
+  mfg_date      DateTime?
+  exp_date      DateTime?
+  /// kemasan yang dipakai saat split (mis. PALLET-STD)
+  pack_code     String?
+  qty           Int
+  qty_confirmed Int         @default(0)
+  /// PUTAWAY: bin interim asal. PICK: diisi operator saat konfirmasi.
+  source_bin    String?
+  /// PUTAWAY: diisi operator saat konfirmasi. PICK: bin interim tujuan.
+  target_bin    String?
+  status        TrStatus    @default(OPEN)
+
+  @@index([tr_id])
+  @@index([material_code])
+  @@map("transfer_req_items")
+}
+
+// ---------------------------------------------------------------------
 // PHYSICAL INVENTORY / STOCK OPNAME (LI01N / LI11N / LI21)
+// Satu dokumen dapat mencakup BANYAK bin dan banyak baris.
 // ---------------------------------------------------------------------
 
 model PhysInvDoc {
-  id           String            @id @default(uuid())
-  doc_number   String            @unique
-  /// bin yang di-freeze pada dokumen ini
-  bin_code     String
-  status       PhysInvStatus     @default(CREATED)
-  planned_date DateTime          @default(now())
+  id           String        @id @default(uuid())
+  doc_number   String        @unique
+  /// BIN_LIST | ZONE | ALL — cara pemilihan cakupan dokumen
+  scope_type   String        @default("BIN_LIST")
+  /// deskripsi cakupan, mis. "RACK-FAST" atau "A-01-01-1, A-01-02-1"
+  scope_value  String        @default("")
+  /// daftar bin yang di-freeze oleh dokumen ini (untuk di-release saat posting/cancel)
+  frozen_bins  String[]      @default([])
+  status       PhysInvStatus @default(CREATED)
+  planned_date DateTime      @default(now())
   counted_at   DateTime?
   posted_at    DateTime?
   created_by   String
-  created_at   DateTime          @default(now())
-  items        PhysInvDocItem[]
+  created_at   DateTime      @default(now())
 
-  @@index([bin_code])
+  items PhysInvDocItem[]
+
   @@index([status])
   @@map("phys_inv_docs")
 }
@@ -179,6 +286,8 @@ model PhysInvDocItem {
   id            String     @id @default(uuid())
   doc_id        String
   doc           PhysInvDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
+  /// bin per baris — memungkinkan satu dokumen mencakup banyak bin
+  bin_code      String
   material_code String
   batch_number  String?
   /// snapshot stok sistem saat freeze
@@ -190,23 +299,36 @@ model PhysInvDocItem {
   posted        Boolean    @default(false)
 
   @@index([doc_id])
+  @@index([bin_code])
   @@map("phys_inv_doc_items")
 }
 
 // ---------------------------------------------------------------------
-// USER MANAGEMENT (SU01)
+// USER MANAGEMENT (SU01) & SYSTEM SETTINGS (ZSET)
 // ---------------------------------------------------------------------
 
 model User {
-  id            String   @id @default(uuid())
-  username      String   @unique
+  id            String    @id @default(uuid())
+  username      String    @unique
   full_name     String
   password_hash String
-  role          UserRole @default(OPERATOR)
-  is_active     Boolean  @default(true)
+  role          UserRole  @default(OPERATOR)
+  is_active     Boolean   @default(true)
+  /// izin membuka T-Code terminal PDT (ZRF*) — diatur admin di SU01
+  pdt_enabled   Boolean   @default(false)
   last_login    DateTime?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
 
   @@map("users")
+}
+
+/// Konfigurasi sistem key-value (ZSET) — mis. PDT_ENABLED, DEFAULT_GR_BIN
+model SystemSetting {
+  key        String   @id
+  value      String
+  updated_at DateTime @updatedAt
+  updated_by String   @default("SYSTEM")
+
+  @@map("system_settings")
 }

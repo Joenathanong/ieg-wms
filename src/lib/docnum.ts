@@ -11,8 +11,10 @@ import type { Prisma } from '@prisma/client';
 export const NR = {
   /** Material Document (MIGO / 561 / 701 / 702) -> 5000000101, 5000000102, ... */
   MATDOC: { key: 'MATDOC', start: 100, format: (n: number) => String(5_000_000_000 + n) },
-  /** Transfer Order (LT01 / LT10)               -> 0000000101, ...               */
+  /** Transfer Order — konfirmasi 301 (LT01 / LT10 / LB12) -> 0000000101, ... */
   TRDOC: { key: 'TRDOC', start: 100, format: (n: number) => String(n).padStart(10, '0') },
+  /** Transfer Requirement (LB10 / LB12)         -> TR00000101, ...              */
+  TRREQ: { key: 'TRREQ', start: 100, format: (n: number) => 'TR' + String(n).padStart(8, '0') },
   /** Physical Inventory Document (LI01N)        -> 100000101, ...                */
   PIDOC: { key: 'PIDOC', start: 100, format: (n: number) => String(100_000_000 + n) },
 } as const;

@@ -40,6 +40,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       data.is_active = Boolean(b.is_active);
     }
 
+    if (b.pdt_enabled !== undefined) {
+      data.pdt_enabled = Boolean(b.pdt_enabled);
+    }
+
     if (b.password) {
       const pw = String(b.password);
       if (pw.length < 6) throw new HttpError(400, 'Password must be at least 6 characters.');
@@ -51,7 +55,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const user = await prisma.user.update({
       where: { id },
       data,
-      select: { id: true, username: true, full_name: true, role: true, is_active: true },
+      select: { id: true, username: true, full_name: true, role: true, is_active: true, pdt_enabled: true },
     });
 
     return ok(user, `User ${user.username} changed`);

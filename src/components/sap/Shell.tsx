@@ -37,7 +37,7 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
           <PanelLeft size={14} />
         </button>
 
-        <CommandField role={user.role} />
+        <CommandField role={user.role} pdt={user.pdt} />
 
         <div className="flex items-center gap-1 ml-1">
           <button
@@ -71,6 +71,11 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
             <span className="px-1.5 py-[1px] rounded-[2px] border border-sap-border text-[10px]">
               {user.role}
             </span>
+            {user.pdt && (
+              <span className="px-1.5 py-[1px] rounded-[2px] border border-sap-blue/60 text-sap-blue text-[10px]">
+                PDT
+              </span>
+            )}
           </span>
           <Link href="/help" title="Help" className="sap-btn sap-btn-ghost !px-1.5 !py-1">
             <HelpCircle size={14} />
@@ -96,13 +101,18 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
 
 export function Shell({ user, children }: { user: SessionPayload; children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const pathname = usePathname();
+
+  // Layar PDT: sembunyikan sidebar agar area kerja penuh di perangkat genggam.
+  const isPdt = pathname.startsWith('/zrf');
 
   return (
     <StatusProvider>
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-sap-bg">
-        <TopBar user={user} onToggle={() => setCollapsed((c) => !c)} />
+        <TopBar user={user} onToggle={() => (isPdt ? setHidden((h) => !h) : setCollapsed((c) => !c))} />
         <div className="flex flex-1 min-h-0">
-          <Sidebar role={user.role} collapsed={collapsed} />
+          {(!isPdt || hidden) && <Sidebar role={user.role} pdt={user.pdt} collapsed={collapsed} />}
           <main className="flex-1 min-w-0 overflow-auto p-3">{children}</main>
         </div>
         <StatusBar />
