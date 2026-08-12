@@ -5,6 +5,7 @@ import { FileClock, Search, Download, ChevronLeft, ChevronRight, Eraser } from '
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { api, qs, fmtDate, fmtDateTime } from '@/lib/client';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   document_number: string;
@@ -192,8 +193,14 @@ export default function Mb51Page() {
     <div className="space-y-3">
       <Panel title="MB51 — Material Document List · Selection Criteria" icon={<FileClock size={13} className="text-sap-blue" />}>
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-          <Field label="Material">
-            <Input className="uppercase" value={material} onChange={(e) => setMaterial(e.target.value)} />
+          <Field label="Material / Description" hint={WILDCARD_HINT}>
+            <Input
+              className="uppercase"
+              placeholder="kode atau deskripsi"
+              value={material}
+              onChange={(e) => setMaterial(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run(1)}
+            />
           </Field>
           <Field label="Movement Type">
             <Select value={movement} onChange={(e) => setMovement(e.target.value)}>
@@ -205,13 +212,29 @@ export default function Mb51Page() {
             </Select>
           </Field>
           <Field label="Storage Bin">
-            <Input className="uppercase" value={bin} onChange={(e) => setBin(e.target.value)} />
+            <Input
+              className="uppercase"
+              placeholder="mis. GB-*"
+              value={bin}
+              onChange={(e) => setBin(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run(1)}
+            />
           </Field>
           <Field label="Batch">
-            <Input className="uppercase" value={batch} onChange={(e) => setBatch(e.target.value)} />
+            <Input
+              className="uppercase"
+              value={batch}
+              onChange={(e) => setBatch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run(1)}
+            />
           </Field>
           <Field label="User">
-            <Input className="uppercase" value={user} onChange={(e) => setUser(e.target.value)} />
+            <Input
+              className="uppercase"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run(1)}
+            />
           </Field>
           <Field label="Posting Date From">
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />

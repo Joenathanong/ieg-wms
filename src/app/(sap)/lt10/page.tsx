@@ -6,6 +6,7 @@ import { Panel, Field, Input, Button, Toolbar, Separator } from '@/components/sa
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, fmtDate } from '@/lib/client';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Quant {
   id: string;
@@ -42,7 +43,8 @@ export default function Lt10Page() {
     setResult([]);
     const p = new URLSearchParams();
     if (fBin.trim()) p.set('bin', fBin.trim().toUpperCase());
-    if (fMaterial.trim()) p.set('material', fMaterial.trim().toUpperCase());
+    // q = cari kode ATAU deskripsi, mendukung wildcard '*'
+    if (fMaterial.trim()) p.set('q', fMaterial.trim().toUpperCase());
     const r = await api<Quant[]>(`/api/stock/quants?${p.toString()}`);
     setLoading(false);
     if (!r.ok) return setStatus(r.message, 'E');
@@ -103,11 +105,24 @@ export default function Lt10Page() {
     <div className="space-y-3">
       <Panel title="LT10 — Mass Bin Transfer (Movement 301)" icon={<Layers3 size={13} className="text-sap-blue" />}>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-          <Field label="Source Bin (kosongkan = semua)">
-            <Input list="dl-bins" className="uppercase" value={fBin} onChange={(e) => setFBin(e.target.value)} />
+          <Field label="Source Bin (kosongkan = semua)" hint={WILDCARD_HINT}>
+            <Input
+              list="dl-bins"
+              className="uppercase"
+              placeholder="mis. GB-A-*"
+              value={fBin}
+              onChange={(e) => setFBin(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && search()}
+            />
           </Field>
-          <Field label="Material">
-            <Input className="uppercase" value={fMaterial} onChange={(e) => setFMaterial(e.target.value)} />
+          <Field label="Material / Description" hint={WILDCARD_HINT}>
+            <Input
+              className="uppercase"
+              placeholder="kode atau deskripsi"
+              value={fMaterial}
+              onChange={(e) => setFMaterial(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && search()}
+            />
           </Field>
           <div>
             <Button onClick={search} loading={loading}>

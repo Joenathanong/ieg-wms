@@ -7,6 +7,7 @@ import { ListTodo, Search, RefreshCw, ArrowRight, Trash2, Download } from 'lucid
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { api, del, qs, fmtDateTime } from '@/lib/client';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   id: string;
@@ -163,8 +164,14 @@ export default function Lb10Page() {
     <div className="space-y-3">
       <Panel title="LB10 — Transfer Requirement List (Warehouse Work Queue)" icon={<ListTodo size={13} className="text-sap-blue" />}>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
-          <Field label="TR Number">
-            <Input className="uppercase" value={tr} onChange={(e) => setTr(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && run()} />
+          <Field label="TR / Reference" hint={WILDCARD_HINT}>
+            <Input
+              className="uppercase"
+              placeholder="TR* / no. dokumen"
+              value={tr}
+              onChange={(e) => setTr(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run()}
+            />
           </Field>
           <Field label="Type">
             <Select value={type} onChange={(e) => setType(e.target.value)}>
@@ -184,8 +191,14 @@ export default function Lb10Page() {
               <option value="ALL">Semua status</option>
             </Select>
           </Field>
-          <Field label="Material">
-            <Input className="uppercase" value={material} onChange={(e) => setMaterial(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && run()} />
+          <Field label="Material / Description" hint={WILDCARD_HINT}>
+            <Input
+              className="uppercase"
+              placeholder="kode atau deskripsi"
+              value={material}
+              onChange={(e) => setMaterial(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run()}
+            />
           </Field>
           <div>
             <Button variant="primary" onClick={run} loading={loading}>

@@ -3,6 +3,8 @@ import prisma from '@/lib/prisma';
 import { requireUser } from '@/lib/auth';
 import { handle, ok, cleanStr, toDate } from '@/lib/api';
 import { parseMovement, MOVEMENT_CODE, MOVEMENT_DESC } from '@/lib/movement';
+import { likeWhereAny } from '@/lib/like';
+import { materialCodeFilter } from '@/lib/search';
 import { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
@@ -37,13 +39,16 @@ export async function GET(req: NextRequest) {
       dateFilter.lte = end;
     }
 
+    // Kolom Material mencari kode MAUPUN deskripsi, dengan wildcard '*'
+    const matFilter = await materialCodeFilter('material_code', material);
+
     const where: Prisma.MigoLogWhereInput = {
       AND: [
-        material ? { material_code: { contains: material, mode: 'insensitive' } } : {},
+        (matFilter ?? {}) as Prisma.MigoLogWhereInput,
         mt ? { movement_type: mt } : {},
-        bin ? { OR: [{ source_bin: { contains: bin, mode: 'insensitive' } }, { target_bin: { contains: bin, mode: 'insensitive' } }] } : {},
-        batch ? { batch_number: { contains: batch, mode: 'insensitive' } } : {},
-        user ? { user_id: { contains: user, mode: 'insensitive' } } : {},
+        (likeWhereAny(['source_bin', 'target_bin'], bin) ?? {}) as Prisma.MigoLogWhereInput,
+        (likeWhereAny(['batch_number'], batch) ?? {}) as Prisma.MigoLogWhereInput,
+        (likeWhereAny(['user_id'], user) ?? {}) as Prisma.MigoLogWhereInput,
         from || to ? { doc_date: dateFilter } : {},
       ],
     };

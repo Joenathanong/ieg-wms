@@ -1,7 +1,8 @@
 import type React from 'react';
+import { matchesWildcard } from './like';
 
 /**
- * Logika murni untuk tabel ALV (sort, filter, nilai export).
+ * Logika murni untuk tabel ALV (sort, filter, lebar kolom, nilai export).
  * Dipisah dari komponen React agar bisa diuji sendiri dan dipakai ulang.
  */
 
@@ -91,12 +92,9 @@ export function compare(a: CellValue, b: CellValue): number {
   return String(a).localeCompare(String(b), 'id', { numeric: true, sensitivity: 'base' });
 }
 
+/** Pencocokan teks dengan wildcard '*' — semantik sama dengan kolom seleksi. */
 export function wildcardMatch(hay: string, term: string): boolean {
-  if (!term.includes('*')) return hay.includes(term);
-  const rx = new RegExp(
-    '^' + term.split('*').map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$'
-  );
-  return rx.test(hay);
+  return matchesWildcard(hay, term);
 }
 
 /**
@@ -149,6 +147,98 @@ export function matchFilter(cands: string[], raw: CellValue, f: FilterState): bo
     default:
       return true;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* LEBAR KOLOM — auto-fit berdasarkan RATA-RATA isi                     */
+/* ------------------------------------------------------------------ */
+
+export const COL_MIN_W = 58;
+export const COL_MAX_W = 320;
+/** padding sel kiri+kanan (px 8+8) + border + ruang ikon sort/filter di header */
+const CELL_PAD = 18;
+const HEAD_PAD = 42;
+/** jumlah baris yang dijadikan sampel pengukuran */
+const SAMPLE = 300;
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+function ctx2d(): CanvasRenderingContext2D | null {
+  if (measureCtx !== undefined) return measureCtx;
+  try {
+    measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+  } catch {
+    measureCtx = null;
+  }
+  return measureCtx;
+}
+
+/** Lebar teks dalam px. Memakai canvas bila tersedia, jika tidak pakai perkiraan per karakter. */
+export function textWidth(text: string, opts?: { mono?: boolean; bold?: boolean }): number {
+  const s = String(text ?? '');
+  if (!s) return 0;
+  const c = ctx2d();
+  if (!c) return s.length * (opts?.mono ? 6.4 : 6.0) * (opts?.bold ? 1.06 : 1);
+  c.font = `${opts?.bold ? '600 ' : ''}11px ${
+    opts?.mono ? '"JetBrains Mono", Consolas, monospace' : '"Segoe UI", Arial, sans-serif'
+  }`;
+  return c.measureText(s).width;
+}
+
+/** Teks yang mewakili isi sel untuk pengukuran lebar (pakai nilai export bila ada). */
+export function cellText<T>(c: Column<T>, r: T): string {
+  if (c.exportValue) {
+    const v = c.exportValue(r);
+    return v === null || v === undefined ? '' : String(v);
+  }
+  return textOf(rawOf(c, r));
+}
+
+/**
+ * Hitung lebar optimal tiap kolom.
+ *
+ * Sesuai permintaan: memakai **rata-rata** lebar isi (bukan yang terpanjang),
+ * sehingga satu deskripsi yang sangat panjang tidak membuat kolom melebar
+ * berlebihan. Header selalu dijamin muat, dan hasil dibatasi COL_MIN_W..COL_MAX_W.
+ */
+export function autoFitWidths<T>(columns: Column<T>[], rows: T[]): Record<string, number> {
+  const sample = rows.length > SAMPLE ? rows.slice(0, SAMPLE) : rows;
+  const out: Record<string, number> = {};
+
+  for (const c of columns) {
+    const headW = textWidth(c.header, { bold: true }) + HEAD_PAD;
+
+    let sum = 0;
+    let n = 0;
+    for (const r of sample) {
+      const t = cellText(c, r);
+      if (!t) continue; // sel kosong tidak menarik rata-rata ke bawah
+      sum += textWidth(t, { mono: c.mono || c.align === 'right' });
+      n++;
+    }
+    const avg = n > 0 ? sum / n : 0;
+
+    const w = Math.max(c.header ? headW : COL_MIN_W, avg + CELL_PAD);
+    out[c.key] = Math.round(Math.min(COL_MAX_W, Math.max(COL_MIN_W, w)));
+  }
+  return out;
+}
+
+/**
+ * Lebar awal tabel: hasil auto-fit (rata-rata isi).
+ * `width` eksplisit pada definisi kolom hanya dipakai sebagai cadangan
+ * ketika kolom belum punya data sama sekali (mis. hasil pencarian kosong).
+ */
+export function initialWidths<T>(columns: Column<T>[], rows: T[]): Record<string, number> {
+  const auto = autoFitWidths(columns, rows);
+  if (rows.length > 0) return auto;
+
+  const out: Record<string, number> = {};
+  for (const c of columns) {
+    const px = c.width && /^\d+px$/.test(c.width) ? parseInt(c.width, 10) : null;
+    out[c.key] = px ? Math.min(COL_MAX_W, Math.max(COL_MIN_W, px)) : auto[c.key];
+  }
+  return out;
 }
 
 /** Terapkan filter kolom + quick search + sort ke sekumpulan baris. */

@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser } from '@/lib/auth';
 import { handle, ok, cleanStr, toDate } from '@/lib/api';
+import { likeWhereAny } from '@/lib/like';
+import { materialCodeFilter } from '@/lib/search';
+import type { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,20 +26,24 @@ export async function GET(req: NextRequest) {
     // filter zone -> daftar bin
     let binFilter: string[] | undefined;
     if (zone) {
+      const zoneWhere = likeWhereAny(['zone_id'], zone);
       const bins = await prisma.storageBin.findMany({
-        where: { zone_id: { contains: zone, mode: 'insensitive' } },
+        where: (zoneWhere ?? {}) as Prisma.StorageBinWhereInput,
         select: { bin_code: true },
       });
       binFilter = bins.map((b) => b.bin_code);
       if (binFilter.length === 0) return ok({ rows: [], total_qty: 0 }, 'No data exists for the selection criteria');
     }
 
+    // Kolom Material mencari kode MAUPUN deskripsi, dengan wildcard '*'
+    const matFilter = await materialCodeFilter('material_code', material);
+
     const quants = await prisma.stockWM.findMany({
       where: {
         AND: [
-          material ? { material_code: { contains: material, mode: 'insensitive' } } : {},
-          bin ? { bin_code: { contains: bin, mode: 'insensitive' } } : {},
-          batch ? { batch_number: { contains: batch, mode: 'insensitive' } } : {},
+          (matFilter ?? {}) as Prisma.StockWMWhereInput,
+          (likeWhereAny(['bin_code'], bin) ?? {}) as Prisma.StockWMWhereInput,
+          (likeWhereAny(['batch_number'], batch) ?? {}) as Prisma.StockWMWhereInput,
           binFilter ? { bin_code: { in: binFilter } } : {},
           expBefore ? { exp_date: { lte: expBefore } } : {},
         ],

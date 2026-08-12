@@ -6,6 +6,7 @@ import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, exportCsv, t
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, qs, fmtDate } from '@/lib/client';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   bin_code: string;
@@ -136,11 +137,23 @@ export default function Lx02Page() {
     <div className="space-y-3">
       <Panel title="LX02 — Stock per Storage Bin (WM Breakdown)" icon={<Grid3x3 size={13} className="text-sap-blue" />}>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          <Field label="Material">
-            <Input className="uppercase" value={material} onChange={(e) => setMaterial(e.target.value)} />
+          <Field label="Material / Description" hint={WILDCARD_HINT}>
+            <Input
+              className="uppercase"
+              placeholder="kode atau deskripsi"
+              value={material}
+              onChange={(e) => setMaterial(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run()}
+            />
           </Field>
           <Field label="Storage Bin">
-            <Input className="uppercase" value={bin} onChange={(e) => setBin(e.target.value)} />
+            <Input
+              className="uppercase"
+              placeholder="mis. GB-*"
+              value={bin}
+              onChange={(e) => setBin(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run()}
+            />
           </Field>
           <Field label="Zone / Storage Section">
             <Select value={zone} onChange={(e) => setZone(e.target.value)}>
@@ -153,7 +166,12 @@ export default function Lx02Page() {
             </Select>
           </Field>
           <Field label="Batch">
-            <Input className="uppercase" value={batch} onChange={(e) => setBatch(e.target.value)} />
+            <Input
+              className="uppercase"
+              value={batch}
+              onChange={(e) => setBatch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run()}
+            />
           </Field>
           <Field label="Expiring Before" hint="FEFO / stok kadaluarsa">
             <Input type="date" value={expBefore} onChange={(e) => setExpBefore(e.target.value)} />

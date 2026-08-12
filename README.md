@@ -107,6 +107,12 @@ punya kemampuan yang sama:
 
 * **Sort** — klik judul kolom: naik → turun → tanpa sort. Angka, tanggal, dan teks
   diurutkan sesuai tipenya (mis. `GB-A-2` sebelum `GB-A-10`); sel kosong selalu di bawah.
+* **Lebar kolom** — tarik garis pemisah antar judul kolom untuk mengubah lebar.
+  Klik ganda pada garis pemisah = lebar otomatis kolom itu; tombol **Lebar otomatis**
+  menyesuaikan seluruh kolom. Perhitungannya memakai **rata-rata** lebar isi (bukan
+  baris terpanjang), sehingga satu deskripsi ekstra panjang tidak membuat kolom melebar
+  berlebihan — isi yang terpotong tetap bisa dilihat lewat tooltip.
+* **Klik ganda pada sel** menyalin isinya ke clipboard (material, deskripsi, batch, dll).
 * **Filter per kolom** — klik ikon corong di judul kolom, pilih operator lalu isi nilai:
 
   | Operator | Arti |
@@ -121,6 +127,35 @@ punya kemampuan yang sama:
 * **Quick search** — kotak cari di atas tabel menyaring seluruh kolom sekaligus.
 * Filter aktif tampil sebagai chip dan bisa dihapus satu per satu atau sekaligus.
 * **Export CSV mengikuti hasil sort & filter** yang sedang tampil, bukan seluruh data.
+
+---
+
+## 3c. Kolom Seleksi — Wildcard & Pencarian Deskripsi
+
+Seluruh kolom pencarian pada layar seleksi mendukung wildcard `*`:
+
+| Diketik | Hasil |
+|---|---|
+| `ABC` | mengandung "ABC" (perilaku lama) |
+| `ABC*` | diawali "ABC" — `ABC1` … `ABC9` |
+| `*BC*` | mengandung "BC" — `ABC1`…`ABC9` **dan** `BBC1` |
+| `*C1` | diakhiri "C1" |
+| `A*C1` | diawali "A" dan diakhiri "C1" |
+
+Kolom **Material / Description** mencari **kode material maupun deskripsi** dalam satu
+kotak (di MM01 juga mencakup Kode OCS dan barcode). Berlaku di MB51, LX02, LB10, LT10,
+MB52, dan MM01.
+
+---
+
+## 3d. Status Bar — Pesan Transaksi
+
+* Ikon **kaca pembesar** di kanan status bar membuka popup berisi pesan lengkap,
+  daftar **nomor dokumen** yang terdeteksi, dan **riwayat 30 pesan terakhir**.
+* **Klik ganda** pada area pesan (atau pada chip nomor dokumen) menyalin nomor
+  transaksi ke clipboard — jika pesan tidak memuat nomor, seluruh teks yang disalin.
+* Bekerja juga pada server http di jaringan lokal (ada fallback bila
+  `navigator.clipboard` tidak tersedia di luar HTTPS).
 
 ---
 

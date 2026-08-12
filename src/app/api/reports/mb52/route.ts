@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
+import { likeWhereAny } from '@/lib/like';
+import type { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,18 +19,12 @@ export async function GET(req: NextRequest) {
     const q = cleanStr(sp.get('q'));
     const onlyBelow = sp.get('onlyBelowSafety') === '1';
 
+    // kedua parameter mencari kode MAUPUN deskripsi, mendukung wildcard '*'
     const materials = await prisma.material.findMany({
       where: {
         AND: [
-          material ? { material_code: { contains: material, mode: 'insensitive' } } : {},
-          q
-            ? {
-                OR: [
-                  { material_code: { contains: q, mode: 'insensitive' } },
-                  { description: { contains: q, mode: 'insensitive' } },
-                ],
-              }
-            : {},
+          (likeWhereAny(['material_code', 'description'], material) ?? {}) as Prisma.MaterialWhereInput,
+          (likeWhereAny(['material_code', 'description'], q) ?? {}) as Prisma.MaterialWhereInput,
         ],
       },
       orderBy: { material_code: 'asc' },

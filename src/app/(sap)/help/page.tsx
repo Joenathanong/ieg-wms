@@ -116,7 +116,16 @@ export default async function HelpPage() {
             <b>sort</b> (klik judul kolom) dan <b>filter</b> per kolom lewat ikon corong — operator{' '}
             <span className="font-mono">= ≠ contains &gt; &lt;</span>, beberapa nilai dipisah{' '}
             <span className="font-mono">;</span>, wildcard <span className="font-mono">*</span>. Export CSV
-            mengikuti hasil filter yang tampil.
+            mengikuti hasil filter yang tampil. Lebar kolom bisa <b>ditarik</b> pada garis pemisah judul
+            (klik ganda = lebar otomatis mengikuti rata-rata isi), dan <b>klik ganda pada sel</b> menyalin
+            isinya ke clipboard.
+            <br />
+            <br />
+            Kolom seleksi mendukung wildcard: <span className="font-mono">ABC*</span> menampilkan ABC1–ABC9,{' '}
+            <span className="font-mono">*BC*</span> menampilkan ABC1–ABC9 dan BBC1. Kolom{' '}
+            <b>Material / Description</b> mencari kode maupun deskripsi sekaligus. Pada status bar, ikon{' '}
+            <b>kaca pembesar</b> membuka pesan lengkap + riwayat, dan <b>klik ganda</b> pada nomor
+            transaksi menyalinnya ke clipboard.
             <br />
             <br />
             Admin mengatur aktif/nonaktifnya di <b className="text-sap-blue">ZSET</b>: ada master switch{' '}

@@ -7,6 +7,7 @@ import { useStatus } from '@/components/sap/StatusBar';
 import { invalidateMasterData, useMasterData, type PackagingLite } from '@/components/sap/hooks';
 import { api, post, patch, del, qs } from '@/lib/client';
 import { ZONE_GROUPS } from '@/lib/zones';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   id: string;
@@ -448,7 +449,8 @@ export default function Mm01Page() {
           <Toolbar>
             <Input
               className="!w-[240px] uppercase"
-              placeholder="Cari material / deskripsi"
+              placeholder="Cari material / deskripsi / barcode — mis. FG-*"
+              title={WILDCARD_HINT}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && run()}

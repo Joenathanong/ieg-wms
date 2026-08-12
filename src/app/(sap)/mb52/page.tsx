@@ -6,6 +6,7 @@ import { BarChart3, Search, Download, AlertTriangle } from 'lucide-react';
 import { Panel, Field, Input, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { api, qs } from '@/lib/client';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   material_code: string;
@@ -118,10 +119,10 @@ function Mb52Inner() {
     <div className="space-y-3">
       <Panel title="MB52 — Display Warehouse Stock (Inventory Management Level)" icon={<BarChart3 size={13} className="text-sap-blue" />}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-          <Field label="Material / Description">
+          <Field label="Material / Description" hint={WILDCARD_HINT}>
             <Input
               value={q}
-              placeholder="mis. FG-001 atau 'sabun'"
+              placeholder="mis. FG-* atau 'sabun'"
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && run()}
             />

@@ -5,10 +5,16 @@ import {
   type Column,
   type FilterOp,
   type FilterState,
+  COL_MIN_W,
   FILTER_OPS,
   applyView,
+  autoFitWidths,
+  cellText,
+  initialWidths,
   rawOf,
 } from '@/lib/grid';
+import { copyText, shorten } from '@/lib/clipboard';
+import { useStatus } from './StatusBar';
 import {
   Loader2,
   ArrowUp,
@@ -18,6 +24,7 @@ import {
   X,
   Search,
   ChevronsUpDown,
+  Columns3,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -269,13 +276,30 @@ export function Grid<T extends Record<string, any>>({
   const [filters, setFilters] = useState<Record<string, FilterState>>({});
   const [search, setSearch] = useState('');
   const [popover, setPopover] = useState<{ key: string; rect: DOMRect } | null>(null);
+  const { setStatus } = useStatus();
+
+  /* ---- lebar kolom: auto-fit rata-rata isi + bisa digeser manual ---- */
+  const [widths, setWidths] = useState<Record<string, number>>({});
+  /** kolom yang lebarnya sudah diatur manual — tidak ikut auto-fit lagi */
+  const manual = useRef<Set<string>>(new Set());
+  const drag = useRef<{ key: string; startX: number; startW: number } | null>(null);
 
   const canSort = (c: Column<T>) => c.sortable ?? c.header !== '';
   const canFilter = (c: Column<T>) => c.filterable ?? c.header !== '';
 
+  /**
+   * Halaman membuat array `columns` baru pada setiap render, sehingga identitas
+   * array tidak boleh dipakai sebagai dependency effect (akan memicu render
+   * berulang tanpa henti). Dipakai "tanda tangan" kolom yang stabil + ref.
+   */
+  const colSig = columns.map((c) => c.key).join('|');
+  const colsRef = useRef(columns);
+  colsRef.current = columns;
+
   const view = useMemo(
-    () => applyView(rows, columns, filters, search, sort),
-    [rows, columns, filters, search, sort]
+    () => applyView(rows, colsRef.current, filters, search, sort),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, colSig, filters, search, sort]
   );
 
   useEffect(() => {
@@ -283,8 +307,116 @@ export function Grid<T extends Record<string, any>>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  // hitung ulang lebar saat data / susunan kolom berubah (kolom manual dipertahankan)
+  useEffect(() => {
+    const cols = colsRef.current;
+    const auto = initialWidths(cols, rows);
+    setWidths((prev) => {
+      const next: Record<string, number> = {};
+      for (const c of cols) {
+        next[c.key] = manual.current.has(c.key) && prev[c.key] ? prev[c.key] : auto[c.key];
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colSig, rows]);
+
+  const autoFitAll = useCallback(() => {
+    manual.current.clear();
+    setWidths(initialWidths(colsRef.current, view));
+    setStatus('Lebar kolom disesuaikan dengan rata-rata isi', 'I');
+  }, [view, setStatus]);
+
+  const autoFitOne = useCallback(
+    (key: string) => {
+      const c = colsRef.current.find((x) => x.key === key);
+      if (!c) return;
+      manual.current.delete(key);
+      const w = autoFitWidths([c], view)[key];
+      setWidths((s) => ({ ...s, [key]: w }));
+    },
+    [view]
+  );
+
+  const startResize = useCallback(
+    (key: string, e: React.PointerEvent<HTMLElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startW = widths[key] ?? COL_MIN_W;
+      drag.current = { key, startX: e.clientX, startW };
+      const el = e.currentTarget;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* abaikan */
+      }
+
+      const onMove = (ev: PointerEvent) => {
+        const d = drag.current;
+        if (!d) return;
+        const w = Math.max(COL_MIN_W, Math.min(900, d.startW + (ev.clientX - d.startX)));
+        setWidths((s) => ({ ...s, [d.key]: w }));
+      };
+      const onUp = () => {
+        if (drag.current) manual.current.add(drag.current.key);
+        drag.current = null;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [widths]
+  );
+
+  /* ---- double-click sel: salin isi ke clipboard ---- */
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCellClick = useCallback(
+    (row: T) => {
+      if (!onRowClick) return;
+      // tunda sedikit supaya double-click (copy) tidak ikut memicu klik baris
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+      clickTimer.current = setTimeout(() => {
+        clickTimer.current = null;
+        onRowClick(row);
+      }, 220);
+    },
+    [onRowClick]
+  );
+
+  const handleCellCopy = useCallback(
+    async (c: Column<T>, row: T) => {
+      if (clickTimer.current) {
+        clearTimeout(clickTimer.current);
+        clickTimer.current = null;
+      }
+      const text = cellText(c, row).trim();
+      if (!text) return;
+      const ok = await copyText(text);
+      setStatus(
+        ok ? `Disalin ke clipboard: ${shorten(text, 60)}` : 'Browser menolak akses clipboard',
+        ok ? 'S' : 'W'
+      );
+    },
+    [setStatus]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+    };
+  }, []);
+
   const activeFilters = Object.entries(filters).filter(([, f]) => f.val.trim() !== '');
   const filtering = activeFilters.length > 0 || search.trim() !== '';
+
+  /** lebar total tabel = kolom nomor + seluruh kolom data */
+  const totalWidth = 42 + columns.reduce((a, c) => a + (widths[c.key] ?? COL_MIN_W), 0);
 
   const toggleSort = useCallback((key: string) => {
     setSort((s) => {
@@ -352,6 +484,14 @@ export function Grid<T extends Record<string, any>>({
             </Button>
           )}
 
+          <Button
+            className="!py-[3px]"
+            onClick={autoFitAll}
+            title="Sesuaikan lebar kolom dengan rata-rata isi (klik ganda pada garis pemisah untuk satu kolom)"
+          >
+            <Columns3 size={12} /> Lebar otomatis
+          </Button>
+
           {sort && (
             <span className="inline-flex items-center gap-1 text-xxs font-mono text-sap-muted">
               {sort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
@@ -369,18 +509,25 @@ export function Grid<T extends Record<string, any>>({
       )}
 
       <div className="overflow-auto" style={{ maxHeight, WebkitOverflowScrolling: 'touch' }}>
-        <table className="sap-grid">
+        <table className="sap-grid" style={{ tableLayout: 'fixed', width: totalWidth }}>
+          <colgroup>
+            <col style={{ width: 42 }} />
+            {columns.map((c) => (
+              <col key={c.key} style={{ width: widths[c.key] ?? COL_MIN_W }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="w-[42px] text-center hidden sm:table-cell">#</th>
+              <th className="text-center">#</th>
               {columns.map((c) => {
                 const sorted = sort?.key === c.key;
                 const hasFilter = !!filters[c.key]?.val?.trim();
                 return (
                   <th
                     key={c.key}
-                    style={{ width: c.width }}
-                    className={c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}
+                    className={`relative ${
+                      c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''
+                    }`}
                   >
                     <div
                       className={`flex items-center gap-1 ${
@@ -427,6 +574,18 @@ export function Grid<T extends Record<string, any>>({
                         </button>
                       )}
                     </div>
+
+                    {/* garis pemisah — tarik untuk mengubah lebar, klik ganda = lebar otomatis */}
+                    <span
+                      onPointerDown={(e) => startResize(c.key, e)}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        autoFitOne(c.key);
+                      }}
+                      title="Tarik untuk mengubah lebar · klik ganda = lebar otomatis"
+                      className="absolute top-0 right-0 h-full w-[7px] translate-x-[3px] cursor-col-resize
+                                 select-none touch-none z-20 hover:bg-sap-blue/40 active:bg-sap-blue/60"
+                    />
                   </th>
                 );
               })}
@@ -459,23 +618,26 @@ export function Grid<T extends Record<string, any>>({
             )}
             {!loading &&
               view.map((row, i) => (
-                <tr
-                  key={rowKey ? rowKey(row, i) : i}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  className={onRowClick ? 'cursor-pointer' : undefined}
-                >
-                  <td className="text-center font-mono text-sap-muted/60 hidden sm:table-cell">{i + 1}</td>
-                  {columns.map((c) => (
-                    <td
-                      key={c.key}
-                      className={[
-                        c.mono || c.align === 'right' ? 'font-mono tabular-nums' : '',
-                        c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : '',
-                      ].join(' ')}
-                    >
-                      {c.render ? c.render(row, i) : (row[c.key] ?? '')}
-                    </td>
-                  ))}
+                <tr key={rowKey ? rowKey(row, i) : i} className={onRowClick ? 'cursor-pointer' : undefined}>
+                  <td className="text-center font-mono text-sap-muted/60">{i + 1}</td>
+                  {columns.map((c) => {
+                    const txt = cellText(c, row);
+                    return (
+                      <td
+                        key={c.key}
+                        title={txt || undefined}
+                        onClick={onRowClick ? () => handleCellClick(row) : undefined}
+                        onDoubleClick={() => handleCellCopy(c, row)}
+                        className={[
+                          'overflow-hidden text-ellipsis',
+                          c.mono || c.align === 'right' ? 'font-mono tabular-nums' : '',
+                          c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : '',
+                        ].join(' ')}
+                      >
+                        {c.render ? c.render(row, i) : (row[c.key] ?? '')}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
           </tbody>
@@ -485,6 +647,7 @@ export function Grid<T extends Record<string, any>>({
       <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-sap-border bg-sap-nav text-xxs text-sap-muted font-mono">
         <span className="shrink-0">
           {loading ? '...' : filtering ? `${view.length} of ${rows.length} entries` : `${view.length} entries`}
+          <span className="hidden md:inline text-sap-muted/60"> · klik ganda sel = salin</span>
         </span>
         {footer && <span className="min-w-0 truncate text-right">{footer}</span>}
       </div>

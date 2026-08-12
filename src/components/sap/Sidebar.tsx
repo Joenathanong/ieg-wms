@@ -111,8 +111,12 @@ export function Sidebar({
 
   return (
     <nav
-      className={`shrink-0 border-r border-sap-border bg-sap-nav overflow-y-auto overflow-x-hidden
-                  transition-all duration-150 ${collapsed ? 'w-[46px]' : 'w-[218px]'}`}
+      /* h-full + min-h-0 + overflow-y-auto: daftar menu bergulir di dalam sidebar
+         sehingga tidak pernah memanjang menimpa status bar di bawah layar.
+         pb-2 memberi ruang agar item terakhir tidak menempel garis bawah. */
+      className={`shrink-0 h-full min-h-0 border-r border-sap-border bg-sap-nav
+                  overflow-y-auto overflow-x-hidden overscroll-contain pb-2
+                  transition-[width] duration-150 ${collapsed ? 'w-[46px]' : 'w-[218px]'}`}
     >
       {GROUPS.map((g) => {
         const items = g.items.filter(allowedItem);

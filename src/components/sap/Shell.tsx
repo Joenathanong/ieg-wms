@@ -127,7 +127,7 @@ export function Shell({ user, children }: { user: SessionPayload; children: Reac
 
   return (
     <StatusProvider>
-      <div className="flex flex-col h-[100dvh] w-full overflow-hidden bg-sap-bg">
+      <div className="app-shell w-full bg-sap-bg">
         <TopBar
           user={user}
           onToggle={() => {
@@ -137,10 +137,11 @@ export function Shell({ user, children }: { user: SessionPayload; children: Reac
           }}
         />
 
-        <div className="flex flex-1 min-h-0 relative">
-          {/* Sidebar inline — hanya layar >= md dan bukan layar PDT */}
+        <div className="app-body">
+          {/* Sidebar inline — hanya layar >= md dan bukan layar PDT.
+              Tinggi mengikuti baris isi sehingga tidak pernah menimpa status bar. */}
           {!isPdt && (
-            <div className="hidden md:block">
+            <div className="hidden md:flex h-full min-h-0">
               <Sidebar role={user.role} pdt={user.pdt} tcodes={user.tcodes} collapsed={collapsed} />
             </div>
           )}
@@ -152,10 +153,10 @@ export function Shell({ user, children }: { user: SessionPayload; children: Reac
                 type="button"
                 aria-label="Tutup navigasi"
                 onClick={() => setMobileNav(false)}
-                className="fixed inset-0 z-40 bg-black/50 md:bg-transparent"
+                className="absolute inset-0 z-40 bg-black/50 md:bg-black/20"
               />
-              <div className="fixed md:absolute left-0 top-0 bottom-0 z-50 flex shadow-sap">
-                <div className="relative">
+              <div className="absolute left-0 top-0 bottom-0 z-50 flex shadow-sap">
+                <div className="relative flex h-full min-h-0">
                   <button
                     type="button"
                     onClick={() => setMobileNav(false)}

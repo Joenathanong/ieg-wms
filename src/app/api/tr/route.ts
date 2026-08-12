@@ -3,7 +3,9 @@ import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt, normBatch } from '@/lib/api';
 import { createTransferReq, getMaterialOrThrow, splitByPackaging } from '@/lib/wms';
-import { TrStatus, TrType } from '@prisma/client';
+import { likeWhereAny } from '@/lib/like';
+import { materialCodeFilter } from '@/lib/search';
+import { Prisma, TrStatus, TrType } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,13 +29,16 @@ export async function GET(req: NextRequest) {
           ? {}
           : { status: { in: [TrStatus.OPEN, TrStatus.PARTIAL] } };
 
+    // Kolom Material mencari kode MAUPUN deskripsi, dengan wildcard '*'
+    const matFilter = await materialCodeFilter('material_code', material);
+
     const docs = await prisma.transferReq.findMany({
       where: {
         AND: [
           statusFilter,
           type && Object.values(TrType).includes(type as TrType) ? { tr_type: type as TrType } : {},
-          tr ? { tr_number: { contains: tr, mode: 'insensitive' } } : {},
-          material ? { items: { some: { material_code: { contains: material, mode: 'insensitive' } } } } : {},
+          (likeWhereAny(['tr_number', 'ref_doc', 'reference'], tr) ?? {}) as Prisma.TransferReqWhereInput,
+          matFilter ? { items: { some: matFilter as Prisma.TransferReqItemWhereInput } } : {},
         ],
       },
       include: { items: { orderBy: { line_no: 'asc' } } },

@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
+import { materialCodeFilter } from '@/lib/search';
+import { likeWhereAny } from '@/lib/like';
+import type { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +20,13 @@ export async function GET(req: NextRequest) {
     const bin = cleanStr(sp.get('bin')).toUpperCase();
     const material = cleanStr(sp.get('material')).toUpperCase();
     const batch = cleanStr(sp.get('batch')).toUpperCase();
+    /**
+     * `material` = pencocokan PERSIS (dipakai scanner PDT agar tidak salah ambil).
+     * `q`        = pencarian bebas (kode / deskripsi, mendukung wildcard '*') —
+     *              dipakai layar LT10 & pencarian manual.
+     */
+    const q = cleanStr(sp.get('q')).toUpperCase();
+    const qFilter = await materialCodeFilter('material_code', q);
     /** '1' = kecualikan bin interim (TRANSIT-IN/OUT) — dipakai ZRF08 replenishment */
     const exclInterim = cleanStr(sp.get('exclInterim')) === '1';
 
@@ -32,8 +42,13 @@ export async function GET(req: NextRequest) {
     const quants = await prisma.stockWM.findMany({
       where: {
         AND: [
-          bin ? { bin_code: bin } : {},
+          bin && bin.includes('*')
+            ? ((likeWhereAny(['bin_code'], bin) ?? {}) as Prisma.StockWMWhereInput)
+            : bin
+              ? { bin_code: bin }
+              : {},
           material ? { material_code: material } : {},
+          (qFilter ?? {}) as Prisma.StockWMWhereInput,
           batch ? { batch_number: batch } : {},
           exclInterim && interimCodes.length ? { bin_code: { notIn: interimCodes } } : {},
           { qty: { gt: 0 } },

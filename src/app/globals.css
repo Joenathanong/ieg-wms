@@ -205,6 +205,29 @@ html[data-theme='light'] {
 }
 
 @layer components {
+  /* ---------- APP SHELL ----------
+     Tinggi layar penuh dengan fallback berlapis: browser lama memakai vh,
+     browser modern memakai dvh (tidak "melompat" saat address bar HP muncul).
+     Penting: tanpa tinggi yang pasti, kolom navigasi bisa memanjang melewati
+     status bar di bagian bawah layar. */
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+  /* baris isi: sidebar + area kerja, tidak boleh mendorong status bar */
+  .app-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+  }
+
   /* ---------- FIELD ---------- */
   .sap-field {
     @apply w-full bg-sap-field border border-sap-border text-sap-text text-2xs px-2 py-[5px]

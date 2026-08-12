@@ -7,6 +7,7 @@ import { useStatus } from '@/components/sap/StatusBar';
 import { invalidateMasterData } from '@/components/sap/hooks';
 import { api, post, patch, del, qs } from '@/lib/client';
 import { ZONES as ZONE_DEFS } from '@/lib/zones';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   id: string;
@@ -305,7 +306,8 @@ export default function Ls01nPage() {
         <Toolbar>
           <Input
             className="!w-[200px] uppercase"
-            placeholder="Cari bin"
+            placeholder="Cari bin / zona — mis. GB-A-*"
+            title={WILDCARD_HINT}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && run()}

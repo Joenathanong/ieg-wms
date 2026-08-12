@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt } from '@/lib/api';
+import { likeWhereAny } from '@/lib/like';
+import type { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,15 +15,14 @@ export async function GET(req: NextRequest) {
     const q = cleanStr(sp.get('q'));
     const limit = Math.min(Number(sp.get('limit') ?? 500), 2000);
 
+    // mencari kode, deskripsi, kode OCS, maupun barcode — mendukung wildcard '*'
+    const where = likeWhereAny(
+      ['material_code', 'description', 'kode_ocs', 'barcode_bpom', 'barcode_produk'],
+      q
+    );
+
     const materials = await prisma.material.findMany({
-      where: q
-        ? {
-            OR: [
-              { material_code: { contains: q, mode: 'insensitive' } },
-              { description: { contains: q, mode: 'insensitive' } },
-            ],
-          }
-        : undefined,
+      where: (where ?? undefined) as Prisma.MaterialWhereInput | undefined,
       orderBy: { material_code: 'asc' },
       take: limit,
       include: {

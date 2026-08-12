@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
-import { BinStatus } from '@prisma/client';
+import { likeWhereAny } from '@/lib/like';
+import { BinStatus, type Prisma } from '@prisma/client';
 import { isInterimZone } from '@/lib/zones';
 
 export const dynamic = 'force-dynamic';
@@ -20,8 +21,8 @@ export async function GET(req: NextRequest) {
     const bins = await prisma.storageBin.findMany({
       where: {
         AND: [
-          q ? { bin_code: { contains: q, mode: 'insensitive' } } : {},
-          zone ? { zone_id: { contains: zone, mode: 'insensitive' } } : {},
+          (likeWhereAny(['bin_code', 'zone_id'], q) ?? {}) as Prisma.StorageBinWhereInput,
+          (likeWhereAny(['zone_id'], zone) ?? {}) as Prisma.StorageBinWhereInput,
           status && Object.values(BinStatus).includes(status as BinStatus)
             ? { status: status as BinStatus }
             : {},

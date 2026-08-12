@@ -6,6 +6,7 @@ import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, exportCsv, t
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, qs } from '@/lib/client';
+import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   bin_code: string;
@@ -66,10 +67,10 @@ export default function Ls04Page() {
               ))}
             </Select>
           </Field>
-          <Field label="Storage Bin (pattern)">
+          <Field label="Storage Bin (pattern)" hint={WILDCARD_HINT}>
             <Input
               className="uppercase"
-              placeholder="mis. A-01"
+              placeholder="mis. GB-A-*"
               value={bin}
               onChange={(e) => setBin(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && run()}
