@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { PackagePlus, PackageMinus, PackageCheck, ArrowLeftRight, ClipboardList, Search, Smartphone, Lock, Layers } from 'lucide-react';
+import { PackagePlus, PackageMinus, PackageCheck, ArrowLeftRight, ClipboardList, Search, Smartphone, Lock, Layers, Monitor } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
 import { getSettings, PDT_MODULE_SETTING } from '@/lib/settings';
@@ -68,12 +68,14 @@ export default async function ZrfMenu() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[520px] space-y-3">
+    <div className="mx-auto w-full max-w-[520px] space-y-2.5">
       <div className="sap-panel px-3 py-3 flex items-center gap-2.5">
-        <Smartphone size={20} className="text-sap-blue" />
-        <div>
+        <Smartphone size={20} className="text-sap-blue shrink-0" />
+        <div className="min-w-0">
           <h1 className="text-sm font-semibold">ZRF — PDT Terminal</h1>
-          <p className="text-xxs text-sap-muted font-mono">Menu operator gudang</p>
+          <p className="text-xxs text-sap-muted font-mono truncate">
+            {session?.username ? `${session.username} · ` : ''}Menu operator gudang
+          </p>
         </div>
       </div>
 
@@ -125,9 +127,21 @@ export default async function ZrfMenu() {
         })}
       </div>
 
-      <p className="text-xxs text-sap-muted/60 text-center">
+      <p className="text-xxs text-sap-muted/60 text-center px-2">
         Semua posting dari layar ini ditandai <b>via PDT</b> di riwayat dokumen (MB51).
       </p>
+
+      {/* Escape hatch: perangkat mobile/PDT otomatis diarahkan ke sini.
+          Link ini memaksa tampilan desktop dan diingat lewat cookie. */}
+      <div className="flex justify-center pb-[env(safe-area-inset-bottom)]">
+        <Link
+          href="/?view=desktop"
+          className="sap-btn sap-btn-ghost !text-xxs text-sap-muted"
+          title="Gunakan tampilan desktop penuh di perangkat ini"
+        >
+          <Monitor size={13} /> Buka tampilan desktop
+        </Link>
+      </div>
     </div>
   );
 }

@@ -39,7 +39,9 @@ export async function GET(req: NextRequest) {
           { qty: { gt: 0 } },
         ],
       },
-      orderBy: [{ exp_date: 'asc' }, { bin_code: 'asc' }],
+      // FEFO: expired terdekat dulu; bila ED sama, ambil quant dengan qty
+      // TERKECIL lebih dulu agar sisa kecil cepat habis (menghindari pecahan).
+      orderBy: [{ exp_date: 'asc' }, { qty: 'asc' }, { bin_code: 'asc' }],
       take: 500,
     });
 

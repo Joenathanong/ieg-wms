@@ -23,6 +23,7 @@ export default function Ls04Page() {
   const [bin, setBin] = useState('');
   const [includeBlocked, setIncludeBlocked] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
+  const [view, setView] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
 
   const run = useCallback(async () => {
@@ -46,7 +47,7 @@ export default function Ls04Page() {
   const cols: Column<Row>[] = [
     { key: 'bin_code', header: 'Storage Bin', mono: true, width: '160px' },
     { key: 'zone_id', header: 'Zone / Section', mono: true, width: '150px' },
-    { key: 'status', header: 'Status', width: '120px', render: (r) => <Badge value={r.status} /> },
+    { key: 'status', header: 'Status', width: '120px', exportValue: (r) => r.status, render: (r) => <Badge value={r.status} /> },
     { key: 'max_weight_kg', header: 'Max Weight (kg)', align: 'right', width: '140px' },
     { key: 'current_qty', header: 'Current Qty', align: 'right', width: '110px' },
   ];
@@ -90,7 +91,7 @@ export default function Ls04Page() {
         <Button variant="primary" onClick={run} loading={loading}>
           <Search size={13} /> Execute (F8)
         </Button>
-        <Button onClick={() => exportCsv('LS04_empty_bins.csv', cols, rows)} disabled={rows.length === 0}>
+        <Button onClick={() => exportCsv('LS04_empty_bins.csv', cols, view)} disabled={view.length === 0}>
           <Download size={13} /> Export CSV
         </Button>
         <span className="ml-auto font-mono text-xxs text-sap-muted">
@@ -98,7 +99,14 @@ export default function Ls04Page() {
         </span>
       </Toolbar>
 
-      <Grid columns={cols} rows={rows} loading={loading} rowKey={(r) => r.bin_code} maxHeight="calc(100vh - 300px)" />
+      <Grid
+        columns={cols}
+        rows={rows}
+        loading={loading}
+        rowKey={(r) => r.bin_code}
+        maxHeight="calc(100vh - 330px)"
+        onViewChange={setView}
+      />
     </div>
   );
 }

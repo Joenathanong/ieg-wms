@@ -36,6 +36,7 @@ function Mb52Inner() {
   const [q, setQ] = useState('');
   const [onlyBelow, setOnlyBelow] = useState(sp.get('onlyBelowSafety') === '1');
   const [rows, setRows] = useState<Row[]>([]);
+  const [view, setView] = useState<Row[]>([]);
   const [totalQty, setTotalQty] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -89,6 +90,7 @@ function Mb52Inner() {
       header: 'Batch',
       align: 'center',
       width: '65px',
+      exportValue: (r) => (r.is_batch_managed ? 'X' : ''),
       render: (r) => (
         <span className={r.is_batch_managed ? 'text-sap-blue' : 'text-sap-muted'}>
           {r.is_batch_managed ? 'X' : '—'}
@@ -99,6 +101,8 @@ function Mb52Inner() {
       key: 'below_safety',
       header: 'Status',
       width: '110px',
+      value: (r) => (r.below_safety ? 'LOW STOCK' : 'OK'),
+      exportValue: (r) => (r.below_safety ? 'LOW STOCK' : 'OK'),
       render: (r) =>
         r.below_safety ? (
           <span className="sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext gap-1">
@@ -140,7 +144,7 @@ function Mb52Inner() {
         <Button variant="primary" onClick={run} loading={loading}>
           <Search size={13} /> Execute (F8)
         </Button>
-        <Button onClick={() => exportCsv('MB52_global_stock.csv', cols, rows)} disabled={rows.length === 0}>
+        <Button onClick={() => exportCsv('MB52_global_stock.csv', cols, view)} disabled={view.length === 0}>
           <Download size={13} /> Export CSV
         </Button>
         <span className="ml-auto font-mono text-xxs text-sap-muted">
@@ -153,8 +157,9 @@ function Mb52Inner() {
         rows={rows}
         loading={loading}
         rowKey={(r) => r.material_code}
-        maxHeight="calc(100vh - 300px)"
-        footer={<span>Kolom "IM − WM" harus 0. Nilai ≠ 0 menandakan inkonsistensi data.</span>}
+        maxHeight="calc(100vh - 330px)"
+        onViewChange={setView}
+        footer={<span>Kolom &quot;IM − WM&quot; harus 0. Nilai ≠ 0 menandakan inkonsistensi data.</span>}
       />
     </div>
   );

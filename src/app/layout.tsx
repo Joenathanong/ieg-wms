@@ -1,10 +1,24 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: 'WMS Lite — SAP S/4HANA Style',
   description:
     'Lightweight Warehouse Management System (WM / IM) — SAP GUI Quartz Dark & Morning Horizon',
+  // tampil sebagai aplikasi saat di-"Add to Home Screen" pada HP / PDT
+  appleWebApp: { capable: true, title: 'WMS Lite', statusBarStyle: 'black-translucent' },
+  formatDetection: { telephone: false },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  // hormati area notch pada HP modern
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: dark)', color: '#181C24' },
+    { media: '(prefers-color-scheme: light)', color: '#FFFFFF' },
+  ],
 };
 
 /**

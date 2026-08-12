@@ -153,6 +153,23 @@ html[data-theme='light'] {
     font-size: 12px;
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
+    /* cegah "bounce" & pembesaran teks otomatis di HP */
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* target sentuh lebih nyaman di layar kecil / sarung tangan */
+  @media (max-width: 640px) {
+    .sap-btn {
+      @apply py-[7px] px-3;
+    }
+    .sap-field {
+      @apply py-[7px];
+    }
+    .sap-grid tbody td {
+      @apply py-[5px];
+    }
   }
 
   * {

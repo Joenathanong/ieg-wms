@@ -88,7 +88,7 @@ export default function ZrfGiPage() {
       </PdtButton>
 
       {!sel && (
-        <div className="space-y-1.5 max-h-[46vh] overflow-auto">
+        <div className="space-y-1.5 max-h-[46dvh] overflow-auto">
           {rows.map((q) => (
             <button
               key={q.id}

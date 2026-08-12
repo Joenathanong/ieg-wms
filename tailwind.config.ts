@@ -19,6 +19,10 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      screens: {
+        /** HP kecil (± 380px) — dipakai untuk merapikan top bar & status bar PDT */
+        xs: '380px',
+      },
       colors: {
         sap: {
           /* Top System Bar */

@@ -36,6 +36,7 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       type="button"
       onClick={toggle}
       title={theme === 'dark' ? 'Ganti ke tema terang (SAP Morning Horizon)' : 'Ganti ke tema gelap (Quartz Dark)'}
+      aria-label={theme === 'dark' ? 'Tema terang' : 'Tema gelap'}
       className={`sap-btn sap-btn-ghost !px-1.5 !py-1 ${className}`}
     >
       {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}

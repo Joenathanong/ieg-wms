@@ -29,7 +29,7 @@ function LoginForm() {
   }
 
   return (
-    <form onSubmit={submit} className="w-[360px] sap-panel shadow-sap">
+    <form onSubmit={submit} className="w-full max-w-[360px] sap-panel shadow-sap">
       <div className="sap-panel-title">
         <KeyRound size={13} className="text-sap-blue" />
         SAP Logon — Client 100
@@ -41,9 +41,11 @@ function LoginForm() {
           <div className="relative">
             <User size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-sap-muted" />
             <input
-              className="sap-field pl-7 uppercase"
+              className="sap-field pl-7 uppercase !text-base sm:!text-2xs"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              autoCapitalize="characters"
+              autoComplete="username"
               autoFocus
               required
             />
@@ -56,9 +58,10 @@ function LoginForm() {
             <KeyRound size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-sap-muted" />
             <input
               type="password"
-              className="sap-field pl-7"
+              className="sap-field pl-7 !text-base sm:!text-2xs"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
               required
             />
           </div>
@@ -88,7 +91,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="h-screen w-screen flex flex-col items-center justify-center bg-sap-bg">
+    <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-sap-bg px-4 py-6">
       <div className="flex items-center gap-2 mb-5">
         <Boxes size={26} className="text-sap-blue" />
         <div>
@@ -99,7 +102,7 @@ export default function LoginPage() {
 
       <Suspense
         fallback={
-          <div className="w-[360px] h-[280px] sap-panel flex items-center justify-center">
+          <div className="w-full max-w-[360px] h-[280px] sap-panel flex items-center justify-center">
             <Loader2 className="animate-spin text-sap-muted" />
           </div>
         }
@@ -107,8 +110,8 @@ export default function LoginPage() {
         <LoginForm />
       </Suspense>
 
-      <p className="mt-6 text-xxs text-sap-muted/60 font-mono">
-        SAP GUI 8.0 Theme — Quartz Dark · Next.js + Prisma + PostgreSQL
+      <p className="mt-6 text-xxs text-sap-muted/60 font-mono text-center px-2">
+        SAP GUI Theme — Quartz Dark / Morning Horizon · Next.js + Prisma + PostgreSQL
       </p>
     </div>
   );

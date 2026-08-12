@@ -111,6 +111,14 @@ export default async function HelpPage() {
         <div className="p-3 text-2xs text-sap-muted leading-relaxed space-y-1.5">
           <p>
             T-Code <b className="text-sap-blue">ZRF</b> adalah menu operator untuk perangkat PDT / RF scanner.
+            Di HP / terminal PDT, membuka halaman utama otomatis diarahkan ke menu <b>ZRF</b> (bisa
+            dikembalikan lewat tombol &quot;Buka tampilan desktop&quot;). Semua tabel laporan mendukung{' '}
+            <b>sort</b> (klik judul kolom) dan <b>filter</b> per kolom lewat ikon corong — operator{' '}
+            <span className="font-mono">= ≠ contains &gt; &lt;</span>, beberapa nilai dipisah{' '}
+            <span className="font-mono">;</span>, wildcard <span className="font-mono">*</span>. Export CSV
+            mengikuti hasil filter yang tampil.
+            <br />
+            <br />
             Admin mengatur aktif/nonaktifnya di <b className="text-sap-blue">ZSET</b>: ada master switch{' '}
             <b>Modul PDT</b> plus toggle terpisah untuk tiap T-Code (ZRF01–ZRF08). Modul yang dimatikan langsung
             terkunci tanpa perlu login ulang. Sebagai lapisan tambahan, tiap user punya flag <b>Akses PDT</b> di SU01,

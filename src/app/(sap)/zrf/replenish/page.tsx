@@ -64,15 +64,23 @@ export default function ZrfReplenishPage() {
     setLoading(false);
     if (!r.ok) return setMsg({ text: r.message, type: 'E' });
 
-    // urut FEFO — ED terdekat di paling atas (server sudah asc, jaga-jaga di client)
+    // Urut FEFO:
+    //   1) expired date terdekat di paling atas (tanpa ED selalu di bawah)
+    //   2) bila ED SAMA -> qty paling kecil dulu, supaya sisa kecil habis lebih dahulu
+    //   3) terakhir urut bin agar hasilnya stabil
     const rows = [...(r.data ?? [])].sort((a, b) => {
       const ea = a.exp_date ? new Date(a.exp_date).getTime() : Infinity;
       const eb = b.exp_date ? new Date(b.exp_date).getTime() : Infinity;
-      return ea - eb;
+      if (ea !== eb) return ea - eb;
+      if (a.qty !== b.qty) return a.qty - b.qty;
+      return a.bin_code.localeCompare(b.bin_code, 'id', { numeric: true });
     });
     setQuants(rows);
     setMsg({
-      text: rows.length > 0 ? `${rows.length} stok ditemukan — urut FEFO` : 'Tidak ada stok untuk kriteria ini',
+      text:
+        rows.length > 0
+          ? `${rows.length} stok ditemukan — urut FEFO (ED sama: qty terkecil dulu)`
+          : 'Tidak ada stok untuk kriteria ini',
       type: rows.length > 0 ? 'S' : 'W',
     });
   }
@@ -125,8 +133,9 @@ export default function ZrfReplenishPage() {
       code="ZRF08"
       footer={
         <p className="text-xxs text-sap-muted">
-          List urut <b>FEFO</b> — expired date terdekat paling atas. S-Bin tujuan disarankan dari{' '}
-          <b>Fix Bin</b> material (MM01), tetap boleh diganti.
+          List urut <b>FEFO</b> — expired date terdekat paling atas; bila ED sama, <b>qty terkecil</b>{' '}
+          didahulukan agar sisa kecil cepat habis. S-Bin tujuan disarankan dari <b>Fix Bin</b> material
+          (MM01), tetap boleh diganti.
         </p>
       }
     >
@@ -151,7 +160,7 @@ export default function ZrfReplenishPage() {
       </PdtButton>
 
       {quants.length > 0 && !sel && (
-        <div className="space-y-1.5 max-h-[38vh] overflow-auto">
+        <div className="space-y-1.5 max-h-[38dvh] overflow-auto">
           {quants.map((q, i) => (
             <button
               key={q.id}
@@ -162,10 +171,17 @@ export default function ZrfReplenishPage() {
               <div className="flex items-baseline justify-between gap-2">
                 <p className="font-mono text-sm text-sap-blue">{q.material_code}</p>
                 {i === 0 && q.exp_date && (
-                  <span className="sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext">
+                  <span className="sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext shrink-0">
                     FEFO 1st
                   </span>
                 )}
+                {i > 0 &&
+                  q.exp_date &&
+                  quants[i - 1]?.exp_date === q.exp_date && (
+                    <span className="sap-badge border-sap-neutralborder bg-sap-neutralbg text-sap-muted shrink-0">
+                      ED sama
+                    </span>
+                  )}
               </div>
               <p className="text-2xs text-sap-text truncate">{q.description}</p>
               <p className="text-xxs text-sap-muted font-mono">

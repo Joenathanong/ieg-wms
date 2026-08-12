@@ -92,6 +92,8 @@ export default function Lt01Page() {
       header: 'Exp. Date',
       mono: true,
       width: '110px',
+      value: (r) => (r.exp_date ? new Date(r.exp_date) : null),
+      exportValue: (r) => fmtDate(r.exp_date),
       render: (r) => fmtDate(r.exp_date),
     },
     { key: 'qty', header: 'Available', align: 'right', width: '90px' },

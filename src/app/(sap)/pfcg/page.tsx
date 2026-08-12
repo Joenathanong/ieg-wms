@@ -119,6 +119,8 @@ export default function PfcgPage() {
     {
       key: 'tcodes',
       header: 'T-Codes',
+      value: (r) => r.tcodes.join(' '),
+      exportValue: (r) => r.tcodes.join(' '),
       render: (r) => (
         <span className="font-mono text-xxs text-sap-muted">
           {r.tcodes.length > 8 ? `${r.tcodes.slice(0, 8).join(' ')} +${r.tcodes.length - 8}` : r.tcodes.join(' ')}

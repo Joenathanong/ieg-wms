@@ -96,7 +96,7 @@ export function CommandField({
 
   return (
     <div ref={boxRef} className="relative">
-      <div className="flex items-stretch h-[24px] w-[240px] sm:w-[300px]">
+      <div className="flex items-stretch h-[26px] sm:h-[24px] w-[128px] xs:w-[160px] sm:w-[240px] md:w-[300px]">
         <div className="flex items-center px-1.5 bg-sap-cmd border border-r-0 border-sap-border rounded-l-[2px]">
           <ChevronRight size={13} className="text-sap-blue" />
         </div>
@@ -105,7 +105,7 @@ export function CommandField({
           value={value}
           spellCheck={false}
           autoComplete="off"
-          placeholder="Command field  (Ctrl + /)"
+          placeholder="T-Code…"
           onChange={(e) => {
             setValue(e.target.value);
             setOpen(true);
@@ -144,7 +144,7 @@ export function CommandField({
 
       {open && suggestions.length > 0 && (
         <ul
-          className="absolute z-50 mt-1 w-[340px] max-h-[280px] overflow-auto bg-sap-panel
+          className="absolute z-50 mt-1 w-[min(340px,calc(100vw-24px))] max-h-[280px] overflow-auto bg-sap-panel
                      border border-sap-border rounded-[3px] shadow-sap"
         >
           {suggestions.map((t, i) => (
@@ -165,7 +165,7 @@ export function CommandField({
       )}
 
       {open && q && suggestions.length === 0 && (
-        <div className="absolute z-50 mt-1 w-[340px] bg-sap-panel border border-sap-border rounded-[3px] shadow-sap px-2.5 py-2 text-2xs text-sap-error flex items-center gap-2">
+        <div className="absolute z-50 mt-1 w-[min(340px,calc(100vw-24px))] bg-sap-panel border border-sap-border rounded-[3px] shadow-sap px-2.5 py-2 text-2xs text-sap-error flex items-center gap-2">
           <X size={13} /> Transaction {q} does not exist
         </div>
       )}

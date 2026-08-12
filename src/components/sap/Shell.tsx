@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   PanelLeft,
   Home,
@@ -11,6 +11,7 @@ import {
   UserRound,
   HelpCircle,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import { CommandField } from './CommandField';
 import { Sidebar } from './Sidebar';
@@ -28,19 +29,21 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
   return (
     <header className="shrink-0 bg-sap-sysbar border-b border-sap-border">
       {/* Baris 1 — Command field & identitas sistem */}
-      <div className="flex items-center gap-2 h-[34px] px-2">
+      <div className="flex items-center gap-1 sm:gap-2 h-[38px] sm:h-[34px] px-1.5 sm:px-2">
         <button
           type="button"
           onClick={onToggle}
           title="Toggle navigation"
-          className="sap-btn sap-btn-ghost !px-1.5 !py-1"
+          aria-label="Toggle navigation"
+          className="sap-btn sap-btn-ghost !px-2 !py-1.5 sm:!px-1.5 sm:!py-1"
         >
-          <PanelLeft size={14} />
+          <PanelLeft size={15} />
         </button>
 
         <CommandField role={user.role} pdt={user.pdt} tcodes={user.tcodes} />
 
-        <div className="flex items-center gap-1 ml-1">
+        {/* tombol navigasi — disembunyikan di layar kecil agar tidak berdesakan */}
+        <div className="hidden sm:flex items-center gap-1 ml-1">
           <button
             type="button"
             title="Back (F3)"
@@ -65,7 +68,7 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
           </button>
         </div>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-1 sm:gap-2 lg:gap-3">
           <span className="hidden lg:flex items-center gap-1.5 text-2xs text-sap-muted font-mono">
             <UserRound size={13} className="text-sap-blue" />
             {user.username}
@@ -78,22 +81,30 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
               </span>
             )}
           </span>
-          <ThemeToggle />
-          <Link href="/help" title="Help" className="sap-btn sap-btn-ghost !px-1.5 !py-1">
+          <ThemeToggle className="!px-2 !py-1.5 sm:!px-1.5 sm:!py-1" />
+          <Link
+            href="/help"
+            title="Help"
+            className="sap-btn sap-btn-ghost !px-2 !py-1.5 sm:!px-1.5 sm:!py-1 hidden sm:inline-flex"
+          >
             <HelpCircle size={14} />
           </Link>
-          <a href="/api/auth/logout" title="Log off" className="sap-btn sap-btn-ghost !px-1.5 !py-1">
+          <a
+            href="/api/auth/logout"
+            title="Log off"
+            className="sap-btn sap-btn-ghost !px-2 !py-1.5 sm:!px-1.5 sm:!py-1"
+          >
             <LogOut size={14} />
           </a>
         </div>
       </div>
 
       {/* Baris 2 — Judul transaksi aktif */}
-      <div className="flex items-center gap-2 h-[28px] px-3 bg-sap-topbar2 border-t border-sap-border">
-        <span className="font-mono text-2xs text-sap-blue">{tcode?.code ?? 'SESSION_MANAGER'}</span>
-        <span className="text-sap-border">|</span>
+      <div className="flex items-center gap-2 h-[26px] sm:h-[28px] px-2 sm:px-3 bg-sap-topbar2 border-t border-sap-border">
+        <span className="font-mono text-2xs text-sap-blue shrink-0">{tcode?.code ?? 'SESSION_MANAGER'}</span>
+        <span className="text-sap-border shrink-0">|</span>
         <span className="text-2xs text-sap-text truncate">{tcode?.title ?? 'SAP Easy Access'}</span>
-        <span className="ml-auto text-xxs text-sap-muted font-mono hidden md:inline">
+        <span className="ml-auto text-xxs text-sap-muted font-mono hidden md:inline shrink-0">
           WMS Lightweight — S/4HANA Style
         </span>
       </div>
@@ -103,22 +114,65 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
 
 export function Shell({ user, children }: { user: SessionPayload; children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [hidden, setHidden] = useState(false);
+  const [mobileNav, setMobileNav] = useState(false);
   const pathname = usePathname();
 
-  // Layar PDT: sembunyikan sidebar agar area kerja penuh di perangkat genggam.
+  // Layar PDT: area kerja penuh — sidebar hanya muncul bila dipanggil.
   const isPdt = pathname.startsWith('/zrf');
+
+  // tutup drawer setiap kali pindah halaman
+  useEffect(() => {
+    setMobileNav(false);
+  }, [pathname]);
 
   return (
     <StatusProvider>
-      <div className="flex flex-col h-screen w-screen overflow-hidden bg-sap-bg">
-        <TopBar user={user} onToggle={() => (isPdt ? setHidden((h) => !h) : setCollapsed((c) => !c))} />
-        <div className="flex flex-1 min-h-0">
-          {(!isPdt || hidden) && (
-            <Sidebar role={user.role} pdt={user.pdt} tcodes={user.tcodes} collapsed={collapsed} />
+      <div className="flex flex-col h-[100dvh] w-full overflow-hidden bg-sap-bg">
+        <TopBar
+          user={user}
+          onToggle={() => {
+            // < md: buka drawer; >= md: lebarkan / kecilkan sidebar
+            if (typeof window !== 'undefined' && window.innerWidth < 768) setMobileNav((v) => !v);
+            else setCollapsed((c) => !c);
+          }}
+        />
+
+        <div className="flex flex-1 min-h-0 relative">
+          {/* Sidebar inline — hanya layar >= md dan bukan layar PDT */}
+          {!isPdt && (
+            <div className="hidden md:block">
+              <Sidebar role={user.role} pdt={user.pdt} tcodes={user.tcodes} collapsed={collapsed} />
+            </div>
           )}
-          <main className="flex-1 min-w-0 overflow-auto p-3">{children}</main>
+
+          {/* Drawer navigasi untuk layar kecil (dan layar PDT bila dibuka) */}
+          {mobileNav && (
+            <>
+              <button
+                type="button"
+                aria-label="Tutup navigasi"
+                onClick={() => setMobileNav(false)}
+                className="fixed inset-0 z-40 bg-black/50 md:bg-transparent"
+              />
+              <div className="fixed md:absolute left-0 top-0 bottom-0 z-50 flex shadow-sap">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMobileNav(false)}
+                    aria-label="Tutup navigasi"
+                    className="absolute right-1 top-1 z-10 sap-btn sap-btn-ghost !px-1.5 !py-1 md:hidden"
+                  >
+                    <X size={14} />
+                  </button>
+                  <Sidebar role={user.role} pdt={user.pdt} tcodes={user.tcodes} collapsed={false} />
+                </div>
+              </div>
+            </>
+          )}
+
+          <main className="flex-1 min-w-0 overflow-auto p-2 sm:p-3">{children}</main>
         </div>
+
         <StatusBar />
       </div>
     </StatusProvider>

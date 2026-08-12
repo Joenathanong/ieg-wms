@@ -57,7 +57,7 @@ export function StatusBar({ system = 'PRD', client = '100' }: { system?: string;
   return (
     <footer
       className="flex items-center justify-between h-[26px] shrink-0 border-t border-sap-border bg-sap-sysbar
-                 text-2xs select-none"
+                 text-2xs select-none pb-[env(safe-area-inset-bottom)]"
     >
       <div
         key={message?.at ?? 'idle'}
@@ -76,9 +76,9 @@ export function StatusBar({ system = 'PRD', client = '100' }: { system?: string;
         )}
       </div>
 
-      <div className="flex items-center h-full divide-x divide-sap-border border-l border-sap-border font-mono text-sap-muted">
-        <span className="px-3">{system}</span>
-        <span className="px-3">CLNT {client}</span>
+      <div className="flex items-center h-full divide-x divide-sap-border border-l border-sap-border font-mono text-sap-muted shrink-0">
+        <span className="px-2 sm:px-3">{system}</span>
+        <span className="px-2 sm:px-3 hidden xs:inline">CLNT {client}</span>
         <span className="px-3 hidden sm:inline">OVR</span>
         <span className="px-3 hidden md:inline">WMS-LITE</span>
       </div>

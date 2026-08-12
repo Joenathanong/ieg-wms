@@ -26,6 +26,7 @@ export default function Ls01nPage() {
   const [q, setQ] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
+  const [view, setView] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'CREATE' | 'CHANGE'>('CREATE');
@@ -126,7 +127,7 @@ export default function Ls01nPage() {
   const cols: Column<Row>[] = [
     { key: 'bin_code', header: 'Storage Bin', mono: true, width: '160px' },
     { key: 'zone_id', header: 'Zone / Section', mono: true, width: '150px' },
-    { key: 'status', header: 'Status', width: '115px', render: (r) => <Badge value={r.status} /> },
+    { key: 'status', header: 'Status', width: '115px', exportValue: (r) => r.status, render: (r) => <Badge value={r.status} /> },
     { key: 'max_weight_kg', header: 'Max Weight (kg)', align: 'right', width: '130px' },
     {
       key: 'is_interim',
@@ -320,7 +321,7 @@ export default function Ls01nPage() {
           <Button variant="primary" onClick={run} loading={loading}>
             <Search size={13} /> Search
           </Button>
-          <Button onClick={() => exportCsv('storage_bins.csv', cols, rows)} disabled={rows.length === 0}>
+          <Button onClick={() => exportCsv('storage_bins.csv', cols, view)} disabled={view.length === 0}>
             <Download size={13} /> Export
           </Button>
         </Toolbar>
@@ -330,7 +331,8 @@ export default function Ls01nPage() {
           rows={rows}
           loading={loading}
           rowKey={(r) => r.id}
-          maxHeight="calc(100vh - 300px)"
+          maxHeight="calc(100vh - 330px)"
+          onViewChange={setView}
           onRowClick={(r) => {
             setForm({ bin_code: r.bin_code, zone_id: r.zone_id, max_weight_kg: r.max_weight_kg });
             setMode('CHANGE');

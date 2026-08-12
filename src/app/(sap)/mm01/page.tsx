@@ -48,6 +48,7 @@ export default function Mm01Page() {
   const { bins } = useMasterData();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
+  const [view, setView] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'CREATE' | 'CHANGE'>('CREATE');
@@ -145,6 +146,7 @@ export default function Mm01Page() {
       header: 'Batch',
       align: 'center',
       width: '70px',
+      exportValue: (r) => (r.is_batch_managed ? 'X' : ''),
       render: (r) => (
         <span className={r.is_batch_managed ? 'text-sap-blue font-semibold' : 'text-sap-muted'}>
           {r.is_batch_managed ? 'X' : '—'}
@@ -170,6 +172,14 @@ export default function Mm01Page() {
       key: 'packagings',
       header: 'Pallet / Packaging',
       width: '210px',
+      value: (r) =>
+        (r.packagings ?? [])
+          .map((p) => `${p.zone_group ?? 'ALL'}:${p.pack_code}=${p.qty_per_unit}${p.is_default ? '*' : ''}`)
+          .join(' '),
+      exportValue: (r) =>
+        (r.packagings ?? [])
+          .map((p) => `${p.zone_group ?? 'ALL'}:${p.pack_code}=${p.qty_per_unit}${p.is_default ? '*' : ''}`)
+          .join(' '),
       render: (r) =>
         r.packagings?.length ? (
           <span className="font-mono text-xxs">
@@ -446,7 +456,7 @@ export default function Mm01Page() {
             <Button variant="primary" onClick={run} loading={loading}>
               <Search size={13} /> Search
             </Button>
-            <Button onClick={() => exportCsv('material_master.csv', cols, rows)} disabled={rows.length === 0}>
+            <Button onClick={() => exportCsv('material_master.csv', cols, view)} disabled={view.length === 0}>
               <Download size={13} /> Export
             </Button>
             <span className="ml-auto text-xxs text-sap-muted">
@@ -459,7 +469,8 @@ export default function Mm01Page() {
             rows={rows}
             loading={loading}
             rowKey={(r) => r.id}
-            maxHeight="calc(100vh - 320px)"
+            maxHeight="calc(100vh - 350px)"
+            onViewChange={setView}
             onRowClick={(r) => {
               setForm({
                 material_code: r.material_code,

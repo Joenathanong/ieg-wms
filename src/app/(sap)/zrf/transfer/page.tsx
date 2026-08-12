@@ -85,7 +85,7 @@ export default function ZrfTransferPage() {
       </PdtButton>
 
       {quants.length > 0 && !sel && (
-        <div className="space-y-1.5 max-h-[38vh] overflow-auto">
+        <div className="space-y-1.5 max-h-[38dvh] overflow-auto">
           {quants.map((q) => (
             <button
               key={q.id}

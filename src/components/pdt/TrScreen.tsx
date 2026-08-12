@@ -143,7 +143,7 @@ export function TrScreen({
           <RefreshCw size={16} /> Refresh daftar
         </PdtButton>
 
-        <div className="space-y-1.5 max-h-[46vh] overflow-auto">
+        <div className="space-y-1.5 max-h-[46dvh] overflow-auto">
           {list.map((t) => (
             <button
               key={t.id}

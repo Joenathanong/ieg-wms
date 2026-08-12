@@ -7,7 +7,7 @@ import { ChevronLeft, Loader2 } from 'lucide-react';
 /**
  * Komponen UI khusus terminal PDT / RF scanner.
  * Target: layar kecil, sarung tangan, input dari barcode scanner (keyboard wedge).
- * Font besar, tombol tinggi, kontras tinggi.
+ * Font besar, tombol tinggi, kontras tinggi, aman terhadap notch (safe-area).
  */
 
 export function PdtScreen({
@@ -24,18 +24,27 @@ export function PdtScreen({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto w-full max-w-[520px]">
+    <div className="mx-auto w-full max-w-[520px] pb-[env(safe-area-inset-bottom)]">
       <div className="sap-panel overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-sap-titlebar border-b border-sap-border">
-          <Link href={back} className="text-sap-muted hover:text-sap-blue p-1 -ml-1">
-            <ChevronLeft size={18} />
+        {/* header tetap terlihat saat layar di-scroll */}
+        <div className="sticky top-0 z-20 flex items-center gap-2 px-2.5 sm:px-3 py-2.5 bg-sap-titlebar border-b border-sap-border">
+          <Link
+            href={back}
+            aria-label="Kembali"
+            className="text-sap-muted hover:text-sap-blue p-1.5 -ml-1.5 rounded-[3px] active:bg-sap-hover"
+          >
+            <ChevronLeft size={20} />
           </Link>
-          <span className="font-mono text-sap-blue text-sm">{code}</span>
-          <span className="text-sap-border">|</span>
+          <span className="font-mono text-sap-blue text-sm shrink-0">{code}</span>
+          <span className="text-sap-border shrink-0">|</span>
           <span className="text-sm font-semibold truncate">{title}</span>
         </div>
-        <div className="p-3 space-y-3">{children}</div>
-        {footer && <div className="px-3 py-2 border-t border-sap-border bg-sap-nav">{footer}</div>}
+
+        <div className="p-2.5 sm:p-3 space-y-2.5 sm:space-y-3">{children}</div>
+
+        {footer && (
+          <div className="px-2.5 sm:px-3 py-2 border-t border-sap-border bg-sap-nav">{footer}</div>
+        )}
       </div>
     </div>
   );
@@ -53,12 +62,15 @@ export const PdtInput = React.forwardRef<
         spellCheck={false}
         autoComplete="off"
         autoCapitalize="characters"
+        autoCorrect="off"
+        enterKeyHint="done"
+        /* text-base (16px) mencegah iOS auto-zoom saat field difokus */
         className={`w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
                     rounded-[3px] px-3 py-2.5 text-base font-mono text-sap-text
                     disabled:opacity-50 ${className}`}
         {...rest}
       />
-      {hint && <span className="block text-xxs text-sap-muted/70 mt-1">{hint}</span>}
+      {hint && <span className="block text-xxs text-sap-muted/70 mt-1 leading-snug">{hint}</span>}
     </label>
   );
 });
@@ -81,9 +93,9 @@ export function PdtButton({
         : 'bg-sap-btn border-sap-border text-sap-text hover:bg-sap-btnhover';
   return (
     <button
-      className={`w-full flex items-center justify-center gap-2 px-3 py-3 rounded-[3px] border-2
-                  text-sm font-semibold transition-colors disabled:opacity-40
-                  disabled:cursor-not-allowed ${v} ${className}`}
+      className={`w-full min-h-[46px] flex items-center justify-center gap-2 px-3 py-3 rounded-[3px] border-2
+                  text-sm font-semibold transition-colors active:opacity-80 disabled:opacity-40
+                  disabled:cursor-not-allowed touch-manipulation ${v} ${className}`}
       disabled={loading || rest.disabled}
       {...rest}
     >
@@ -97,7 +109,9 @@ export function PdtRow({ label, value, accent }: { label: string; value: React.R
   return (
     <div className="flex items-baseline justify-between gap-3 py-1 border-b border-sap-border/50 last:border-0">
       <span className="text-2xs uppercase tracking-wide text-sap-muted shrink-0">{label}</span>
-      <span className={`font-mono text-sm truncate ${accent ? 'text-sap-blue' : 'text-sap-text'}`}>{value}</span>
+      <span className={`font-mono text-sm truncate text-right ${accent ? 'text-sap-blue' : 'text-sap-text'}`}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -111,5 +125,9 @@ export function PdtMessage({ text, type }: { text: string; type: 'S' | 'E' | 'W'
         : type === 'W'
           ? 'border-sap-warnborder bg-sap-warnbg text-sap-warntext'
           : 'border-sap-infoborder bg-sap-infobg text-sap-infotext';
-  return <div className={`rounded-[3px] border px-3 py-2 text-2xs leading-relaxed ${style}`}>{text}</div>;
+  return (
+    <div className={`rounded-[3px] border px-3 py-2 text-2xs leading-relaxed break-words ${style}`}>
+      {text}
+    </div>
+  );
 }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, verifySession } from '@/lib/session';
 import { pathAllowed } from '@/lib/tcodes';
+import { isHandheld, VIEW_COOKIE, VIEW_MAX_AGE } from '@/lib/device';
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/health'];
 const ADMIN_PATHS = ['/su01', '/zset', '/pfcg'];
@@ -56,6 +57,44 @@ export async function middleware(req: NextRequest) {
   // oleh role dasar (ADMIN/OPERATOR/VIEWER) di masing-masing route.
   if (!pathname.startsWith('/api/') && !pathAllowed(pathname, session.role, session.pdt, session.tcodes)) {
     return deny('No authorization for this transaction (S_TCODE). Contact your administrator (PFCG/SU01).');
+  }
+
+  /* ------------------------------------------------------------------
+   * Deteksi perangkat — HP / terminal PDT langsung masuk menu ZRF.
+   *
+   *  ?view=desktop  -> paksa tampilan desktop, disimpan di cookie (1 tahun)
+   *  ?view=pdt      -> kembalikan perilaku auto-ZRF
+   *  Auto-redirect hanya dari halaman utama, sehingga link/T-Code
+   *  spesifik (mis. /mb51) tetap bisa dibuka langsung dari HP.
+   * ------------------------------------------------------------------ */
+  if (!pathname.startsWith('/api/')) {
+    const viewParam = req.nextUrl.searchParams.get('view');
+
+    if (viewParam === 'desktop' || viewParam === 'pdt') {
+      const url = req.nextUrl.clone();
+      url.searchParams.delete('view');
+      if (viewParam === 'pdt') url.pathname = '/zrf';
+      const res = NextResponse.redirect(url);
+      res.cookies.set(VIEW_COOKIE, viewParam, {
+        path: '/',
+        maxAge: VIEW_MAX_AGE,
+        sameSite: 'lax',
+      });
+      return res;
+    }
+
+    const prefersDesktop = req.cookies.get(VIEW_COOKIE)?.value === 'desktop';
+    if (
+      pathname === '/' &&
+      session.pdt &&
+      !prefersDesktop &&
+      isHandheld(req.headers.get('user-agent'))
+    ) {
+      const url = req.nextUrl.clone();
+      url.pathname = '/zrf';
+      url.search = '';
+      return NextResponse.redirect(url);
+    }
   }
 
   return NextResponse.next();

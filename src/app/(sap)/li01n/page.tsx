@@ -102,7 +102,7 @@ export default function Li01nPage() {
     { key: 'scope_type', header: 'Scope', mono: true, width: '95px' },
     { key: 'scope_value', header: 'Scope Detail', width: '220px' },
     { key: 'bin_count', header: 'Bins', align: 'right', width: '65px' },
-    { key: 'status', header: 'Status', width: '105px', render: (r) => <Badge value={r.status} /> },
+    { key: 'status', header: 'Status', width: '105px', exportValue: (r) => r.status, render: (r) => <Badge value={r.status} /> },
     { key: 'item_count', header: 'Lines', align: 'right', width: '65px' },
     { key: 'book_total', header: 'Book Qty', align: 'right', width: '95px' },
     {
@@ -127,9 +127,25 @@ export default function Li01nPage() {
           </span>
         ),
     },
-    { key: 'planned_date', header: 'Planned', mono: true, width: '95px', render: (r) => fmtDate(r.planned_date) },
+    {
+      key: 'planned_date',
+      header: 'Planned',
+      mono: true,
+      width: '95px',
+      value: (r) => new Date(r.planned_date),
+      exportValue: (r) => fmtDate(r.planned_date),
+      render: (r) => fmtDate(r.planned_date),
+    },
     { key: 'created_by', header: 'Created By', mono: true, width: '105px' },
-    { key: 'created_at', header: 'Created On', mono: true, width: '145px', render: (r) => fmtDateTime(r.created_at) },
+    {
+      key: 'created_at',
+      header: 'Created On',
+      mono: true,
+      width: '145px',
+      value: (r) => new Date(r.created_at),
+      exportValue: (r) => fmtDateTime(r.created_at),
+      render: (r) => fmtDateTime(r.created_at),
+    },
     {
       key: 'act',
       header: '',

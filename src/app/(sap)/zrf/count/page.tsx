@@ -104,7 +104,7 @@ export default function ZrfCountPage() {
         <PdtButton onClick={loadList} loading={loading}>
           <RefreshCw size={16} /> Refresh
         </PdtButton>
-        <div className="space-y-1.5 max-h-[52vh] overflow-auto">
+        <div className="space-y-1.5 max-h-[52dvh] overflow-auto">
           {list.map((d) => (
             <button
               key={d.id}
@@ -172,7 +172,7 @@ export default function ZrfCountPage() {
           ) : binItems.length === 0 ? (
             <PdtMessage text="Bin ini kosong di sistem. Selisih plus diinput lewat LI11N di desktop." type="W" />
           ) : (
-            <div className="space-y-2 max-h-[36vh] overflow-auto">
+            <div className="space-y-2 max-h-[36dvh] overflow-auto">
               {binItems.map((it) => (
                 <div key={it.id} className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5">
                   <p className="font-mono text-sm text-sap-blue">{it.material_code}</p>

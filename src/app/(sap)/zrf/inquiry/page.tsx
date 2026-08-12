@@ -73,7 +73,7 @@ export default function ZrfInquiryPage() {
         <Search size={16} /> Cari
       </PdtButton>
 
-      <div className="space-y-1.5 max-h-[48vh] overflow-auto">
+      <div className="space-y-1.5 max-h-[48dvh] overflow-auto">
         {rows.map((r, i) => (
           <div key={i} className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
             <div className="flex items-baseline justify-between gap-2">

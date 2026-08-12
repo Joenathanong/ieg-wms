@@ -67,6 +67,7 @@ export default function Mb51Page() {
   const [size] = useState(200);
 
   const [rows, setRows] = useState<Row[]>([]);
+  const [view, setView] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -98,6 +99,8 @@ export default function Mb51Page() {
       header: 'Mat. Doc.',
       mono: true,
       width: '130px',
+      // CSV ikut membawa penanda pembatalan
+      exportValue: (r) => (r.reversed_by ? `${r.document_number} (DIBATALKAN oleh ${r.reversed_by})` : r.document_number),
       render: (r) => (
         <span className="inline-flex items-center gap-1.5">
           <span className={r.reversed_by ? 'line-through text-sap-muted' : ''}>{r.document_number}</span>
@@ -125,6 +128,12 @@ export default function Mb51Page() {
       key: 'movement_desc',
       header: 'MvT Description',
       width: '175px',
+      exportValue: (r) =>
+        r.reversal_of
+          ? `${r.movement_desc} — pembatalan dari dok. ${r.reversal_of}`
+          : r.reversed_by
+            ? `${r.movement_desc} — dibatalkan oleh dok. ${r.reversed_by}`
+            : r.movement_desc,
       render: (r) => (
         <span className="text-sap-muted">
           {r.movement_desc}
@@ -132,7 +141,15 @@ export default function Mb51Page() {
         </span>
       ),
     },
-    { key: 'doc_date', header: 'Doc. Date', mono: true, width: '95px', render: (r) => fmtDate(r.doc_date) },
+    {
+      key: 'doc_date',
+      header: 'Doc. Date',
+      mono: true,
+      width: '95px',
+      value: (r) => new Date(r.doc_date),
+      exportValue: (r) => fmtDate(r.doc_date),
+      render: (r) => fmtDate(r.doc_date),
+    },
     { key: 'material_code', header: 'Material', mono: true, width: '140px' },
     { key: 'description', header: 'Description', width: '210px' },
     { key: 'batch_number', header: 'Batch', mono: true, width: '120px' },
@@ -143,6 +160,9 @@ export default function Mb51Page() {
       header: 'Quantity',
       align: 'right',
       width: '90px',
+      // nilai bertanda: movement pengurang & pembatalan (102/562/711/201/551/702) menjadi negatif
+      value: (r) => ((SIGN[r.movement_code] ?? 0) < 0 ? -r.qty : r.qty),
+      exportValue: (r) => ((SIGN[r.movement_code] ?? 0) < 0 ? -r.qty : r.qty),
       render: (r) => {
         const s = SIGN[r.movement_code] ?? 0;
         const cls = s > 0 ? 'text-sap-oktext' : s < 0 ? 'text-sap-errtext' : '';
@@ -157,7 +177,15 @@ export default function Mb51Page() {
     { key: 'uom', header: 'UoM', mono: true, width: '55px' },
     { key: 'reference', header: 'Reference', width: '130px' },
     { key: 'user_id', header: 'User', mono: true, width: '95px' },
-    { key: 'created_at', header: 'Entered On', mono: true, width: '150px', render: (r) => fmtDateTime(r.created_at) },
+    {
+      key: 'created_at',
+      header: 'Entered On',
+      mono: true,
+      width: '150px',
+      value: (r) => new Date(r.created_at),
+      exportValue: (r) => fmtDateTime(r.created_at),
+      render: (r) => fmtDateTime(r.created_at),
+    },
   ];
 
   return (
@@ -219,7 +247,7 @@ export default function Mb51Page() {
         >
           <Eraser size={13} /> Clear
         </Button>
-        <Button onClick={() => exportCsv('MB51_material_documents.csv', cols, rows)} disabled={rows.length === 0}>
+        <Button onClick={() => exportCsv('MB51_material_documents.csv', cols, view)} disabled={view.length === 0}>
           <Download size={13} /> Export CSV
         </Button>
 
@@ -252,7 +280,15 @@ export default function Mb51Page() {
         </div>
       </Toolbar>
 
-      <Grid columns={cols} rows={rows} loading={loading} rowKey={(r) => r.document_number} maxHeight="calc(100vh - 330px)" />
+      <Grid
+        columns={cols}
+        rows={rows}
+        loading={loading}
+        rowKey={(r) => r.document_number}
+        maxHeight="calc(100vh - 360px)"
+        onViewChange={setView}
+        footer={<span>Qty bertanda − ikut terbawa ke Export CSV</span>}
+      />
     </div>
   );
 }

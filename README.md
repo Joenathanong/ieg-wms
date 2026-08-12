@@ -100,6 +100,30 @@ Jalankan `npx prisma db push` sekali dari lokal dengan `.env` produksi.
 
 ---
 
+## 3b. Tabel ALV — Sort & Filter
+
+Setiap tabel laporan/daftar (MB51, MB52, LX02, LS04, LB10, LS01N, MM01, SU01, PFCG, LI01N, LT01)
+punya kemampuan yang sama:
+
+* **Sort** — klik judul kolom: naik → turun → tanpa sort. Angka, tanggal, dan teks
+  diurutkan sesuai tipenya (mis. `GB-A-2` sebelum `GB-A-10`); sel kosong selalu di bawah.
+* **Filter per kolom** — klik ikon corong di judul kolom, pilih operator lalu isi nilai:
+
+  | Operator | Arti |
+  |---|---|
+  | `≈` CP | contains / mengandung |
+  | `≉` NP | not contains |
+  | `=` EQ | equal — sama persis |
+  | `≠` NE | not equal |
+  | `>` `≥` `<` `≤` | perbandingan angka / tanggal |
+
+  Beberapa nilai dipisah `;` (mis. `OPEN;PARTIAL`), wildcard `*` didukung (mis. `GB-*-01-*`).
+* **Quick search** — kotak cari di atas tabel menyaring seluruh kolom sekaligus.
+* Filter aktif tampil sebagai chip dan bisa dihapus satu per satu atau sekaligus.
+* **Export CSV mengikuti hasil sort & filter** yang sedang tampil, bukan seluruh data.
+
+---
+
 ## 4. Daftar T-Code
 
 Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`, format `/nMIGO` juga didukung).
@@ -150,7 +174,7 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 | `ZRF05` | Stock Count — input hasil opname per bin |
 | `ZRF06` | Inquiry — cek isi rak / lokasi material |
 | `ZRF07` | Goods Issue — keluarkan barang dari transit-out (201) |
-| `ZRF08` | **Replenishment** — scan bin ATAU material → list stok urut **FEFO** (ED terdekat paling atas) → pilih → qty + S-Bin tujuan (saran otomatis dari **Fix Bin** material, tetap bisa diganti) → posting 301 |
+| `ZRF08` | **Replenishment** — scan bin ATAU material → list stok urut **FEFO** (ED terdekat paling atas; **bila ED sama, qty terkecil didahulukan** agar sisa kecil cepat habis) → pilih → qty + S-Bin tujuan (saran otomatis dari **Fix Bin** material, tetap bisa diganti) → posting 301 |
 
 > **Barcode PDT.** Field scan material di ZRF01 / ZRF06 / ZRF08 mendukung:
 > (1) barcode compound `material;batch;...` (mis. `1228050306;D26153;CTN;36.00000;PCS;...`) —
@@ -263,6 +287,23 @@ Function. Tombol **Download Sample Excel Template** tersedia untuk kelima tipe.
 Layar khusus perangkat genggam: font besar, tombol tinggi, input siap barcode scanner,
 sidebar otomatis disembunyikan. Semua posting dari PDT ditandai `via_pdt` sehingga bisa
 dibedakan dari posting admin.
+
+### Auto-masuk ZRF di HP / terminal PDT
+
+Aplikasi mengenali perangkat dari User-Agent. Bila diakses dari **HP atau terminal PDT**
+(Zebra, Honeywell, Datalogic, CipherLab, Unitech, dll.) dan user punya izin PDT, membuka
+halaman utama otomatis diarahkan ke menu **ZRF** — operator tidak perlu mengetik T-Code.
+
+* Link/T-Code spesifik (mis. `/mb51`) tetap bisa dibuka langsung dari HP — auto-redirect
+  hanya berlaku dari halaman utama.
+* Tombol **"Buka tampilan desktop"** di bawah menu ZRF memaksa tampilan desktop dan
+  diingat lewat cookie (`?view=desktop`). Untuk mengembalikan perilaku auto-ZRF:
+  buka `?view=pdt`.
+* Tablet diperlakukan sebagai desktop (layarnya cukup lebar untuk tabel ALV).
+
+Tampilan mobile: sidebar berubah menjadi drawer, top bar & status bar dipadatkan,
+layar PDT memakai header sticky, target sentuh lebih besar, dan aman terhadap notch
+(safe-area). Field input PDT memakai font 16px agar iOS tidak melakukan auto-zoom.
 
 ### Kontrol aktif/nonaktif
 

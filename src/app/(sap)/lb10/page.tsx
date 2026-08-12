@@ -48,6 +48,7 @@ export default function Lb10Page() {
   const [material, setMaterial] = useState('');
   const [tr, setTr] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
+  const [view, setView] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
 
   const run = useCallback(async () => {
@@ -76,12 +77,14 @@ export default function Lb10Page() {
       key: 'tr_type',
       header: 'Type',
       width: '105px',
+      exportValue: (r) => r.tr_type,
       render: (r) => <span className={`sap-badge ${TYPE_STYLE[r.tr_type]}`}>{r.tr_type}</span>,
     },
     {
       key: 'status',
       header: 'Status',
       width: '105px',
+      exportValue: (r) => r.status,
       render: (r) => <span className={`sap-badge ${STATUS_STYLE[r.status]}`}>{r.status}</span>,
     },
     { key: 'materials', header: 'Material', mono: true, width: '150px' },
@@ -103,6 +106,7 @@ export default function Lb10Page() {
       header: 'Open / Lines',
       align: 'center',
       width: '110px',
+      exportValue: (r) => `${r.open_lines} / ${r.item_count}`,
       render: (r) => (
         <span className="font-mono">
           {r.open_lines} / {r.item_count}
@@ -111,7 +115,15 @@ export default function Lb10Page() {
     },
     { key: 'ref_doc', header: 'Mat. Doc.', mono: true, width: '125px' },
     { key: 'created_by', header: 'Created By', mono: true, width: '110px' },
-    { key: 'created_at', header: 'Created On', mono: true, width: '150px', render: (r) => fmtDateTime(r.created_at) },
+    {
+      key: 'created_at',
+      header: 'Created On',
+      mono: true,
+      width: '150px',
+      value: (r) => new Date(r.created_at),
+      exportValue: (r) => fmtDateTime(r.created_at),
+      render: (r) => fmtDateTime(r.created_at),
+    },
     {
       key: 'act',
       header: '',
@@ -187,7 +199,7 @@ export default function Lb10Page() {
         <Button onClick={run} loading={loading}>
           <RefreshCw size={13} /> Refresh
         </Button>
-        <Button onClick={() => exportCsv('LB10_transfer_requirements.csv', cols, rows)} disabled={rows.length === 0}>
+        <Button onClick={() => exportCsv('LB10_transfer_requirements.csv', cols, view)} disabled={view.length === 0}>
           <Download size={13} /> Export CSV
         </Button>
         <span className="ml-auto text-xxs text-sap-muted">
@@ -200,7 +212,8 @@ export default function Lb10Page() {
         rows={rows}
         loading={loading}
         rowKey={(r) => r.id}
-        maxHeight="calc(100vh - 330px)"
+        maxHeight="calc(100vh - 360px)"
+        onViewChange={setView}
         onRowClick={(r) => router.push(`/lb12?tr=${r.tr_number}`)}
       />
     </div>

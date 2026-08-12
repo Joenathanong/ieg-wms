@@ -35,6 +35,7 @@ export default function Lx02Page() {
   const [sort, setSort] = useState('bin');
 
   const [rows, setRows] = useState<Row[]>([]);
+  const [view, setView] = useState<Row[]>([]);
   const [totalQty, setTotalQty] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -64,18 +65,37 @@ export default function Lx02Page() {
       key: 'bin_status',
       header: 'Bin Status',
       width: '105px',
+      exportValue: (r) => r.bin_status,
       render: (r) => <Badge value={r.bin_status} />,
     },
     { key: 'material_code', header: 'Material', mono: true, width: '140px' },
     { key: 'description', header: 'Description', width: '230px' },
     { key: 'batch_number', header: 'Batch', mono: true, width: '130px' },
-    { key: 'mfg_date', header: 'Mfg. Date', mono: true, width: '100px', render: (r) => fmtDate(r.mfg_date) },
-    { key: 'exp_date', header: 'Exp. Date', mono: true, width: '100px', render: (r) => fmtDate(r.exp_date) },
+    {
+      key: 'mfg_date',
+      header: 'Mfg. Date',
+      mono: true,
+      width: '100px',
+      value: (r) => (r.mfg_date ? new Date(r.mfg_date) : null),
+      exportValue: (r) => fmtDate(r.mfg_date),
+      render: (r) => fmtDate(r.mfg_date),
+    },
+    {
+      key: 'exp_date',
+      header: 'Exp. Date',
+      mono: true,
+      width: '100px',
+      value: (r) => (r.exp_date ? new Date(r.exp_date) : null),
+      exportValue: (r) => fmtDate(r.exp_date),
+      render: (r) => fmtDate(r.exp_date),
+    },
     {
       key: 'gr_date',
       header: 'GR Date',
       mono: true,
       width: '100px',
+      value: (r) => (r.gr_date ? new Date(r.gr_date) : null),
+      exportValue: (r) => fmtDate(r.gr_date),
       render: (r) => fmtDate(r.gr_date) || <span className="text-sap-muted">—</span>,
     },
     {
@@ -98,6 +118,7 @@ export default function Lx02Page() {
       key: 'expiry_flag',
       header: 'Alert',
       width: '95px',
+      exportValue: (r) => (r.expiry_flag === 'CRITICAL' ? '<= 30 D' : r.expiry_flag),
       render: (r) =>
         r.expiry_flag === 'EXPIRED' ? (
           <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext">EXPIRED</span>
@@ -175,7 +196,7 @@ export default function Lx02Page() {
         >
           <CalendarClock size={13} /> Expiring ≤ 30 days
         </Button>
-        <Button onClick={() => exportCsv('LX02_bin_stock.csv', cols, rows)} disabled={rows.length === 0}>
+        <Button onClick={() => exportCsv('LX02_bin_stock.csv', cols, view)} disabled={view.length === 0}>
           <Download size={13} /> Export CSV
         </Button>
         <span className="ml-auto font-mono text-xxs text-sap-muted">
@@ -188,7 +209,8 @@ export default function Lx02Page() {
         rows={rows}
         loading={loading}
         rowKey={(r, i) => `${r.bin_code}-${r.material_code}-${r.batch_number}-${i}`}
-        maxHeight="calc(100vh - 330px)"
+        maxHeight="calc(100vh - 360px)"
+        onViewChange={setView}
       />
     </div>
   );

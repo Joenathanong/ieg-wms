@@ -112,6 +112,8 @@ export default function Su01Page() {
       key: 'auth_role',
       header: 'Role T-Code',
       width: '150px',
+      value: (r) => r.auth_role?.role_name ?? 'FULL',
+      exportValue: (r) => r.auth_role?.role_name ?? 'FULL',
       render: (r) =>
         r.auth_role ? (
           <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext gap-1">
@@ -125,6 +127,8 @@ export default function Su01Page() {
       key: 'is_active',
       header: 'Status',
       width: '110px',
+      value: (r) => (r.is_active ? 'ACTIVE' : 'LOCKED'),
+      exportValue: (r) => (r.is_active ? 'ACTIVE' : 'LOCKED'),
       render: (r) =>
         r.is_active ? (
           <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext">ACTIVE</span>
@@ -137,6 +141,8 @@ export default function Su01Page() {
       header: 'PDT',
       align: 'center',
       width: '80px',
+      value: (r) => (r.pdt_enabled ? 'ON' : ''),
+      exportValue: (r) => (r.pdt_enabled ? 'ON' : ''),
       render: (r) =>
         r.pdt_enabled ? (
           <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext gap-1">
@@ -146,8 +152,24 @@ export default function Su01Page() {
           <span className="text-sap-muted">—</span>
         ),
     },
-    { key: 'last_login', header: 'Last Logon', mono: true, width: '150px', render: (r) => fmtDateTime(r.last_login) || '—' },
-    { key: 'created_at', header: 'Created On', mono: true, width: '160px', render: (r) => fmtDateTime(r.created_at) },
+    {
+      key: 'last_login',
+      header: 'Last Logon',
+      mono: true,
+      width: '150px',
+      value: (r) => (r.last_login ? new Date(r.last_login) : null),
+      exportValue: (r) => fmtDateTime(r.last_login),
+      render: (r) => fmtDateTime(r.last_login) || '—',
+    },
+    {
+      key: 'created_at',
+      header: 'Created On',
+      mono: true,
+      width: '160px',
+      value: (r) => new Date(r.created_at),
+      exportValue: (r) => fmtDateTime(r.created_at),
+      render: (r) => fmtDateTime(r.created_at),
+    },
     {
       key: 'act',
       header: '',
