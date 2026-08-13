@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Separator } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
-import { useMasterData } from '@/components/sap/hooks';
+import { useMasterData, useCostCenters } from '@/components/sap/hooks';
 import { useExecuteKey } from '@/components/sap/keynav';
 import { ConfirmDialog } from '@/components/sap/Confirm';
 import { BatchDetermination } from '@/components/sap/BatchDetermination';
@@ -29,7 +29,8 @@ import { ZONE_GROUPS } from '@/lib/zones';
 
 const MOVEMENTS = [
   { code: '101', label: '101 — Goods Receipt (GR)', mode: 'TR_IN' },
-  { code: '201', label: '201 — Goods Issue (GI)', mode: 'TR_OUT' },
+  { code: '201', label: '201 — Goods Issue (Cost Center)', mode: 'TR_OUT' },
+  { code: '601', label: '601 — Goods Issue (Penjualan)', mode: 'DIRECT_MIN' },
   { code: '551', label: '551 — Scrapping / Adjustment (-)', mode: 'DIRECT_MIN' },
   { code: '701', label: '701 — Phys. Inv. Difference (+)', mode: 'DIRECT_PLUS' },
   { code: '702', label: '702 — Phys. Inv. Difference (-)', mode: 'DIRECT_MIN' },
@@ -93,12 +94,14 @@ interface PostedDoc {
 export default function MigoPage() {
   const { setStatus } = useStatus();
   const { materials, bins } = useMasterData();
+  const { costCenters } = useCostCenters();
 
   const [movement, setMovement] = useState<string>('101');
   const [giMode, setGiMode] = useState<'REQUEST' | 'ISSUE'>('REQUEST');
   const [zoneGroup, setZoneGroup] = useState('');
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10));
   const [reference, setReference] = useState('');
+  const [costCenter, setCostCenter] = useState('');
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState<PostedDoc[]>([]);
@@ -119,6 +122,8 @@ export default function MigoPage() {
   const isTwoStep = mode === 'TR_IN' || mode === 'TR_OUT';
   const isInbound = mode === 'TR_IN' || mode === 'DIRECT_PLUS';
   const isCancel = mode === 'CANCEL';
+  // 201 tahap ISSUE membebankan biaya ke cost center; 601 (penjualan) tidak.
+  const needsCc = mode === 'TR_OUT' && giMode === 'ISSUE';
 
   async function loadCancelPreview() {
     const doc = cancelDoc.trim().toUpperCase();
@@ -183,6 +188,7 @@ export default function MigoPage() {
   function reset() {
     setLines([emptyLine()]);
     setReference('');
+    setCostCenter('');
     setPosted([]);
     setStatus('Entry screen has been reset', 'I');
   }
@@ -243,6 +249,7 @@ export default function MigoPage() {
       movement_type: movement,
       doc_date: docDate,
       reference,
+      ...(needsCc ? { cost_center: costCenter } : {}),
       ...(mode === 'TR_OUT' ? { mode: giMode } : {}),
       ...(mode === 'TR_IN' && zoneGroup ? { zone_group: zoneGroup } : {}),
       items,
@@ -309,6 +316,28 @@ export default function MigoPage() {
               <Select value={giMode} onChange={(e) => setGiMode(e.target.value as 'REQUEST' | 'ISSUE')}>
                 <option value="REQUEST">1 — Buat permintaan picking (Transfer Requirement)</option>
                 <option value="ISSUE">2 — Post goods issue dari GI zone</option>
+              </Select>
+            </Field>
+          )}
+
+          {needsCc && (
+            <Field
+              label="Cost Center"
+              required
+              hint={
+                costCenters.find((c) => c.cost_center === costCenter)?.description ??
+                'Tujuan pembebanan biaya — dikelola di KS01'
+              }
+            >
+              <Select value={costCenter} onChange={(e) => setCostCenter(e.target.value)}>
+                <option value="">(pilih cost center)</option>
+                {costCenters
+                  .filter((c) => c.is_active || c.cost_center === costCenter)
+                  .map((c) => (
+                    <option key={c.cost_center} value={c.cost_center}>
+                      {c.cost_center} — {c.description}
+                    </option>
+                  ))}
               </Select>
             </Field>
           )}
@@ -807,6 +836,7 @@ export default function MigoPage() {
                 { label: 'Document Date', value: docDate },
                 { label: 'Jumlah line', value: `${confirmLines.length} item` },
                 { label: 'Total qty', value: confirmQty.toLocaleString('de-DE') },
+                ...(needsCc ? [{ label: 'Cost Center', value: costCenter || '—' }] : []),
                 ...(reference ? [{ label: 'Reference', value: reference }] : []),
               ]
         }

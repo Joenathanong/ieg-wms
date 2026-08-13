@@ -23,6 +23,7 @@ import {
   Smartphone,
   Settings,
   ShieldCheck,
+  Wallet,
 } from 'lucide-react';
 
 interface Item {
@@ -68,6 +69,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { code: 'MM01', label: 'Material & Pallet', href: '/mm01', Icon: Boxes },
       { code: 'LS01N', label: 'Storage Bin', href: '/ls01n', Icon: Folder },
       { code: 'ZZONE', label: 'Zone / Storage Section', href: '/zzone', Icon: Layers3, adminOnly: true },
+      { code: 'KS01', label: 'Cost Center', href: '/ks01', Icon: Wallet, adminOnly: true },
       { code: 'ZUPLOAD', label: 'Upload Center', href: '/zupload', Icon: Upload },
     ],
   },

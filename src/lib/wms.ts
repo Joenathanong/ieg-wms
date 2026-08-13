@@ -28,6 +28,8 @@ export interface MovementInput {
   doc_date?: Date | null;
   reference?: string | null;
   remarks?: string | null;
+  /// cost center pembebanan — wajib untuk 201 (GI Cost Center)
+  cost_center?: string | null;
   tr_number?: string | null;
   via_pdt?: boolean;
   user_id: string;
@@ -302,6 +304,7 @@ export async function postGoodsMovement(
       uom: material.uom,
       reference: input.reference ?? null,
       remarks: input.remarks ?? null,
+      cost_center: input.cost_center ?? null,
       tr_number: input.tr_number ?? null,
       via_pdt: input.via_pdt ?? false,
       doc_date: input.doc_date ?? new Date(),
@@ -739,6 +742,7 @@ export async function postGoodsIssue(
     batch_number?: string | null;
     reference?: string | null;
     remarks?: string | null;
+    cost_center?: string | null;
     tr_number?: string | null;
     doc_date?: Date | null;
     user_id: string;
@@ -771,6 +775,7 @@ export async function postGoodsIssue(
     source_bin: giBin.bin_code,
     reference: args.reference ?? null,
     remarks: args.remarks ?? null,
+    cost_center: args.cost_center ?? null,
     tr_number: args.tr_number ?? null,
     doc_date: args.doc_date ?? null,
     via_pdt: args.via_pdt,

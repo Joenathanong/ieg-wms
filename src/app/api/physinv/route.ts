@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
           bin ? { items: { some: { bin_code: { contains: bin, mode: 'insensitive' } } } } : {},
         ],
       },
-      include: { items: true },
+      include: { items: true, bins: true },
       orderBy: { created_at: 'desc' },
       take: 300,
     });
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
       created_by: d.created_by,
       created_at: d.created_at,
       item_count: d.items.length,
+      bins_counted: d.bins.filter((b) => b.counted_at !== null).length,
       book_total: d.items.reduce((a, i) => a + i.book_qty, 0),
       counted_total: d.items.reduce((a, i) => a + (i.counted_qty ?? 0), 0),
       diff_total: d.items.reduce((a, i) => a + i.diff_qty, 0),
@@ -157,8 +158,13 @@ export async function POST(req: NextRequest) {
                 diff_qty: 0,
               })),
             },
+            // satu baris status per bin — dipakai penghitung paralel untuk tahu
+            // rak mana yang belum tersentuh, termasuk rak yang memang kosong
+            bins: {
+              create: binCodes.map((bin_code) => ({ bin_code })),
+            },
           },
-          include: { items: true },
+          include: { items: true, bins: true },
         });
 
         // ---- freeze semua bin ----

@@ -25,6 +25,8 @@ export default function ZrfGiPage() {
   const [sel, setSel] = useState<Quant | null>(null);
   const [qty, setQty] = useState('');
   const [reference, setReference] = useState('');
+  const [costCenter, setCostCenter] = useState('');
+  const [ccList, setCcList] = useState<{ cost_center: string; description: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'S' | 'E' | 'W' | 'I' } | null>(null);
@@ -36,6 +38,11 @@ export default function ZrfGiPage() {
     const bin = cfg.ok ? (cfg.data?.DEFAULT_GI_BIN ?? 'TRN-OUT-01') : 'TRN-OUT-01';
     setGiBin(bin);
     const r = await api<Quant[]>(`/api/stock/quants?bin=${encodeURIComponent(bin)}`);
+    // 201 membebankan biaya ke cost center, jadi daftarnya ikut diambil
+    const cc = await api<{ cost_center: string; description: string; is_active: boolean }[]>(
+      '/api/costcenters?activeOnly=1'
+    );
+    if (cc.ok && cc.data) setCcList(cc.data);
     setLoading(false);
     if (!r.ok) return setMsg({ text: r.message, type: 'E' });
     setRows(r.data ?? []);
@@ -53,12 +60,15 @@ export default function ZrfGiPage() {
     const n = Number(qty);
     if (!n || n <= 0) return setMsg({ text: 'Quantity tidak valid', type: 'E' });
     if (n > sel.qty) return setMsg({ text: `Maksimum ${sel.qty}`, type: 'E' });
+    const cc = costCenter.trim().toUpperCase();
+    if (!cc) return setMsg({ text: 'Cost center wajib diisi (lihat KS01)', type: 'E' });
 
     setBusy(true);
     const r = await post('/api/migo', {
       movement_type: '201',
       mode: 'ISSUE',
       reference,
+      cost_center: cc,
       items: [
         {
           material_code: sel.material_code,
@@ -132,6 +142,23 @@ export default function ZrfGiPage() {
             value={qty}
             onChange={(e) => setQty(e.target.value)}
           />
+          <PdtInput
+            label="Cost Center"
+            list="dl-costcenter"
+            hint={
+              ccList.find((c) => c.cost_center === costCenter.trim().toUpperCase())?.description ??
+              'Tujuan pembebanan biaya — wajib untuk 201'
+            }
+            value={costCenter}
+            onChange={(e) => setCostCenter(e.target.value.toUpperCase())}
+          />
+          <datalist id="dl-costcenter">
+            {ccList.map((c) => (
+              <option key={c.cost_center} value={c.cost_center}>
+                {c.description}
+              </option>
+            ))}
+          </datalist>
           <PdtInput
             label="Reference / DO"
             value={reference}

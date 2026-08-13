@@ -37,6 +37,14 @@ export interface BinLite {
   is_interim: boolean;
 }
 
+export interface CostCenterLite {
+  id: string;
+  cost_center: string;
+  description: string;
+  department: string | null;
+  is_active: boolean;
+}
+
 export interface ZoneLite {
   zone_code: string;
   label: string;
@@ -52,6 +60,7 @@ export interface ZoneLite {
 let cacheMat: MaterialLite[] | null = null;
 let cacheBin: BinLite[] | null = null;
 let cacheZone: ZoneLite[] | null = null;
+let cacheCc: CostCenterLite[] | null = null;
 
 export function useMasterData(auto = true) {
   const [materials, setMaterials] = useState<MaterialLite[]>(cacheMat ?? []);
@@ -128,4 +137,37 @@ export function useZones(auto = true) {
 
 export function invalidateZones() {
   cacheZone = null;
+}
+
+/** Master cost center (T-Code KS01) — dipakai MIGO untuk goods issue 201. */
+export function useCostCenters(auto = true) {
+  const [costCenters, setCostCenters] = useState<CostCenterLite[]>(cacheCc ?? []);
+  const [loading, setLoading] = useState(false);
+
+  async function reload() {
+    setLoading(true);
+    const r = await api<CostCenterLite[]>('/api/costcenters');
+    setLoading(false);
+    if (r.ok && r.data) {
+      cacheCc = r.data;
+      setCostCenters(r.data);
+    }
+    return r;
+  }
+
+  useEffect(() => {
+    if (!auto) return;
+    if (cacheCc) {
+      setCostCenters(cacheCc);
+      return;
+    }
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto]);
+
+  return { costCenters, loading, reload };
+}
+
+export function invalidateCostCenters() {
+  cacheCc = null;
 }

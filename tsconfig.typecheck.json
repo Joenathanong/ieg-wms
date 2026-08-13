@@ -1,0 +1,9 @@
+{
+  "//": "Typecheck manual (npm run typecheck) — hanya source code.",
+  "//2": "Folder .next sengaja dikecualikan: file tipe di sana di-generate ulang terus",
+  "//3": "oleh dev server, dan bisa terbaca setengah jadi sehingga memunculkan",
+  "//4": "error sintaks palsu yang tidak ada hubungannya dengan kode aplikasi.",
+  "extends": "./tsconfig.json",
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", ".next"]
+}

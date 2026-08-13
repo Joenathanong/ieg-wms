@@ -31,6 +31,14 @@ interface Doc {
   planned_date: string;
   created_by: string;
   items: Item[];
+  bins: BinStat[];
+}
+
+/** status hitung per bin — dipakai untuk memantau opname paralel */
+interface BinStat {
+  bin_code: string;
+  counted_at: string | null;
+  counted_by: string | null;
 }
 
 interface DocRow {
@@ -210,7 +218,11 @@ function Li11nInner() {
             <div className="md:col-span-2 flex flex-wrap items-center gap-3 text-2xs font-mono text-sap-muted">
               <Badge value={doc.status} />
               <span>
-                Bins: <b className="text-sap-text">{doc.frozen_bins.length}</b>
+                Bins:{' '}
+                <b className="text-sap-text">
+                  {(doc.bins ?? []).filter((b) => b.counted_at !== null).length}
+                </b>
+                /<b className="text-sap-text">{doc.frozen_bins.length}</b> selesai
               </span>
               <span>
                 Lines: <b className="text-sap-text">{doc.items.length}</b>
@@ -221,6 +233,30 @@ function Li11nInner() {
           )}
         </div>
       </Panel>
+
+      {doc && (doc.bins ?? []).some((b) => b.counted_at === null) && (
+        <Panel title="Bin belum dihitung" bodyClassName="p-3">
+          <div className="flex flex-wrap gap-1.5">
+            {(doc.bins ?? [])
+              .filter((b) => b.counted_at === null)
+              .map((b) => (
+                <button
+                  key={b.bin_code}
+                  type="button"
+                  title="Filter baris ke bin ini"
+                  onClick={() => setBinFilter(b.bin_code)}
+                  className="sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext hover:border-sap-blue"
+                >
+                  {b.bin_code}
+                </button>
+              ))}
+          </div>
+          <p className="text-xxs text-sap-muted mt-2">
+            Bin ditandai selesai otomatis saat seluruh barisnya terisi, atau saat operator menekan
+            <b> Simpan &amp; selesai</b> / <b>Bin kosong</b> di ZRF05.
+          </p>
+        </Panel>
+      )}
 
       {doc && (
         <>

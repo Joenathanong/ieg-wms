@@ -3,7 +3,8 @@ import { MovementType } from '@prisma/client';
 /** Label tampilan movement type persis seperti kode SAP. */
 export const MOVEMENT_LABEL: Record<MovementType, string> = {
   GR_101: '101 — Goods Receipt',
-  GI_201: '201 — Goods Issue',
+  GI_201: '201 — Goods Issue (Cost Center)',
+  GI_601_SALES: '601 — Goods Issue (Penjualan)',
   TR_301_BIN: '301 — Transfer Posting (Bin to Bin)',
   ADJ_551_MIN: '551 — Scrapping / Adjustment (-)',
   INIT_561: '561 — Initial Stock Entry',
@@ -15,12 +16,14 @@ export const MOVEMENT_LABEL: Record<MovementType, string> = {
   INIT_562_CANC: '562 — Cancel Initial Stock (-)',
   PI_711_CANC: '711 — Cancel Phys. Inv. (+) Diff',
   PI_712_CANC: '712 — Cancel Phys. Inv. (-) Diff',
+  GI_602_CANC: '602 — Cancel Goods Issue (Penjualan)',
 };
 
 /** Deskripsi singkat (tanpa kode) — dipakai kolom "MvT Description" di MB51. */
 export const MOVEMENT_DESC: Record<MovementType, string> = {
   GR_101: 'Goods Receipt',
-  GI_201: 'Goods Issue',
+  GI_201: 'Goods Issue to Cost Center',
+  GI_601_SALES: 'Goods Issue — Penjualan',
   TR_301_BIN: 'Transfer Posting (Bin to Bin)',
   ADJ_551_MIN: 'Scrapping / Adjustment (-)',
   INIT_561: 'Initial Stock Entry',
@@ -32,12 +35,14 @@ export const MOVEMENT_DESC: Record<MovementType, string> = {
   INIT_562_CANC: 'Cancel Initial Stock (-)',
   PI_711_CANC: 'Cancel Phys. Inv. (+) Diff',
   PI_712_CANC: 'Cancel Phys. Inv. (-) Diff',
+  GI_602_CANC: 'Cancel Goods Issue — Penjualan',
 };
 
 /** Kode pendek untuk kolom grid. */
 export const MOVEMENT_CODE: Record<MovementType, string> = {
   GR_101: '101',
   GI_201: '201',
+  GI_601_SALES: '601',
   TR_301_BIN: '301',
   ADJ_551_MIN: '551',
   INIT_561: '561',
@@ -49,12 +54,14 @@ export const MOVEMENT_CODE: Record<MovementType, string> = {
   INIT_562_CANC: '562',
   PI_711_CANC: '711',
   PI_712_CANC: '712',
+  GI_602_CANC: '602',
 };
 
 /** Arah stok: +1 menambah, -1 mengurangi, 0 netral (transfer). */
 export const MOVEMENT_SIGN: Record<MovementType, 1 | -1 | 0> = {
   GR_101: 1,
   GI_201: -1,
+  GI_601_SALES: -1,
   TR_301_BIN: 0,
   ADJ_551_MIN: -1,
   INIT_561: 1,
@@ -67,6 +74,7 @@ export const MOVEMENT_SIGN: Record<MovementType, 1 | -1 | 0> = {
   INIT_562_CANC: -1,
   PI_711_CANC: -1,
   PI_712_CANC: 1,
+  GI_602_CANC: 1,
 };
 
 /** Movement pembatalan -> movement asal yang dibatalkannya. */
@@ -77,6 +85,7 @@ export const CANCEL_OF: Partial<Record<MovementType, MovementType>> = {
   INIT_562_CANC: MovementType.INIT_561,
   PI_711_CANC: MovementType.ADJ_701_PLUS,
   PI_712_CANC: MovementType.ADJ_702_MIN,
+  GI_602_CANC: MovementType.GI_601_SALES,
 };
 
 /** Movement asal -> movement pembatalannya (kebalikan CANCEL_OF). */
@@ -87,12 +96,14 @@ export const CANCELLED_BY: Partial<Record<MovementType, MovementType>> = {
   [MovementType.INIT_561]: MovementType.INIT_562_CANC,
   [MovementType.ADJ_701_PLUS]: MovementType.PI_711_CANC,
   [MovementType.ADJ_702_MIN]: MovementType.PI_712_CANC,
+  [MovementType.GI_601_SALES]: MovementType.GI_602_CANC,
 };
 
 /** Movement yang boleh dipilih di layar MIGO. */
 export const MIGO_MOVEMENTS: MovementType[] = [
   MovementType.GR_101,
   MovementType.GI_201,
+  MovementType.GI_601_SALES,
   MovementType.ADJ_551_MIN,
   MovementType.ADJ_701_PLUS,
   MovementType.ADJ_702_MIN,
@@ -107,10 +118,25 @@ export const TWO_STEP_MOVEMENTS: MovementType[] = [MovementType.GR_101, Movement
 
 /** Movement koreksi yang tetap menunjuk bin secara langsung. */
 export const DIRECT_BIN_MOVEMENTS: MovementType[] = [
+  MovementType.GI_601_SALES,
   MovementType.ADJ_551_MIN,
   MovementType.ADJ_701_PLUS,
   MovementType.ADJ_702_MIN,
 ];
+
+/**
+ * Movement yang WAJIB menyebut cost center pembebanan.
+ * 201 = pemakaian internal, biayanya harus dibebankan ke satu cost center.
+ * 601 (penjualan) tidak termasuk — pembebanannya lewat dokumen penjualan.
+ */
+export const COST_CENTER_MOVEMENTS: MovementType[] = [
+  MovementType.GI_201,
+  MovementType.GI_202_CANC,
+];
+
+export function needsCostCenter(m: MovementType): boolean {
+  return COST_CENTER_MOVEMENTS.includes(m);
+}
 
 /** Terima "101", "101_GR", "GR_101" -> MovementType */
 export function parseMovement(input: string): MovementType | null {

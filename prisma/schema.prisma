@@ -30,7 +30,10 @@ enum BinStatus {
 /// karena itu value asli di database dipetakan lewat @map.
 enum MovementType {
   GR_101       @map("101_GR")
+  /// Goods issue ke cost center (pemakaian internal)
   GI_201       @map("201_GI")
+  /// Goods issue penjualan — dipakai SO Penjualan di pick bin
+  GI_601_SALES @map("601_GI_SALES")
   TR_301_BIN   @map("301_TR_BIN")
   ADJ_551_MIN  @map("551_ADJ_MIN")
   INIT_561     @map("561_INIT_STOCK")
@@ -43,6 +46,7 @@ enum MovementType {
   INIT_562_CANC @map("562_INIT_CANCEL")
   PI_711_CANC  @map("711_PI_CANCEL_MIN")
   PI_712_CANC  @map("712_PI_CANCEL_PLUS")
+  GI_602_CANC  @map("602_GI_SALES_CANCEL")
 }
 
 enum UserRole {
@@ -127,6 +131,23 @@ model PackagingType {
   @@index([material_code])
   @@index([material_code, zone_group])
   @@map("packaging_types")
+}
+
+/// Master Cost Center — tujuan pembebanan biaya untuk goods issue 201.
+/// Dikelola lewat T-Code KS01.
+model CostCenter {
+  id          String   @id @default(uuid())
+  /// contoh: CC-PROD-01, CC-MAINT
+  cost_center String   @unique
+  description String
+  /// departemen / pemilik anggaran, bebas diisi
+  department  String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([is_active])
+  @@map("cost_centers")
 }
 
 /// Master Zone / Storage Section (padanan Storage Type di SAP WM).
@@ -226,6 +247,8 @@ model MigoLog {
   uom             String       @default("PC")
   reference       String?
   remarks         String?
+  /// cost center pembebanan — wajib untuk movement 201 (GI Cost Center)
+  cost_center     String?
   /// nomor Transfer Requirement terkait (bila ada)
   tr_number       String?
   doc_date        DateTime     @default(now())
@@ -244,6 +267,7 @@ model MigoLog {
   @@index([created_at])
   @@index([tr_number])
   @@index([reversal_of])
+  @@index([cost_center])
   @@map("migo_logs")
 }
 
@@ -328,9 +352,29 @@ model PhysInvDoc {
   created_at   DateTime      @default(now())
 
   items PhysInvDocItem[]
+  bins  PhysInvBin[]
 
   @@index([status])
   @@map("phys_inv_docs")
+}
+
+/// Status penghitungan PER BIN dalam satu dokumen opname.
+///
+/// Dibutuhkan karena opname besar dikerjakan banyak orang secara paralel dan
+/// tidak berurutan: tanpa penanda ini, bin yang memang KOSONG tidak bisa
+/// dibedakan dari bin yang belum didatangi (bin kosong tidak punya baris item).
+model PhysInvBin {
+  id         String     @id @default(uuid())
+  doc_id     String
+  doc        PhysInvDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
+  bin_code   String
+  /// null = belum dihitung
+  counted_at DateTime?
+  counted_by String?
+
+  @@unique([doc_id, bin_code])
+  @@index([doc_id])
+  @@map("phys_inv_bins")
 }
 
 model PhysInvDocItem {

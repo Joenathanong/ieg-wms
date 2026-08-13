@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt, toDate, normBatch } from '@/lib/api';
-import { parseMovement } from '@/lib/movement';
+import { parseMovement, needsCostCenter } from '@/lib/movement';
 import { postGoodsMovement, postGoodsReceipt, createPickRequest, postGoodsIssue } from '@/lib/wms';
 import { MovementType } from '@prisma/client';
 
@@ -43,8 +43,23 @@ export async function POST(req: NextRequest) {
 
     const docDate = toDate(body.doc_date) ?? new Date();
     const reference = cleanStr(body.reference) || null;
+    const cost_center = cleanStr(body.cost_center).toUpperCase() || null;
     /** khusus 201: REQUEST = buat TR picking, ISSUE = posting goods issue dari GI zone */
     const giMode = cleanStr(body.mode).toUpperCase() === 'ISSUE' ? 'ISSUE' : 'REQUEST';
+
+    // 201 = pemakaian internal: biayanya harus punya tujuan pembebanan.
+    // Divalidasi hanya saat posting nyata (mode ISSUE); tahap REQUEST baru
+    // membuat transfer requirement dan belum menyentuh biaya.
+    if (needsCostCenter(mt) && giMode === 'ISSUE') {
+      if (!cost_center)
+        throw new HttpError(
+          400,
+          `Cost center is mandatory for movement ${body.movement_type} (goods issue to cost center). Maintain it in KS01.`
+        );
+      const cc = await prisma.costCenter.findUnique({ where: { cost_center } });
+      if (!cc) throw new HttpError(400, `Cost center ${cost_center} does not exist (KS01).`);
+      if (!cc.is_active) throw new HttpError(400, `Cost center ${cost_center} is inactive.`);
+    }
 
     const result = await prisma.$transaction(
       async (tx) => {
@@ -110,6 +125,7 @@ export async function POST(req: NextRequest) {
               qty,
               batch_number: normBatch(it.batch_number),
               reference,
+              cost_center,
               remarks: cleanStr(it.remarks) || null,
               tr_number: cleanStr(it.tr_number).toUpperCase() || null,
               doc_date: docDate,
@@ -124,7 +140,9 @@ export async function POST(req: NextRequest) {
               tr_lines: 0,
             });
           } else {
-            // 551 / 701 / 702 — koreksi langsung, bin wajib diisi
+            // 601 / 551 / 701 / 702 — posting langsung ke bin, bin wajib diisi.
+            // 601 dipakai untuk goods issue penjualan dari pick bin: barangnya
+            // sudah diambil di luar sistem, jadi tidak lewat transit-out.
             const bin = cleanStr(it.bin ?? it.source_bin ?? it.target_bin).toUpperCase();
             if (!bin) throw new HttpError(400, `Line ${i + 1}: storage bin is mandatory for movement ${body.movement_type}.`);
             const isPlus = mt === MovementType.ADJ_701_PLUS;
@@ -139,6 +157,7 @@ export async function POST(req: NextRequest) {
               target_bin: isPlus ? bin : null,
               doc_date: docDate,
               reference,
+              cost_center,
               remarks: cleanStr(it.remarks) || null,
               user_id: user.username,
             });

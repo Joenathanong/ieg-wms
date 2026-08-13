@@ -10,6 +10,7 @@ import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   document_number: string;
+  cost_center: string;
   movement_code: string;
   movement_type: string;
   movement_desc: string;
@@ -185,6 +186,7 @@ export default function Mb51Page() {
     },
     { key: 'uom', header: 'UoM', mono: true, width: '55px' },
     { key: 'reference', header: 'Reference', width: '130px' },
+    { key: 'cost_center', header: 'Cost Center', mono: true, width: '130px' },
     { key: 'user_id', header: 'User', mono: true, width: '95px' },
     {
       key: 'created_at',

@@ -590,3 +590,91 @@ BEGIN
     EXECUTE 'ALTER TABLE "phys_inv_docs" ALTER COLUMN "bin_code" DROP NOT NULL';
   END IF;
 END $$;
+
+-- >>>
+-- ---------- MOVEMENT TYPE BARU: 601 GI Penjualan & 602 pembatalannya ----------
+ALTER TYPE "MovementType" ADD VALUE IF NOT EXISTS '601_GI_SALES';
+
+-- >>>
+ALTER TYPE "MovementType" ADD VALUE IF NOT EXISTS '602_GI_SALES_CANCEL';
+
+-- >>>
+-- ---------- MASTER COST CENTER (T-Code KS01) ----------
+CREATE TABLE IF NOT EXISTS "cost_centers" (
+  "id"          TEXT NOT NULL,
+  "cost_center" TEXT NOT NULL,
+  "description" TEXT NOT NULL,
+  "department"  TEXT,
+  "is_active"   BOOLEAN NOT NULL DEFAULT true,
+  "created_at"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "cost_centers_pkey" PRIMARY KEY ("id")
+);
+
+-- >>>
+CREATE UNIQUE INDEX IF NOT EXISTS "cost_centers_cost_center_key" ON "cost_centers"("cost_center");
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "cost_centers_is_active_idx" ON "cost_centers"("is_active");
+
+-- >>>
+-- Pembebanan cost center pada dokumen goods issue 201.
+ALTER TABLE "migo_logs" ADD COLUMN IF NOT EXISTS "cost_center" TEXT;
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "migo_logs_cost_center_idx" ON "migo_logs"("cost_center");
+
+-- >>>
+-- ---------- STATUS HITUNG PER BIN (opname paralel) ----------
+CREATE TABLE IF NOT EXISTS "phys_inv_bins" (
+  "id"         TEXT NOT NULL,
+  "doc_id"     TEXT NOT NULL,
+  "bin_code"   TEXT NOT NULL,
+  "counted_at" TIMESTAMP(3),
+  "counted_by" TEXT,
+  CONSTRAINT "phys_inv_bins_pkey" PRIMARY KEY ("id")
+);
+
+-- >>>
+CREATE UNIQUE INDEX IF NOT EXISTS "phys_inv_bins_doc_id_bin_code_key" ON "phys_inv_bins"("doc_id","bin_code");
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "phys_inv_bins_doc_id_idx" ON "phys_inv_bins"("doc_id");
+
+-- >>>
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'phys_inv_bins_doc_id_fkey') THEN
+    ALTER TABLE "phys_inv_bins"
+      ADD CONSTRAINT "phys_inv_bins_doc_id_fkey"
+      FOREIGN KEY ("doc_id") REFERENCES "phys_inv_docs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+-- >>>
+-- Backfill: setiap bin yang di-freeze dokumen lama dapat baris statusnya sendiri.
+INSERT INTO "phys_inv_bins" ("id","doc_id","bin_code","counted_at","counted_by")
+SELECT gen_random_uuid()::text, d."id", b.bin_code, NULL, NULL
+  FROM "phys_inv_docs" d
+  CROSS JOIN LATERAL unnest(d."frozen_bins") AS b(bin_code)
+ WHERE NOT EXISTS (
+   SELECT 1 FROM "phys_inv_bins" x WHERE x."doc_id" = d."id" AND x."bin_code" = b.bin_code
+ );
+
+-- >>>
+-- Bin yang seluruh barisnya sudah terisi hasil hitung dianggap sudah dihitung,
+-- supaya progres dokumen yang sedang berjalan tidak ikut ter-reset.
+UPDATE "phys_inv_bins" p
+   SET "counted_at" = COALESCE(d."counted_at", CURRENT_TIMESTAMP),
+       "counted_by" = 'MIGRASI'
+  FROM "phys_inv_docs" d
+ WHERE d."id" = p."doc_id"
+   AND p."counted_at" IS NULL
+   AND EXISTS (
+     SELECT 1 FROM "phys_inv_doc_items" i
+      WHERE i."doc_id" = d."id" AND i."bin_code" = p."bin_code"
+   )
+   AND NOT EXISTS (
+     SELECT 1 FROM "phys_inv_doc_items" i
+      WHERE i."doc_id" = d."id" AND i."bin_code" = p."bin_code" AND i."counted_qty" IS NULL
+   );

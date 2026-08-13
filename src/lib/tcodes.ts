@@ -43,6 +43,7 @@ export const TCODES: TCodeEntry[] = [
   { code: 'LS02N', title: 'Change Storage Bin', path: '/ls01n', group: 'MASTER' },
   { code: 'LS06', title: 'Block / Unblock Storage Bin', path: '/ls01n', group: 'MASTER' },
   { code: 'ZZONE', title: 'Maintain Zone / Storage Section', path: '/zzone', group: 'MASTER', adminOnly: true, aliases: ['LS10', 'ZONE'] },
+  { code: 'KS01', title: 'Create / Maintain Cost Center', path: '/ks01', group: 'MASTER', adminOnly: true, aliases: ['KS02', 'KS03', 'KS13', 'COSTCENTER'] },
   { code: 'ZUPLOAD', title: 'Master Data & Initial Stock Upload Center', path: '/zupload', group: 'MASTER' },
 
   // ---------------- PDT / RF TERMINAL ----------------

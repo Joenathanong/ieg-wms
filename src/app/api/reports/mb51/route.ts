@@ -99,6 +99,7 @@ export async function GET(req: NextRequest) {
       qty: l.qty,
       uom: l.uom,
       reference: l.reference ?? '',
+      cost_center: l.cost_center ?? '',
       remarks: l.remarks ?? '',
       doc_date: l.doc_date,
       created_at: l.created_at,
