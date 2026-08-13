@@ -10,10 +10,11 @@ import { useEffect, useRef } from 'react';
  * keyboard virtual yang menutupi separuh layar PDT. Padahal operator tidak
  * sedang mengetik apa pun.
  *
- * Scanner keyboard-wedge mengirim karakter seperti keyboard fisik, jadi
- * karakternya bisa ditangkap langsung di `document` tanpa ada field yang aktif.
- * Hasilnya: layar bisa "siap scan" tanpa satu pun input difokuskan, sehingga
- * keyboard tidak pernah muncul dengan sendirinya.
+ * PENTING: sebagian wedge Android (mis. DataWedge mode keystroke) hanya
+ * mengirim karakter ke field yang SEDANG difokuskan. Di perangkat seperti itu
+ * penangkap dokumen ini tidak akan menerima apa pun — karena itu field material
+ * tetap difokuskan, dan hook ini hanya berfungsi sebagai CADANGAN untuk
+ * perangkat yang mengirim karakter secara global.
  *
  * Pembeda scanner vs manusia adalah KECEPATAN: scanner mengirim seluruh barcode
  * dalam hitungan milidetik, sedangkan manusia jauh lebih lambat. Karena itu
@@ -28,17 +29,16 @@ const FLUSH_MS = 140;
 const MIN_LENGTH = 3;
 
 /**
- * Field yang sedang dipakai MENGETIK manual harus diabaikan, supaya karakter
- * tidak terambil dua kali. Field ber-`inputmode="none"` justru TIDAK diabaikan:
- * itu penanda field siap-scan yang keyboardnya sengaja disembunyikan.
+ * Bila ADA field yang sedang difokuskan, biarkan field itu yang menangani
+ * karakternya. Penangkap dokumen ini murni cadangan untuk keadaan tanpa fokus —
+ * kalau keduanya aktif bersamaan, satu barcode akan terbaca dua kali.
  */
 function isTypingTarget(el: EventTarget | null): boolean {
   const t = el as HTMLElement | null;
   if (!t) return false;
   const tag = t.tagName;
-  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
-  if (tag !== 'INPUT') return t.isContentEditable === true;
-  return (t as HTMLInputElement).getAttribute('inputmode') !== 'none';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  return t.isContentEditable === true;
 }
 
 export function useScanGun(onScan: (code: string) => void, enabled = true) {

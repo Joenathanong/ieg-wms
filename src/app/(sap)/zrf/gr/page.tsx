@@ -80,6 +80,7 @@ export default function ZrfGrPage() {
     if (!rs.ok) {
       setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
       setMaterial('');
+      setTimeout(() => matRef.current?.focus(), 30);
       return;
     }
 
@@ -131,8 +132,10 @@ export default function ZrfGrPage() {
       setTimeout(() => next.ref.current?.focus(), 30);
       return;
     }
-    // tidak ada lagi yang wajib -> tutup keyboard
+    // Tidak ada lagi yang wajib: keyboard ditutup, kursor kembali ke Material
+    // supaya scan berikutnya langsung terbaca.
     (document.activeElement as HTMLElement | null)?.blur();
+    setTimeout(() => matRef.current?.focus(), 60);
   }
 
   function reset() {
@@ -144,7 +147,7 @@ export default function ZrfGrPage() {
     setReference('');
     setKnownBatch(null);
     setMsg(null);
-    // TIDAK memfokuskan field mana pun: layar kembali ke mode siap scan
+    setTimeout(() => matRef.current?.focus(), 30);
   }
 
   async function submit() {
@@ -178,7 +181,8 @@ export default function ZrfGrPage() {
       setMfgDate('');
       setReference('');
       setKnownBatch(null);
-      (document.activeElement as HTMLElement | null)?.blur();
+      // siap scan berikutnya: fokus kembali ke Material
+      setTimeout(() => matRef.current?.focus(), 30);
     }
   }
 
@@ -194,13 +198,11 @@ export default function ZrfGrPage() {
     >
       {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
-      {/* Layar siap scan tanpa satu pun field difokuskan, sehingga keyboard
-          virtual tidak pernah muncul dengan sendirinya. */}
       {!material.trim() && (
-        <div className="rounded-[3px] border-2 border-dashed border-sap-blue/50 bg-sap-blue/5 px-3 py-3 text-center">
+        <div className="rounded-[3px] border-2 border-dashed border-sap-blue/50 bg-sap-blue/5 px-3 py-2 text-center">
           <p className="text-sm font-semibold text-sap-blue">Siap scan</p>
           <p className="text-xxs text-sap-muted mt-0.5">
-            Arahkan scanner ke barcode. Ketuk field di bawah bila ingin mengetik manual.
+            Kursor sudah di field Material. Ketuk fieldnya bila ingin mengetik manual.
           </p>
         </div>
       )}
@@ -209,6 +211,7 @@ export default function ZrfGrPage() {
         ref={matRef}
         label="Material"
         list="dl-pdt-mat"
+        autoFocus
         value={material}
         onChange={(e) => setMaterial(e.target.value.toUpperCase())}
         onKeyDown={(e) => {
