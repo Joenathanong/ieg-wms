@@ -4,13 +4,23 @@ import { useRef, useState } from 'react';
 import { PackagePlus, Save, RotateCcw } from 'lucide-react';
 import { PdtScreen, PdtInput, PdtButton, PdtRow, PdtMessage } from '@/components/pdt/ui';
 import { useMasterData } from '@/components/sap/hooks';
-import { post } from '@/lib/client';
+import { api, post, fmtDate } from '@/lib/client';
 import { resolveScan } from '@/lib/barcode';
 import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
+
+interface BatchInfo {
+  found: boolean;
+  mfg_date?: string | null;
+  exp_date?: string | null;
+  on_hand?: number;
+}
 
 export default function ZrfGrPage() {
   const { materials } = useMasterData();
   const matRef = useRef<HTMLInputElement>(null);
+  const qtyRef = useRef<HTMLInputElement>(null);
+  const batchRef = useRef<HTMLInputElement>(null);
+  const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [material, setMaterial] = useState('');
   const [qty, setQty] = useState('');
@@ -18,6 +28,7 @@ export default function ZrfGrPage() {
   const [expDate, setExpDate] = useState('');
   const [mfgDate, setMfgDate] = useState('');
   const [reference, setReference] = useState('');
+  const [knownBatch, setKnownBatch] = useState<BatchInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'S' | 'E' | 'W' | 'I' } | null>(null);
 
@@ -26,18 +37,80 @@ export default function ZrfGrPage() {
   const splitLines = pack && Number(qty) > 0 ? Math.ceil(Number(qty) / pack.qty_per_unit) : 0;
 
   /**
+   * Batch yang sudah pernah terdaftar dipakai ulang tanggalnya, supaya satu
+   * nomor batch tidak berakhir dengan dua tanggal kedaluwarsa yang berbeda.
+   * Isian manual operator tidak ditimpa.
+   */
+  async function loadBatchDates(mCode: string, bCode: string) {
+    const m = mCode.trim().toUpperCase();
+    const b = bCode.trim().toUpperCase();
+    if (!m || !b) return setKnownBatch(null);
+
+    const r = await api<BatchInfo>(
+      `/api/materials/batch?material=${encodeURIComponent(m)}&batch=${encodeURIComponent(b)}`
+    );
+    if (!r.ok || !r.data?.found) return setKnownBatch(null);
+
+    setKnownBatch(r.data);
+    const exp = r.data.exp_date ? String(r.data.exp_date).slice(0, 10) : '';
+    const mfg = r.data.mfg_date ? String(r.data.mfg_date).slice(0, 10) : '';
+    setExpDate((v) => v || exp);
+    setMfgDate((v) => v || mfg);
+    if (exp) {
+      setMsg({
+        text: `Batch ${b} sudah terdaftar — ED ${fmtDate(exp)} terisi otomatis.`,
+        type: 'I',
+      });
+    }
+  }
+
+  /**
    * Handle hasil scan barcode pada field material:
    * - "MAT;BATCH;..." -> material + batch langsung terisi
    * - EAN polos      -> lookup barcode B-POM / produk di master data
+   *
+   * Bila cocok, fokus langsung lompat ke Quantity supaya operator bisa
+   * scan -> ketik jumlah -> post tanpa menyentuh layar.
    */
-  async function handleMaterialScan() {
-    const raw = material.trim();
-    if (!raw) return;
-    const rs = await resolveScan(raw);
-    if (!rs.ok) return setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
+  async function handleMaterialScan(raw?: string) {
+    const value = (raw ?? material).trim();
+    if (!value) return;
+    const rs = await resolveScan(value);
+    if (!rs.ok) {
+      setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
+      matRef.current?.select();
+      return;
+    }
+
     setMaterial(rs.material_code);
-    if (rs.batch_number) setBatch(rs.batch_number);
-    if (rs.message) setMsg({ text: rs.message, type: 'S' });
+    const found = materials.find((m) => m.material_code === rs.material_code);
+
+    if (rs.batch_number) {
+      setBatch(rs.batch_number);
+      await loadBatchDates(rs.material_code, rs.batch_number);
+    }
+
+    setMsg({
+      text: rs.message ?? `${rs.material_code} — ${found?.description ?? 'material dikenali'}`,
+      type: 'S',
+    });
+
+    // batch wajib tapi belum ikut terbaca dari barcode -> minta batch dulu
+    const needBatch = found?.is_batch_managed && !rs.batch_number;
+    setTimeout(() => (needBatch ? batchRef.current : qtyRef.current)?.focus(), 30);
+  }
+
+  /**
+   * Scanner yang tidak dikonfigurasi mengirim Enter tetap harus terproses.
+   * Barcode diketik karakter demi karakter, jadi pemrosesan ditunda sejenak
+   * sampai aliran karakter berhenti — kalau tidak, pemisah ';' pertama akan
+   * memicu pembacaan saat batch belum selesai terkirim.
+   */
+  function scheduleScan(value: string) {
+    if (scanTimer.current) clearTimeout(scanTimer.current);
+    const looksScanned = value.includes(';') || /^\d{8,14}$/.test(value.trim());
+    if (!looksScanned) return;
+    scanTimer.current = setTimeout(() => handleMaterialScan(value), 180);
   }
 
   function reset() {
@@ -46,8 +119,10 @@ export default function ZrfGrPage() {
     setBatch('');
     setExpDate('');
     setMfgDate('');
+    setReference('');
+    setKnownBatch(null);
     setMsg(null);
-    matRef.current?.focus();
+    setTimeout(() => matRef.current?.focus(), 30);
   }
 
   async function submit() {
@@ -73,11 +148,15 @@ export default function ZrfGrPage() {
     setBusy(false);
     setMsg({ text: r.message, type: r.ok ? 'S' : 'E' });
     if (r.ok) {
+      // seluruh field dikosongkan supaya siap scan berikutnya tanpa sisa data
       setMaterial('');
       setQty('');
       setBatch('');
       setExpDate('');
-      matRef.current?.focus();
+      setMfgDate('');
+      setReference('');
+      setKnownBatch(null);
+      setTimeout(() => matRef.current?.focus(), 30);
     }
   }
 
@@ -95,16 +174,26 @@ export default function ZrfGrPage() {
 
       <PdtInput
         ref={matRef}
-        label="Material (scan)"
+        label="Material — siap scan"
         list="dl-pdt-mat"
         autoFocus
         value={material}
-        onChange={(e) => setMaterial(e.target.value.toUpperCase())}
-        onKeyDown={(e) => e.key === 'Enter' && handleMaterialScan()}
+        onChange={(e) => {
+          const v = e.target.value.toUpperCase();
+          setMaterial(v);
+          scheduleScan(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (scanTimer.current) clearTimeout(scanTimer.current);
+            handleMaterialScan();
+          }
+        }}
         onBlur={() => {
           if (material.includes(';') || /^\d{8,14}$/.test(material.trim())) handleMaterialScan();
         }}
-        hint="mendukung barcode ; (material;batch;...) dan EAN B-POM / produk"
+        hint="Arahkan scanner langsung — keyboard hanya muncul bila field diketuk."
       />
       {mat && (
         <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
@@ -116,6 +205,7 @@ export default function ZrfGrPage() {
       )}
 
       <PdtInput
+        ref={qtyRef}
         label="Quantity"
         type="number"
         inputMode="numeric"
@@ -125,10 +215,24 @@ export default function ZrfGrPage() {
       />
 
       <PdtInput
+        ref={batchRef}
         label="Batch"
         disabled={!!mat && !mat.is_batch_managed}
         value={batch}
         onChange={(e) => setBatch(e.target.value.toUpperCase())}
+        onBlur={() => loadBatchDates(material, batch)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            loadBatchDates(material, batch);
+            setTimeout(() => qtyRef.current?.focus(), 30);
+          }
+        }}
+        hint={
+          knownBatch?.found
+            ? `Batch dikenal — stok tercatat ${knownBatch.on_hand ?? 0}`
+            : 'Batch baru: isi expired date di bawah'
+        }
       />
 
       <PdtInput
