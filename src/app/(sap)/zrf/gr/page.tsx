@@ -7,6 +7,7 @@ import { useMasterData } from '@/components/sap/hooks';
 import { api, post, fmtDate } from '@/lib/client';
 import { resolveScan } from '@/lib/barcode';
 import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
+import { useScanGun } from '@/lib/scanner';
 
 interface BatchInfo {
   found: boolean;
@@ -20,7 +21,7 @@ export default function ZrfGrPage() {
   const matRef = useRef<HTMLInputElement>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const batchRef = useRef<HTMLInputElement>(null);
-  const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expRef = useRef<HTMLInputElement>(null);
 
   const [material, setMaterial] = useState('');
   const [qty, setQty] = useState('');
@@ -78,7 +79,7 @@ export default function ZrfGrPage() {
     const rs = await resolveScan(value);
     if (!rs.ok) {
       setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
-      matRef.current?.select();
+      setMaterial('');
       return;
     }
 
@@ -95,22 +96,43 @@ export default function ZrfGrPage() {
       type: 'S',
     });
 
-    // batch wajib tapi belum ikut terbaca dari barcode -> minta batch dulu
-    const needBatch = found?.is_batch_managed && !rs.batch_number;
-    setTimeout(() => (needBatch ? batchRef.current : qtyRef.current)?.focus(), 30);
+    // Tujuan fokus dihitung dari hasil scan LANGSUNG, bukan dari state — state
+    // hasil setMaterial/setBatch belum ter-commit saat baris ini berjalan.
+    const nextBatch = (rs.batch_number ?? batch).trim();
+    const needBatch = !!found?.is_batch_managed && !nextBatch;
+    const target = needBatch ? batchRef : qtyRef;
+    setTimeout(() => target.current?.focus(), 30);
   }
 
+  /** Barcode dari scanner fisik — tidak perlu ada field yang difokuskan. */
+  useScanGun((code) => {
+    setMaterial(code.split(';')[0].toUpperCase());
+    handleMaterialScan(code);
+  }, !busy);
+
   /**
-   * Scanner yang tidak dikonfigurasi mengirim Enter tetap harus terproses.
-   * Barcode diketik karakter demi karakter, jadi pemrosesan ditunda sejenak
-   * sampai aliran karakter berhenti — kalau tidak, pemisah ';' pertama akan
-   * memicu pembacaan saat batch belum selesai terkirim.
+   * Lompat ke field berikutnya yang benar-benar perlu diisi.
+   * Field yang sudah terisi otomatis dari hasil scan dilewati; kalau tidak ada
+   * lagi yang kosong, fokus dilepas supaya keyboard virtual tertutup.
    */
-  function scheduleScan(value: string) {
-    if (scanTimer.current) clearTimeout(scanTimer.current);
-    const looksScanned = value.includes(';') || /^\d{8,14}$/.test(value.trim());
-    if (!looksScanned) return;
-    scanTimer.current = setTimeout(() => handleMaterialScan(value), 180);
+  function focusNextNeeded(from: 'material' | 'batch' | 'qty' | 'exp') {
+    const needBatch = !!mat?.is_batch_managed && !batch.trim();
+    const needQty = !qty.trim();
+    const needExp = !knownBatch?.found && !expDate.trim();
+
+    const chain: { after: string[]; need: boolean; ref: React.RefObject<HTMLInputElement | null> }[] = [
+      { after: ['material'], need: needBatch, ref: batchRef },
+      { after: ['material', 'batch'], need: needQty, ref: qtyRef },
+      { after: ['material', 'batch', 'qty'], need: needExp, ref: expRef },
+    ];
+
+    const next = chain.find((c) => c.after.includes(from) && c.need);
+    if (next?.ref.current) {
+      setTimeout(() => next.ref.current?.focus(), 30);
+      return;
+    }
+    // tidak ada lagi yang wajib -> tutup keyboard
+    (document.activeElement as HTMLElement | null)?.blur();
   }
 
   function reset() {
@@ -122,7 +144,7 @@ export default function ZrfGrPage() {
     setReference('');
     setKnownBatch(null);
     setMsg(null);
-    setTimeout(() => matRef.current?.focus(), 30);
+    // TIDAK memfokuskan field mana pun: layar kembali ke mode siap scan
   }
 
   async function submit() {
@@ -156,7 +178,7 @@ export default function ZrfGrPage() {
       setMfgDate('');
       setReference('');
       setKnownBatch(null);
-      setTimeout(() => matRef.current?.focus(), 30);
+      (document.activeElement as HTMLElement | null)?.blur();
     }
   }
 
@@ -172,28 +194,35 @@ export default function ZrfGrPage() {
     >
       {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
+      {/* Layar siap scan tanpa satu pun field difokuskan, sehingga keyboard
+          virtual tidak pernah muncul dengan sendirinya. */}
+      {!material.trim() && (
+        <div className="rounded-[3px] border-2 border-dashed border-sap-blue/50 bg-sap-blue/5 px-3 py-3 text-center">
+          <p className="text-sm font-semibold text-sap-blue">Siap scan</p>
+          <p className="text-xxs text-sap-muted mt-0.5">
+            Arahkan scanner ke barcode. Ketuk field di bawah bila ingin mengetik manual.
+          </p>
+        </div>
+      )}
+
       <PdtInput
         ref={matRef}
-        label="Material — siap scan"
+        label="Material"
         list="dl-pdt-mat"
-        autoFocus
         value={material}
-        onChange={(e) => {
-          const v = e.target.value.toUpperCase();
-          setMaterial(v);
-          scheduleScan(v);
-        }}
+        onChange={(e) => setMaterial(e.target.value.toUpperCase())}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            if (scanTimer.current) clearTimeout(scanTimer.current);
             handleMaterialScan();
           }
         }}
         onBlur={() => {
-          if (material.includes(';') || /^\d{8,14}$/.test(material.trim())) handleMaterialScan();
+          // hanya diproses bila materialnya belum dikenali — mencegah kode
+          // material hasil scan dibaca ulang sebagai barcode
+          if (!mat && material.trim()) handleMaterialScan();
         }}
-        hint="Arahkan scanner langsung — keyboard hanya muncul bila field diketuk."
+        hint={mat ? mat.description : 'Boleh diketik manual, atau langsung di-scan.'}
       />
       {mat && (
         <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
@@ -211,6 +240,12 @@ export default function ZrfGrPage() {
         inputMode="numeric"
         value={qty}
         onChange={(e) => setQty(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            focusNextNeeded('qty');
+          }
+        }}
         hint={splitLines > 1 ? `Akan dipecah menjadi ${splitLines} pallet` : undefined}
       />
 
@@ -224,8 +259,7 @@ export default function ZrfGrPage() {
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            loadBatchDates(material, batch);
-            setTimeout(() => qtyRef.current?.focus(), 30);
+            loadBatchDates(material, batch).then(() => focusNextNeeded('batch'));
           }
         }}
         hint={
@@ -236,12 +270,19 @@ export default function ZrfGrPage() {
       />
 
       <PdtInput
+        ref={expRef}
         label="Expired Date"
         type="date"
         value={expDate}
         onChange={(e) => {
           setExpDate(e.target.value);
           setMfgDate((m) => fillMfg(e.target.value, m));
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            focusNextNeeded('exp');
+          }
         }}
       />
       <PdtInput

@@ -11,7 +11,8 @@ import { api } from './client';
  *      1201020711;D26158;CTN;12.00000;PCS;852600153;Hanasui Glow Expert Package 4pack x 12;WH
  *    -> field 1 = kode material, field 2 = batch (langsung dipakai).
  * 2. Barcode EAN/UPC polos (8998824551223)
- *    -> di-lookup ke master data (barcode B-POM ATAU barcode produk).
+ *    -> di-lookup ke master data: KODE MATERIAL, barcode B-POM, atau barcode
+ *       produk. Kode material yang berupa angka karena itu tetap dikenali.
  * 3. Teks biasa -> dianggap kode material apa adanya.
  */
 
@@ -48,7 +49,7 @@ export interface ResolvedScan {
   batch_number: string | null;
   /** deskripsi material bila ditemukan lewat lookup barcode */
   description?: string;
-  matched_by?: 'BPOM' | 'PRODUK' | null;
+  matched_by?: 'MATERIAL' | 'BPOM' | 'PRODUK' | null;
   message?: string;
 }
 
@@ -60,7 +61,11 @@ export async function resolveScan(raw: string): Promise<ResolvedScan> {
   const p = parseScan(raw);
 
   if (p.kind === 'EAN') {
-    const r = await api<{ material_code: string; description: string; matched_by: 'BPOM' | 'PRODUK' }>(
+    const r = await api<{
+      material_code: string;
+      description: string;
+      matched_by: 'MATERIAL' | 'BPOM' | 'PRODUK';
+    }>(
       `/api/materials/barcode?code=${encodeURIComponent(p.material_code)}`
     );
     if (!r.ok || !r.data) {
@@ -68,7 +73,7 @@ export async function resolveScan(raw: string): Promise<ResolvedScan> {
         ok: false,
         material_code: p.material_code,
         batch_number: null,
-        message: r.message || `Barcode ${p.material_code} tidak terdaftar di master data (MM01).`,
+        message: r.message || `${p.material_code} tidak dikenali sebagai kode material maupun barcode (MM01).`,
       };
     }
     return {
@@ -77,7 +82,7 @@ export async function resolveScan(raw: string): Promise<ResolvedScan> {
       batch_number: null,
       description: r.data.description,
       matched_by: r.data.matched_by,
-      message: `Barcode -> ${r.data.material_code} (${r.data.matched_by === 'BPOM' ? 'B-POM' : 'barcode produk'})`,
+      message: `${r.data.material_code} — ${r.data.description}`,
     };
   }
 

@@ -16,9 +16,12 @@ export async function GET(req: NextRequest) {
     const code = cleanStr(req.nextUrl.searchParams.get('code'));
     if (!code) throw new HttpError(400, 'Barcode is empty.');
 
+    // Kode material sendiri ikut dicocokkan: banyak kode material berupa angka
+    // (mis. 1201020604) dan tidak akan pernah terdaftar di kolom barcode.
     const m = await prisma.material.findFirst({
       where: {
         OR: [
+          { material_code: { equals: code, mode: 'insensitive' } },
           { barcode_bpom: { equals: code, mode: 'insensitive' } },
           { barcode_produk: { equals: code, mode: 'insensitive' } },
         ],
@@ -26,11 +29,16 @@ export async function GET(req: NextRequest) {
     });
 
     if (!m) {
-      return fail(`Barcode ${code} tidak terdaftar di master data (MM01).`, 404);
+      return fail(`${code} tidak dikenali sebagai kode material maupun barcode (MM01).`, 404);
     }
 
+    const up = code.toUpperCase();
     const matched_by =
-      m.barcode_bpom && m.barcode_bpom.toUpperCase() === code.toUpperCase() ? 'BPOM' : 'PRODUK';
+      m.material_code.toUpperCase() === up
+        ? 'MATERIAL'
+        : m.barcode_bpom && m.barcode_bpom.toUpperCase() === up
+          ? 'BPOM'
+          : 'PRODUK';
 
     return ok(
       {

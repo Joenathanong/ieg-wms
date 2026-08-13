@@ -70,16 +70,21 @@ export async function middleware(req: NextRequest) {
   if (!pathname.startsWith('/api/')) {
     const viewParam = req.nextUrl.searchParams.get('view');
 
-    if (viewParam === 'desktop' || viewParam === 'pdt') {
+    if (viewParam === 'desktop' || viewParam === 'pdt' || viewParam === 'auto') {
       const url = req.nextUrl.clone();
       url.searchParams.delete('view');
       if (viewParam === 'pdt') url.pathname = '/zrf';
       const res = NextResponse.redirect(url);
-      res.cookies.set(VIEW_COOKIE, viewParam, {
-        path: '/',
-        maxAge: VIEW_MAX_AGE,
-        sameSite: 'lax',
-      });
+      if (viewParam === 'auto') {
+        // kembali ke deteksi otomatis: preferensi manual dihapus
+        res.cookies.set(VIEW_COOKIE, '', { path: '/', maxAge: 0, sameSite: 'lax' });
+      } else {
+        res.cookies.set(VIEW_COOKIE, viewParam, {
+          path: '/',
+          maxAge: VIEW_MAX_AGE,
+          sameSite: 'lax',
+        });
+      }
       return res;
     }
 
