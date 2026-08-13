@@ -17,7 +17,9 @@ import { CommandField } from './CommandField';
 import { Sidebar } from './Sidebar';
 import { StatusBar, StatusProvider, useStatus } from './StatusBar';
 import { ThemeToggle } from './ThemeToggle';
+import { useTableKeyNav } from './keynav';
 import { tcodeByPath } from '@/lib/tcodes';
+import { IS_PROD_SYSTEM, SAP_CLIENT, SAP_SYSTEM, SYSTEM_TITLE } from '@/lib/system';
 import type { SessionPayload } from '@/lib/session';
 
 function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void }) {
@@ -104,7 +106,22 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
         <span className="font-mono text-2xs text-sap-blue shrink-0">{tcode?.code ?? 'SESSION_MANAGER'}</span>
         <span className="text-sap-border shrink-0">|</span>
         <span className="text-2xs text-sap-text truncate">{tcode?.title ?? 'SAP Easy Access'}</span>
-        <span className="ml-auto text-xxs text-sap-muted font-mono hidden md:inline shrink-0">
+
+        {/* Penanda sistem — mencolok bila BUKAN production, agar operator tidak
+            salah memposting ke sistem latihan/pengembangan. */}
+        {!IS_PROD_SYSTEM && (
+          <span
+            title={SYSTEM_TITLE}
+            className="ml-auto shrink-0 sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext"
+          >
+            {SAP_SYSTEM} · CLNT {SAP_CLIENT}
+          </span>
+        )}
+        <span
+          className={`text-xxs text-sap-muted font-mono hidden md:inline shrink-0 ${
+            IS_PROD_SYSTEM ? 'ml-auto' : 'ml-2'
+          }`}
+        >
           WMS Lightweight — S/4HANA Style
         </span>
       </div>
@@ -116,6 +133,9 @@ export function Shell({ user, children }: { user: SessionPayload; children: Reac
   const [collapsed, setCollapsed] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const pathname = usePathname();
+
+  // Panah atas/bawah = pindah baris tabel (bukan menaikkan angka) — berlaku global.
+  useTableKeyNav();
 
   // Layar PDT: area kerja penuh — sidebar hanya muncul bila dipanggil.
   const isPdt = pathname.startsWith('/zrf');

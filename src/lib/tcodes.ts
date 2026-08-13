@@ -32,7 +32,8 @@ export const TCODES: TCodeEntry[] = [
   // ---------------- REPORTS ----------------
   { code: 'MB52', title: 'Display Warehouse Stock (Global / IM)', path: '/mb52', group: 'REPORT' },
   { code: 'LX02', title: 'Stock per Storage Bin (WM Breakdown)', path: '/lx02', group: 'REPORT', aliases: ['LX01'] },
-  { code: 'MB51', title: 'Material Document List (History)', path: '/mb51', group: 'REPORT' },
+  { code: 'MB51', title: 'Material Document List (History IM)', path: '/mb51', group: 'REPORT' },
+  { code: 'LT22', title: 'Display Transfer Order (History Bin Transfer)', path: '/lt22', group: 'REPORT', aliases: ['LT23', 'LT21'] },
   { code: 'LS04', title: 'Display Empty Storage Bins', path: '/ls04', group: 'REPORT' },
 
   // ---------------- MASTER DATA ----------------
@@ -41,6 +42,7 @@ export const TCODES: TCodeEntry[] = [
   { code: 'LS01N', title: 'Create Storage Bin', path: '/ls01n', group: 'MASTER' },
   { code: 'LS02N', title: 'Change Storage Bin', path: '/ls01n', group: 'MASTER' },
   { code: 'LS06', title: 'Block / Unblock Storage Bin', path: '/ls01n', group: 'MASTER' },
+  { code: 'ZZONE', title: 'Maintain Zone / Storage Section', path: '/zzone', group: 'MASTER', adminOnly: true, aliases: ['LS10', 'ZONE'] },
   { code: 'ZUPLOAD', title: 'Master Data & Initial Stock Upload Center', path: '/zupload', group: 'MASTER' },
 
   // ---------------- PDT / RF TERMINAL ----------------

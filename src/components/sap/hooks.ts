@@ -37,9 +37,21 @@ export interface BinLite {
   is_interim: boolean;
 }
 
+export interface ZoneLite {
+  zone_code: string;
+  label: string;
+  zone_group: string;
+  bin_pattern: string | null;
+  is_interim: boolean;
+  is_pick: boolean;
+  is_active: boolean;
+  bin_count: number;
+}
+
 /** Cache sederhana agar master data tidak di-fetch berulang antar halaman. */
 let cacheMat: MaterialLite[] | null = null;
 let cacheBin: BinLite[] | null = null;
+let cacheZone: ZoneLite[] | null = null;
 
 export function useMasterData(auto = true) {
   const [materials, setMaterials] = useState<MaterialLite[]>(cacheMat ?? []);
@@ -80,4 +92,40 @@ export function useMasterData(auto = true) {
 export function invalidateMasterData() {
   cacheMat = null;
   cacheBin = null;
+}
+
+/**
+ * Master zone (T-Code ZZONE). Dipisah dari useMasterData karena dipakai juga
+ * oleh layar yang tidak butuh daftar material/bin.
+ */
+export function useZones(auto = true) {
+  const [zones, setZones] = useState<ZoneLite[]>(cacheZone ?? []);
+  const [loading, setLoading] = useState(false);
+
+  async function reload() {
+    setLoading(true);
+    const r = await api<ZoneLite[]>('/api/zones');
+    setLoading(false);
+    if (r.ok && r.data) {
+      cacheZone = r.data;
+      setZones(r.data);
+    }
+    return r;
+  }
+
+  useEffect(() => {
+    if (!auto) return;
+    if (cacheZone) {
+      setZones(cacheZone);
+      return;
+    }
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto]);
+
+  return { zones, loading, reload };
+}
+
+export function invalidateZones() {
+  cacheZone = null;
 }

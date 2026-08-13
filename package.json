@@ -13,6 +13,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:upgrade": "tsx prisma/upgrade.ts",
     "db:check": "tsx prisma/check.ts",
+    "db:diag": "tsx prisma/diag.ts",
+    "db:reset": "tsx prisma/reset.ts",
     "db:studio": "prisma studio"
   },
   "prisma": {

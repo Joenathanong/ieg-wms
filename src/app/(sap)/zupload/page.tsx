@@ -16,7 +16,7 @@ import {
   Package,
   ShieldAlert,
 } from 'lucide-react';
-import { Panel, Field, Select, Button, Toolbar, Separator } from '@/components/sap/ui';
+import { Panel, Field, ActionField, Select, Button, Toolbar, Separator } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { invalidateMasterData } from '@/components/sap/hooks';
 import { post } from '@/lib/client';
@@ -302,7 +302,7 @@ export default function ZuploadPage() {
         </Panel>
 
         <Panel title="Step 2 — Parameter & Eksekusi" icon={<Play size={13} className="text-sap-blue" />} className="xl:col-span-2">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
             <Field label="Chunk Size (baris per request)" hint="50–100 disarankan agar aman dari timeout Vercel">
               <Select value={chunkSize} onChange={(e) => setChunkSize(Number(e.target.value))}>
                 {[25, 50, 75, 100].map((n) => (
@@ -322,11 +322,11 @@ export default function ZuploadPage() {
               </Field>
             )}
 
-            <div className="flex items-end">
+            <ActionField>
               <Button variant="primary" onClick={execute} loading={running} disabled={rows.length === 0}>
                 <Play size={13} /> Execute Upload
               </Button>
-            </div>
+            </ActionField>
           </div>
 
           {/* PROGRESS */}

@@ -4,16 +4,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { Settings, Save, RefreshCw, Info, Smartphone, MapPin } from 'lucide-react';
 import { Panel, Field, Input, Button, Toolbar } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
-import { useMasterData } from '@/components/sap/hooks';
+import { useMasterData, useZones } from '@/components/sap/hooks';
 import { api, patch } from '@/lib/client';
 import { SETTING_META } from '@/lib/settings';
-import { ZONES } from '@/lib/zones';
 
 type Settings = Record<string, string>;
 
 export default function ZsetPage() {
   const { setStatus } = useStatus();
   const { bins } = useMasterData();
+  const { zones } = useZones();
   const [values, setValues] = useState<Settings>({});
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,7 +57,7 @@ export default function ZsetPage() {
               </div>
               <div>
                 {m.type === 'BOOL' ? (
-                  <label className="flex items-center gap-2 text-2xs cursor-pointer h-[27px]">
+                  <label className="sap-control-row text-2xs cursor-pointer">
                     <input
                       type="checkbox"
                       className="accent-sap-blue w-4 h-4"
@@ -97,8 +97,8 @@ export default function ZsetPage() {
       <Panel title="Interim Bin yang tersedia" icon={<MapPin size={13} className="text-sap-blue" />} bodyClassName="p-3">
         {interimBins.length === 0 ? (
           <p className="text-xxs text-sap-warntext">
-            Belum ada bin interim. Buat bin dengan zona <b>GR-ZONE</b> dan <b>GI-ZONE</b> di LS01N terlebih
-            dahulu, kalau tidak MIGO 101 / 201 akan menolak posting.
+            Belum ada bin interim. Pastikan ada zona bertanda <b>Interim</b> di <b>ZZONE</b>, lalu buat
+            bin dengan zona tersebut di <b>LS01N</b> — kalau tidak, MIGO 101 / 201 akan menolak posting.
           </p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
@@ -111,7 +111,7 @@ export default function ZsetPage() {
         )}
       </Panel>
 
-      <Panel title="Referensi Zona Gudang" bodyClassName="p-0">
+      <Panel title="Referensi Zona Gudang (master ZZONE)" bodyClassName="p-0">
         <table className="sap-grid">
           <thead>
             <tr>
@@ -122,12 +122,12 @@ export default function ZsetPage() {
             </tr>
           </thead>
           <tbody>
-            {ZONES.map((z) => (
-              <tr key={z.code}>
-                <td className="font-mono text-sap-blue">{z.code}</td>
+            {zones.map((z) => (
+              <tr key={z.zone_code} className={z.is_active ? '' : 'opacity-50'}>
+                <td className="font-mono text-sap-blue">{z.zone_code}</td>
                 <td className="text-sap-muted">{z.label}</td>
-                <td className="font-mono">{z.binPattern}</td>
-                <td className="text-center">{z.interim ? 'X' : '—'}</td>
+                <td className="font-mono">{z.bin_pattern ?? '—'}</td>
+                <td className="text-center">{z.is_interim ? 'X' : '—'}</td>
               </tr>
             ))}
           </tbody>

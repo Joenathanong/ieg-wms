@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { FileClock, Search, Download, ChevronLeft, ChevronRight, Eraser } from 'lucide-react';
+import { ArrowLeftRight, Search, Download, ChevronLeft, ChevronRight, Eraser, Smartphone } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useExecuteKey } from '@/components/sap/keynav';
@@ -11,10 +11,7 @@ import { WILDCARD_HINT } from '@/lib/like';
 interface Row {
   document_number: string;
   movement_code: string;
-  movement_type: string;
-  movement_desc: string;
-  reversal_of: string;
-  reversed_by: string;
+  kind: 'PUT-AWAY' | 'PICKING' | 'BIN TRANSFER';
   material_code: string;
   description: string;
   batch_number: string;
@@ -22,46 +19,32 @@ interface Row {
   target_bin: string;
   qty: number;
   uom: string;
-  reference: string;
+  tr_number: string;
   remarks: string;
+  via_pdt: boolean;
   doc_date: string;
   created_at: string;
   user_id: string;
 }
 
-const MOVES = [
-  { v: '', l: 'Semua movement IM' },
-  { v: '101', l: '101 — Goods Receipt' },
-  { v: '102', l: '102 — Cancel Goods Receipt' },
-  { v: '201', l: '201 — Goods Issue' },
-  { v: '202', l: '202 — Cancel Goods Issue' },
-  { v: '551', l: '551 — Scrapping' },
-  { v: '552', l: '552 — Cancel Scrapping' },
-  { v: '561', l: '561 — Initial Stock' },
-  { v: '562', l: '562 — Cancel Initial Stock' },
-  { v: '701', l: '701 — Phys. Inv. (+)' },
-  { v: '702', l: '702 — Phys. Inv. (−)' },
-  { v: '711', l: '711 — Cancel Phys. Inv. (+)' },
-  { v: '712', l: '712 — Cancel Phys. Inv. (−)' },
-];
-
-const SIGN: Record<string, number> = {
-  '101': 1, '561': 1, '701': 1, '202': 1, '552': 1, '712': 1,
-  '201': -1, '551': -1, '702': -1, '102': -1, '562': -1, '711': -1,
-  '301': 0,
+const KIND_STYLE: Record<string, string> = {
+  'PUT-AWAY': 'border-sap-okborder bg-sap-okbg text-sap-oktext',
+  PICKING: 'border-sap-warnborder bg-sap-warnbg text-sap-warntext',
+  'BIN TRANSFER': 'border-sap-infoborder bg-sap-infobg text-sap-infotext',
 };
 
-export default function Mb51Page() {
+export default function Lt22Page() {
   const { setStatus } = useStatus();
 
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 
   const [material, setMaterial] = useState('');
-  const [movement, setMovement] = useState('');
   const [bin, setBin] = useState('');
   const [batch, setBatch] = useState('');
   const [user, setUser] = useState('');
+  const [tr, setTr] = useState('');
+  const [via, setVia] = useState('');
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
   const [page, setPage] = useState(1);
@@ -71,22 +54,24 @@ export default function Mb51Page() {
   const [view, setView] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
+  const [movedQty, setMovedQty] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const run = useCallback(
     async (p = page) => {
       setLoading(true);
-      const r = await api<{ rows: Row[]; total: number; pages: number }>(
-        '/api/reports/mb51' + qs({ material, movement, bin, batch, user, from, to, page: p, size })
+      const r = await api<{ rows: Row[]; total: number; pages: number; moved_qty: number }>(
+        '/api/reports/lt22' + qs({ material, bin, batch, user, tr, via, from, to, page: p, size })
       );
       setLoading(false);
       if (!r.ok) return setStatus(r.message, 'E');
       setRows(r.data?.rows ?? []);
       setTotal(r.data?.total ?? 0);
       setPages(r.data?.pages ?? 1);
+      setMovedQty(r.data?.moved_qty ?? 0);
       setStatus(r.message, (r.data?.total ?? 0) > 0 ? 'S' : 'W');
     },
-    [material, movement, bin, batch, user, from, to, size, page, setStatus]
+    [material, bin, batch, user, tr, via, from, to, size, page, setStatus]
   );
 
   useEffect(() => {
@@ -103,52 +88,13 @@ export default function Mb51Page() {
   );
 
   const cols: Column<Row>[] = [
+    { key: 'document_number', header: 'Transfer Order', mono: true, width: '130px' },
     {
-      key: 'document_number',
-      header: 'Mat. Doc.',
-      mono: true,
-      width: '130px',
-      // CSV ikut membawa penanda pembatalan
-      exportValue: (r) => (r.reversed_by ? `${r.document_number} (DIBATALKAN oleh ${r.reversed_by})` : r.document_number),
-      render: (r) => (
-        <span className="inline-flex items-center gap-1.5">
-          <span className={r.reversed_by ? 'line-through text-sap-muted' : ''}>{r.document_number}</span>
-          {r.reversed_by && (
-            <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext" title={`Dibatalkan oleh ${r.reversed_by}`}>
-              CANC
-            </span>
-          )}
-        </span>
-      ),
-    },
-    {
-      key: 'movement_code',
-      header: 'MvT',
-      mono: true,
-      width: '58px',
-      align: 'center',
-      render: (r) => {
-        const s = SIGN[r.movement_code] ?? 0;
-        const cls = s > 0 ? 'text-sap-oktext' : s < 0 ? 'text-sap-errtext' : 'text-sap-infotext';
-        return <span className={`font-mono font-semibold ${cls}`}>{r.movement_code}</span>;
-      },
-    },
-    {
-      key: 'movement_desc',
-      header: 'MvT Description',
-      width: '175px',
-      exportValue: (r) =>
-        r.reversal_of
-          ? `${r.movement_desc} — pembatalan dari dok. ${r.reversal_of}`
-          : r.reversed_by
-            ? `${r.movement_desc} — dibatalkan oleh dok. ${r.reversed_by}`
-            : r.movement_desc,
-      render: (r) => (
-        <span className="text-sap-muted">
-          {r.movement_desc}
-          {r.reversal_of && <span className="font-mono text-xxs"> (dok. {r.reversal_of})</span>}
-        </span>
-      ),
+      key: 'kind',
+      header: 'Jenis',
+      width: '120px',
+      exportValue: (r) => r.kind,
+      render: (r) => <span className={`sap-badge ${KIND_STYLE[r.kind]}`}>{r.kind}</span>,
     },
     {
       key: 'doc_date',
@@ -162,29 +108,33 @@ export default function Mb51Page() {
     { key: 'material_code', header: 'Material', mono: true, width: '140px' },
     { key: 'description', header: 'Description', width: '210px' },
     { key: 'batch_number', header: 'Batch', mono: true, width: '120px' },
-    { key: 'source_bin', header: 'From Bin', mono: true, width: '110px' },
-    { key: 'target_bin', header: 'To Bin', mono: true, width: '110px' },
+    { key: 'source_bin', header: 'From Bin', mono: true, width: '120px' },
+    { key: 'target_bin', header: 'To Bin', mono: true, width: '120px' },
     {
       key: 'qty',
       header: 'Quantity',
       align: 'right',
-      width: '90px',
-      // nilai bertanda: movement pengurang & pembatalan (102/562/711/201/551/702) menjadi negatif
-      value: (r) => ((SIGN[r.movement_code] ?? 0) < 0 ? -r.qty : r.qty),
-      exportValue: (r) => ((SIGN[r.movement_code] ?? 0) < 0 ? -r.qty : r.qty),
-      render: (r) => {
-        const s = SIGN[r.movement_code] ?? 0;
-        const cls = s > 0 ? 'text-sap-oktext' : s < 0 ? 'text-sap-errtext' : '';
-        return (
-          <span className={cls}>
-            {s > 0 ? '+' : s < 0 ? '−' : ''}
-            {r.qty.toLocaleString('de-DE')}
-          </span>
-        );
-      },
+      width: '95px',
+      render: (r) => r.qty.toLocaleString('de-DE'),
     },
     { key: 'uom', header: 'UoM', mono: true, width: '55px' },
-    { key: 'reference', header: 'Reference', width: '130px' },
+    { key: 'tr_number', header: 'Transfer Req.', mono: true, width: '125px' },
+    {
+      key: 'via_pdt',
+      header: 'Sumber',
+      width: '90px',
+      align: 'center',
+      value: (r) => (r.via_pdt ? 'PDT' : 'GUI'),
+      exportValue: (r) => (r.via_pdt ? 'PDT' : 'GUI'),
+      render: (r) =>
+        r.via_pdt ? (
+          <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext gap-1">
+            <Smartphone size={10} /> PDT
+          </span>
+        ) : (
+          <span className="text-sap-muted">GUI</span>
+        ),
+    },
     { key: 'user_id', header: 'User', mono: true, width: '95px' },
     {
       key: 'created_at',
@@ -199,7 +149,10 @@ export default function Mb51Page() {
 
   return (
     <div className="space-y-3">
-      <Panel title="MB51 — Material Document List · Selection Criteria" icon={<FileClock size={13} className="text-sap-blue" />}>
+      <Panel
+        title="LT22 — Display Transfer Order (riwayat pemindahan bin) · Selection Criteria"
+        icon={<ArrowLeftRight size={13} className="text-sap-blue" />}
+      >
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 items-start">
           <Field label="Material / Description" hint={WILDCARD_HINT}>
             <Input
@@ -207,42 +160,31 @@ export default function Mb51Page() {
               placeholder="kode atau deskripsi"
               value={material}
               onChange={(e) => setMaterial(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && run(1)}
             />
           </Field>
-          <Field label="Movement Type">
-            <Select value={movement} onChange={(e) => setMovement(e.target.value)}>
-              {MOVES.map((m) => (
-                <option key={m.v} value={m.v}>
-                  {m.l}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Storage Bin">
+          <Field label="Storage Bin (asal / tujuan)">
             <Input
               className="uppercase"
               placeholder="mis. GB-*"
               value={bin}
               onChange={(e) => setBin(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && run(1)}
             />
           </Field>
           <Field label="Batch">
-            <Input
-              className="uppercase"
-              value={batch}
-              onChange={(e) => setBatch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && run(1)}
-            />
+            <Input className="uppercase" value={batch} onChange={(e) => setBatch(e.target.value)} />
+          </Field>
+          <Field label="Transfer Requirement">
+            <Input className="uppercase" placeholder="TR*" value={tr} onChange={(e) => setTr(e.target.value)} />
+          </Field>
+          <Field label="Sumber Posting">
+            <Select value={via} onChange={(e) => setVia(e.target.value)}>
+              <option value="">Semua</option>
+              <option value="PDT">Terminal PDT (ZRF)</option>
+              <option value="GUI">Desktop (LB12 / LT01 / LT10)</option>
+            </Select>
           </Field>
           <Field label="User">
-            <Input
-              className="uppercase"
-              value={user}
-              onChange={(e) => setUser(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && run(1)}
-            />
+            <Input className="uppercase" value={user} onChange={(e) => setUser(e.target.value)} />
           </Field>
           <Field label="Posting Date From">
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -267,10 +209,11 @@ export default function Mb51Page() {
         <Button
           onClick={() => {
             setMaterial('');
-            setMovement('');
             setBin('');
             setBatch('');
             setUser('');
+            setTr('');
+            setVia('');
             setFrom(monthAgo);
             setTo(today);
             setStatus('Selection criteria cleared', 'I');
@@ -278,11 +221,14 @@ export default function Mb51Page() {
         >
           <Eraser size={13} /> Clear
         </Button>
-        <Button onClick={() => exportCsv('MB51_material_documents.csv', cols, view)} disabled={view.length === 0}>
+        <Button onClick={() => exportCsv('LT22_transfer_orders.csv', cols, view)} disabled={view.length === 0}>
           <Download size={13} /> Export CSV
         </Button>
 
         <div className="ml-auto flex items-center gap-1.5 font-mono text-xxs text-sap-muted">
+          <span className="hidden md:inline">
+            Total dipindah: <b className="text-sap-text">{movedQty.toLocaleString('de-DE')}</b> unit ·
+          </span>
           <Button
             className="!px-1.5"
             disabled={page <= 1}
@@ -318,7 +264,7 @@ export default function Mb51Page() {
         rowKey={(r) => r.document_number}
         maxHeight="calc(100vh - 360px)"
         onViewChange={setView}
-        footer={<span>Qty bertanda − ikut terbawa ke Export CSV</span>}
+        footer={<span>Movement 301 — Stock IM tidak berubah, hanya lokasi bin</span>}
       />
     </div>
   );

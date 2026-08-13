@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ScanBarcode, Snowflake, RefreshCw, Trash2, ArrowRight, CheckSquare, Square, Search } from 'lucide-react';
-import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, type Column } from '@/components/sap/ui';
+import { Panel, Field, ActionField, Input, Select, Button, Toolbar, Grid, Badge, type Column} from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, del, fmtDate, fmtDateTime } from '@/lib/client';
@@ -176,7 +176,7 @@ export default function Li01nPage() {
   return (
     <div className="space-y-3">
       <Panel title="LI01N — Create Physical Inventory Document (Multi-Bin)" icon={<ScanBarcode size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
           <Field label="Scope" required>
             <Select value={scopeType} onChange={(e) => setScopeType(e.target.value as typeof scopeType)}>
               <option value="ZONE">ZONE — semua bin dalam satu zona</option>
@@ -202,11 +202,11 @@ export default function Li01nPage() {
             <Input type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
           </Field>
 
-          <div>
+          <ActionField>
             <Button variant="primary" onClick={freeze} loading={busy}>
               <Snowflake size={13} /> Freeze &amp; Create Document
             </Button>
-          </div>
+          </ActionField>
         </div>
 
         <p className="mt-3 text-xxs text-sap-muted leading-relaxed">

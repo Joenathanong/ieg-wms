@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireWrite, requireAdmin, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { BinStatus } from '@prisma/client';
-import { isInterimZone } from '@/lib/zones';
+import { resolveZone } from '@/lib/zonemaster';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,12 +40,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       nextStatus = st === BinStatus.BLOCKED ? BinStatus.BLOCKED : total > 0 ? BinStatus.OCCUPIED : BinStatus.EMPTY;
     }
 
+    // zona baru (bila diubah) harus terdaftar & aktif di master ZZONE
+    const zone = b.zone_id !== undefined ? await resolveZone(b.zone_id) : null;
+
     const updated = await prisma.storageBin.update({
       where: { bin_code },
       data: {
-        zone_id: b.zone_id !== undefined ? cleanStr(b.zone_id).toUpperCase() : undefined,
-        is_interim:
-          b.zone_id !== undefined ? isInterimZone(cleanStr(b.zone_id).toUpperCase()) : undefined,
+        zone_id: zone ? zone.zone_code : undefined,
+        is_interim: zone ? zone.is_interim : undefined,
         max_weight_kg: b.max_weight_kg !== undefined ? Number(b.max_weight_kg) || 0 : undefined,
         status: nextStatus,
       },

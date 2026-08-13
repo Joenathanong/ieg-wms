@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { Layers3, Search, Save, CheckSquare, Square, Wand2, Info } from 'lucide-react';
-import { Panel, Field, Input, Button, Toolbar, Separator } from '@/components/sap/ui';
+import { Panel, Field, ActionField, Input, Button, Toolbar, Separator} from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
+import { useExecuteKey } from '@/components/sap/keynav';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, fmtDate } from '@/lib/client';
 import { WILDCARD_HINT } from '@/lib/like';
@@ -37,6 +38,11 @@ export default function Lt10Page() {
   const [busy, setBusy] = useState(false);
   const [bulkTarget, setBulkTarget] = useState('');
   const [result, setResult] = useState<any[]>([]);
+
+  // Enter / F8 = Execute (cari stok)
+  useExecuteKey(() => {
+    search();
+  });
 
   async function search() {
     setLoading(true);
@@ -104,7 +110,7 @@ export default function Lt10Page() {
   return (
     <div className="space-y-3">
       <Panel title="LT10 — Mass Bin Transfer (Movement 301)" icon={<Layers3 size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-start">
           <Field label="Source Bin (kosongkan = semua)" hint={WILDCARD_HINT}>
             <Input
               list="dl-bins"
@@ -124,11 +130,11 @@ export default function Lt10Page() {
               onKeyDown={(e) => e.key === 'Enter' && search()}
             />
           </Field>
-          <div>
+          <ActionField>
             <Button onClick={search} loading={loading}>
               <Search size={13} /> Execute (F8)
             </Button>
-          </div>
+          </ActionField>
           <Field label="Destination Bin — Mass Assign">
             <Input
               list="dl-bins"
@@ -137,11 +143,11 @@ export default function Lt10Page() {
               onChange={(e) => setBulkTarget(e.target.value)}
             />
           </Field>
-          <div>
+          <ActionField>
             <Button onClick={applyBulkTarget} disabled={rows.length === 0}>
               <Wand2 size={13} /> Apply to {selected.length || rows.length} line(s)
             </Button>
-          </div>
+          </ActionField>
         </div>
       </Panel>
 

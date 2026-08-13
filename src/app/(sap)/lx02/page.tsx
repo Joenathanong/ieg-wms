@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Grid3x3, Search, Download, Eraser, CalendarClock } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
+import { useExecuteKey } from '@/components/sap/keynav';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, qs, fmtDate } from '@/lib/client';
 import { WILDCARD_HINT } from '@/lib/like';
@@ -56,6 +57,9 @@ export default function Lx02Page() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sort]);
+
+  // Enter / F8 = Execute
+  useExecuteKey(run);
 
   const zones = [...new Set(bins.map((b) => b.zone_id))].sort();
 
@@ -136,7 +140,7 @@ export default function Lx02Page() {
   return (
     <div className="space-y-3">
       <Panel title="LX02 — Stock per Storage Bin (WM Breakdown)" icon={<Grid3x3 size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 items-start">
           <Field label="Material / Description" hint={WILDCARD_HINT}>
             <Input
               className="uppercase"

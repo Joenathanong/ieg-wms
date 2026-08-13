@@ -11,6 +11,7 @@ import {
   autoFitWidths,
   cellText,
   initialWidths,
+  maxFitWidths,
   rawOf,
 } from '@/lib/grid';
 import { copyText, shorten } from '@/lib/clipboard';
@@ -25,6 +26,7 @@ import {
   Search,
   ChevronsUpDown,
   Columns3,
+  Maximize2,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -64,6 +66,13 @@ export function Panel({
 /* FORM FIELDS                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Satu kolom pada layar seleksi: label (tinggi tetap) + kontrol + keterangan.
+ *
+ * Label selalu memakan satu baris — walau kosong — sehingga seluruh kontrol
+ * dalam satu baris grid berada pada garis yang sama, baik field itu punya
+ * `hint` maupun tidak. Gunakan `items-start` pada grid pembungkusnya.
+ */
 export function Field({
   label,
   required,
@@ -78,10 +87,78 @@ export function Field({
   className?: string;
 }) {
   return (
-    <div className={className}>
-      <label className={`sap-field-label ${required ? 'sap-required' : ''}`}>{label}</label>
+    <div className={`min-w-0 ${className}`}>
+      <label className={`sap-field-label ${required ? 'sap-required' : ''}`}>
+        {label || ' '}
+      </label>
       {children}
-      {hint && <p className="mt-1 text-xxs text-sap-muted/70">{hint}</p>}
+      {hint && <p className="sap-field-hint">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * Kolom berisi tombol (mis. Execute) di dalam grid layar seleksi.
+ * Label kosong dipertahankan agar tombol sejajar dengan input di sebelahnya.
+ */
+export function ActionField({
+  label,
+  hint,
+  children,
+  className = '',
+}: {
+  label?: string;
+  hint?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`min-w-0 ${className}`}>
+      <span className="sap-field-label" aria-hidden="true">
+        {label || ' '}
+      </span>
+      <div className="sap-control-row">{children}</div>
+      {hint && <p className="sap-field-hint">{hint}</p>}
+    </div>
+  );
+}
+
+/** Checkbox sebagai kontrol layar seleksi — tingginya sama dengan field lain. */
+export function CheckField({
+  label,
+  checked,
+  onChange,
+  hint,
+  disabled,
+  className = '',
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  hint?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={`min-w-0 ${className}`}>
+      <span className="sap-field-label" aria-hidden="true">
+        &nbsp;
+      </span>
+      <label
+        className={`sap-control-row text-2xs text-sap-muted ${
+          disabled ? 'opacity-50' : 'cursor-pointer'
+        }`}
+      >
+        <input
+          type="checkbox"
+          className="accent-sap-blue w-[13px] h-[13px] shrink-0"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="min-w-0 truncate">{label}</span>
+      </label>
+      {hint && <p className="sap-field-hint">{hint}</p>}
     </div>
   );
 }
@@ -321,18 +398,27 @@ export function Grid<T extends Record<string, any>>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colSig, rows]);
 
+  /** tombol toolbar: lebar mengikuti RATA-RATA isi (lebih padat) */
   const autoFitAll = useCallback(() => {
     manual.current.clear();
-    setWidths(initialWidths(colsRef.current, view));
+    setWidths(autoFitWidths(colsRef.current, view));
     setStatus('Lebar kolom disesuaikan dengan rata-rata isi', 'I');
   }, [view, setStatus]);
 
+  /** kembalikan ke lebar awal: mengikuti isi TERPANJANG */
+  const fullFitAll = useCallback(() => {
+    manual.current.clear();
+    setWidths(initialWidths(colsRef.current, view));
+    setStatus('Lebar kolom disesuaikan dengan isi terpanjang', 'I');
+  }, [view, setStatus]);
+
+  /** klik ganda garis pemisah: lebar kolom itu mengikuti isi TERPANJANG */
   const autoFitOne = useCallback(
     (key: string) => {
       const c = colsRef.current.find((x) => x.key === key);
       if (!c) return;
       manual.current.delete(key);
-      const w = autoFitWidths([c], view)[key];
+      const w = maxFitWidths([c], view)[key];
       setWidths((s) => ({ ...s, [key]: w }));
     },
     [view]
@@ -487,9 +573,16 @@ export function Grid<T extends Record<string, any>>({
           <Button
             className="!py-[3px]"
             onClick={autoFitAll}
-            title="Sesuaikan lebar kolom dengan rata-rata isi (klik ganda pada garis pemisah untuk satu kolom)"
+            title="Rapatkan kolom mengikuti RATA-RATA isi (lebih padat)"
           >
             <Columns3 size={12} /> Lebar otomatis
+          </Button>
+          <Button
+            className="!py-[3px]"
+            onClick={fullFitAll}
+            title="Kembalikan lebar mengikuti isi TERPANJANG (lebar awal tabel)"
+          >
+            <Maximize2 size={12} /> Lebar penuh
           </Button>
 
           {sort && (

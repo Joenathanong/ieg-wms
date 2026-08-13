@@ -154,7 +154,10 @@ export function matchFilter(cands: string[], raw: CellValue, f: FilterState): bo
 /* ------------------------------------------------------------------ */
 
 export const COL_MIN_W = 58;
+/** batas lebar untuk mode rata-rata (tombol "Lebar otomatis") */
 export const COL_MAX_W = 320;
+/** batas lebar untuk mode isi terpanjang (lebar awal tabel) */
+export const COL_MAX_W_FULL = 420;
 /** padding sel kiri+kanan (px 8+8) + border + ruang ikon sort/filter di header */
 const CELL_PAD = 18;
 const HEAD_PAD = 42;
@@ -225,18 +228,47 @@ export function autoFitWidths<T>(columns: Column<T>[], rows: T[]): Record<string
 }
 
 /**
- * Lebar awal tabel: hasil auto-fit (rata-rata isi).
+ * Lebar kolom berdasarkan isi **TERPANJANG** — dipakai sebagai lebar awal tabel
+ * supaya tidak ada isi yang terpotong sejak awal. Tetap dibatasi COL_MAX_W_FULL
+ * agar satu deskripsi ekstra panjang tidak mendorong kolom lain keluar layar.
+ */
+export function maxFitWidths<T>(columns: Column<T>[], rows: T[]): Record<string, number> {
+  const sample = rows.length > SAMPLE ? rows.slice(0, SAMPLE) : rows;
+  const out: Record<string, number> = {};
+
+  for (const c of columns) {
+    const headW = textWidth(c.header, { bold: true }) + HEAD_PAD;
+
+    let widest = 0;
+    for (const r of sample) {
+      const t = cellText(c, r);
+      if (!t) continue;
+      const w = textWidth(t, { mono: c.mono || c.align === 'right' });
+      if (w > widest) widest = w;
+    }
+
+    const w = Math.max(c.header ? headW : COL_MIN_W, widest + CELL_PAD);
+    out[c.key] = Math.round(Math.min(COL_MAX_W_FULL, Math.max(COL_MIN_W, w)));
+  }
+  return out;
+}
+
+/**
+ * Lebar awal tabel = isi terpanjang (maxFitWidths).
  * `width` eksplisit pada definisi kolom hanya dipakai sebagai cadangan
  * ketika kolom belum punya data sama sekali (mis. hasil pencarian kosong).
+ *
+ * Catatan: tombol "Lebar otomatis" di toolbar memakai autoFitWidths
+ * (rata-rata isi) — dua perilaku yang memang sengaja berbeda.
  */
 export function initialWidths<T>(columns: Column<T>[], rows: T[]): Record<string, number> {
-  const auto = autoFitWidths(columns, rows);
-  if (rows.length > 0) return auto;
+  const full = maxFitWidths(columns, rows);
+  if (rows.length > 0) return full;
 
   const out: Record<string, number> = {};
   for (const c of columns) {
     const px = c.width && /^\d+px$/.test(c.width) ? parseInt(c.width, 10) : null;
-    out[c.key] = px ? Math.min(COL_MAX_W, Math.max(COL_MIN_W, px)) : auto[c.key];
+    out[c.key] = px ? Math.min(COL_MAX_W_FULL, Math.max(COL_MIN_W, px)) : full[c.key];
   }
   return out;
 }

@@ -4,7 +4,7 @@ import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { likeWhereAny } from '@/lib/like';
 import { BinStatus, type Prisma } from '@prisma/client';
-import { isInterimZone } from '@/lib/zones';
+import { resolveZone } from '@/lib/zonemaster';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,9 +43,11 @@ export async function POST(req: NextRequest) {
     const b = await req.json();
 
     const bin_code = cleanStr(b.bin_code).toUpperCase();
-    const zone_id = cleanStr(b.zone_id).toUpperCase();
     if (!bin_code) throw new HttpError(400, 'Storage bin is mandatory.');
-    if (!zone_id) throw new HttpError(400, 'Storage section / zone is mandatory.');
+
+    // zona wajib ada di master ZZONE — bukan lagi teks bebas
+    const zone = await resolveZone(b.zone_id);
+    const zone_id = zone.zone_code;
 
     const exists = await prisma.storageBin.findUnique({ where: { bin_code } });
     if (exists) throw new HttpError(409, `Storage bin ${bin_code} already exists.`);
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
         zone_id,
         max_weight_kg: Number(b.max_weight_kg ?? 1000) || 1000,
         status: (cleanStr(b.status).toUpperCase() as BinStatus) || BinStatus.EMPTY,
-        is_interim: isInterimZone(zone_id),
+        is_interim: zone.is_interim,
       },
     });
 

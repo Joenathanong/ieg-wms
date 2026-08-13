@@ -13,6 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { copyText, findDocNumbers, shorten } from '@/lib/clipboard';
+import { SAP_CLIENT, SAP_SYSTEM, IS_PROD_SYSTEM, SYSTEM_TITLE } from '@/lib/system';
 
 export type MsgType = 'S' | 'E' | 'W' | 'I';
 
@@ -315,8 +316,17 @@ function MessagePopup({
 /* STATUS BAR                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Status Bar khas SAP di baris paling bawah layar. */
-export function StatusBar({ system = 'PRD', client = '100' }: { system?: string; client?: string }) {
+/**
+ * Status Bar khas SAP di baris paling bawah layar.
+ * System ID & Client diambil dari environment (lihat src/lib/system.ts).
+ */
+export function StatusBar({
+  system = SAP_SYSTEM,
+  client = SAP_CLIENT,
+}: {
+  system?: string;
+  client?: string;
+}) {
   const { message, history, clearHistory } = useStatus();
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
@@ -400,9 +410,20 @@ export function StatusBar({ system = 'PRD', client = '100' }: { system?: string;
           </button>
         </div>
 
-        <div className="flex items-center h-full divide-x divide-sap-border border-l border-sap-border font-mono text-sap-muted shrink-0">
-          <span className="px-2 sm:px-3">{system}</span>
-          <span className="px-2 sm:px-3 hidden xs:inline">CLNT {client}</span>
+        <div
+          className="flex items-center h-full divide-x divide-sap-border border-l border-sap-border font-mono text-sap-muted shrink-0"
+          title={SYSTEM_TITLE}
+        >
+          <span className={`px-2 sm:px-3 ${IS_PROD_SYSTEM ? '' : 'text-sap-warntext font-semibold'}`}>
+            {system}
+          </span>
+          <span
+            className={`px-2 sm:px-3 hidden xs:inline ${
+              IS_PROD_SYSTEM ? '' : 'text-sap-warntext font-semibold'
+            }`}
+          >
+            CLNT {client}
+          </span>
           <span className="px-3 hidden sm:inline">OVR</span>
           <span className="px-3 hidden md:inline">WMS-LITE</span>
         </div>

@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ClipboardList, Save, CheckCheck, RefreshCw, Plus, Trash2, Wand2, Filter } from 'lucide-react';
-import { Panel, Field, Input, Select, Button, Toolbar, Badge, Separator } from '@/components/sap/ui';
+import { Panel, Field, ActionField, Input, Select, Button, Toolbar, Badge, Separator} from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, patch, fmtDate } from '@/lib/client';
@@ -184,7 +184,7 @@ function Li11nInner() {
   return (
     <div className="space-y-3">
       <Panel title="LI11N — Enter Physical Inventory Count (Multi-Line)" icon={<ClipboardList size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
           <Field label="Physical Inventory Document" required>
             <Select value={docId} onChange={(e) => setDocId(e.target.value)}>
               <option value="">— pilih dokumen —</option>
@@ -195,7 +195,7 @@ function Li11nInner() {
               ))}
             </Select>
           </Field>
-          <div>
+          <ActionField>
             <Button
               onClick={() => {
                 loadDocs();
@@ -205,7 +205,7 @@ function Li11nInner() {
             >
               <RefreshCw size={13} /> Refresh
             </Button>
-          </div>
+          </ActionField>
           {doc && (
             <div className="md:col-span-2 flex flex-wrap items-center gap-3 text-2xs font-mono text-sap-muted">
               <Badge value={doc.status} />

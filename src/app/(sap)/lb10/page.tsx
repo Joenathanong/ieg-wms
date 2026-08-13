@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ListTodo, Search, RefreshCw, ArrowRight, Trash2, Download } from 'lucide-react';
-import { Panel, Field, Input, Select, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
+import { Panel, Field, ActionField, Input, Select, Button, Toolbar, Grid, exportCsv, type Column} from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
+import { useExecuteKey } from '@/components/sap/keynav';
 import { api, del, qs, fmtDateTime } from '@/lib/client';
 import { WILDCARD_HINT } from '@/lib/like';
 
@@ -65,6 +66,9 @@ export default function Lb10Page() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, type]);
+
+  // Enter / F8 = Execute
+  useExecuteKey(run);
 
   async function cancel(row: Row) {
     const r = await del(`/api/tr/${row.id}`);
@@ -163,7 +167,7 @@ export default function Lb10Page() {
   return (
     <div className="space-y-3">
       <Panel title="LB10 — Transfer Requirement List (Warehouse Work Queue)" icon={<ListTodo size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-start">
           <Field label="TR / Reference" hint={WILDCARD_HINT}>
             <Input
               className="uppercase"
@@ -200,11 +204,11 @@ export default function Lb10Page() {
               onKeyDown={(e) => e.key === 'Enter' && run()}
             />
           </Field>
-          <div>
+          <ActionField>
             <Button variant="primary" onClick={run} loading={loading}>
               <Search size={13} /> Execute (F8)
             </Button>
-          </div>
+          </ActionField>
         </div>
       </Panel>
 

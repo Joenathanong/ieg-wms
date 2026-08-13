@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowLeftRight, Search, Save, RotateCcw, Info, MoveRight } from 'lucide-react';
-import { Panel, Field, Input, Button, Toolbar, Grid, type Column, Badge } from '@/components/sap/ui';
+import { Panel, Field, ActionField, Input, Button, Toolbar, Grid, type Column, Badge} from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, fmtDate } from '@/lib/client';
@@ -103,7 +103,7 @@ export default function Lt01Page() {
   return (
     <div className="space-y-3">
       <Panel title="LT01 — Create Transfer Order (Bin to Bin)" icon={<ArrowLeftRight size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
           <Field label="Source Storage Bin" required>
             <Input
               list="dl-bins"
@@ -113,11 +113,11 @@ export default function Lt01Page() {
               onKeyDown={(e) => e.key === 'Enter' && loadQuants(sourceBin.trim().toUpperCase())}
             />
           </Field>
-          <div>
+          <ActionField>
             <Button onClick={() => loadQuants(sourceBin.trim().toUpperCase())} loading={loading}>
               <Search size={13} /> Display Stock
             </Button>
-          </div>
+          </ActionField>
           <div className="md:col-span-2 text-xxs text-sap-muted flex items-center gap-1.5">
             <Info size={12} />
             Movement 301 — Stok global (IM) tidak berubah, hanya lokasi fisik (WM) yang berpindah.
@@ -142,7 +142,7 @@ export default function Lt01Page() {
       </Panel>
 
       <Panel title="Transfer Order Data" icon={<MoveRight size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-start">
           <Field label="Material">
             <Input readOnly disabled value={sel?.material_code ?? ''} />
           </Field>

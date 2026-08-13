@@ -58,6 +58,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { code: 'MB52', label: 'Global Stock (IM)', href: '/mb52', Icon: BarChart3 },
       { code: 'LX02', label: 'Stock per Bin (WM)', href: '/lx02', Icon: Grid3x3 },
       { code: 'MB51', label: 'Material Documents', href: '/mb51', Icon: FileClock },
+      { code: 'LT22', label: 'Transfer Orders (301)', href: '/lt22', Icon: ArrowLeftRight },
       { code: 'LS04', label: 'Empty Bin List', href: '/ls04', Icon: SquareStack },
     ],
   },
@@ -66,6 +67,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     items: [
       { code: 'MM01', label: 'Material & Pallet', href: '/mm01', Icon: Boxes },
       { code: 'LS01N', label: 'Storage Bin', href: '/ls01n', Icon: Folder },
+      { code: 'ZZONE', label: 'Zone / Storage Section', href: '/zzone', Icon: Layers3, adminOnly: true },
       { code: 'ZUPLOAD', label: 'Upload Center', href: '/zupload', Icon: Upload },
     ],
   },

@@ -129,6 +129,32 @@ model PackagingType {
   @@map("packaging_types")
 }
 
+/// Master Zone / Storage Section (padanan Storage Type di SAP WM).
+/// Sebelumnya hanya konstanta di src/lib/zones.ts; kini jadi master data
+/// yang dikelola lewat T-Code ZZONE.
+model Zone {
+  id          String   @id @default(uuid())
+  /// contoh: GB-HDR, GB-PICK, GK-BIN, TRANSIT-IN
+  zone_code   String   @unique
+  label       String
+  /// kelompok gudang untuk palletization: BESAR | KECIL | TRANSIT | LAIN
+  zone_group  String   @default("LAIN")
+  /// contoh format bin yang disarankan, dipakai sebagai hint di LS01N
+  bin_pattern String?
+  /// bin di zona ini adalah bin interim (transit in/out), bukan lokasi final
+  is_interim  Boolean  @default(false)
+  /// zona pick face — sumber pengambilan eceran (dipakai ZRF08)
+  is_pick     Boolean  @default(false)
+  /// zona nonaktif tidak muncul saat membuat bin baru, tapi bin lama tetap valid
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([is_active])
+  @@index([zone_group])
+  @@map("zones")
+}
+
 model StorageBin {
   id            String    @id @default(uuid())
   /// Format: Aisle-Rack-Level, contoh: A-01-02-1

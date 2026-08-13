@@ -140,6 +140,24 @@ html[data-theme='light'] {
   --sap-scroll-thumb-hover: #aeb7c0;
 }
 
+/* ---------------------------------------------------------------------
+   UKURAN KONTROL SERAGAM
+   Tinggi input, select, dan tombol dibuat identik supaya seluruh layar
+   seleksi rata — termasuk tombol Execute yang berdampingan dengan field.
+   Nilai sengaja ditaruh di :root terpisah agar berlaku di kedua tema.
+   --------------------------------------------------------------------- */
+:root {
+  --sap-control-h: 26px;
+  /* tinggi baris label di atas kontrol — dipatok agar field dengan/ tanpa
+     hint tetap mulai pada garis yang sama */
+  --sap-label-h: 15px;
+}
+@media (max-width: 640px) {
+  :root {
+    --sap-control-h: 32px;
+  }
+}
+
 @layer base {
   html,
   body {
@@ -159,14 +177,9 @@ html[data-theme='light'] {
     text-size-adjust: 100%;
   }
 
-  /* target sentuh lebih nyaman di layar kecil / sarung tangan */
+  /* target sentuh lebih nyaman di layar kecil / sarung tangan
+     (tinggi kontrol sendiri sudah dinaikkan lewat --sap-control-h) */
   @media (max-width: 640px) {
-    .sap-btn {
-      @apply py-[7px] px-3;
-    }
-    .sap-field {
-      @apply py-[7px];
-    }
     .sap-grid tbody td {
       @apply py-[5px];
     }
@@ -230,8 +243,9 @@ html[data-theme='light'] {
 
   /* ---------- FIELD ---------- */
   .sap-field {
-    @apply w-full bg-sap-field border border-sap-border text-sap-text text-2xs px-2 py-[5px]
+    @apply w-full bg-sap-field border border-sap-border text-sap-text text-2xs px-2
            outline-none rounded-[2px] font-mono transition-colors;
+    height: var(--sap-control-h);
   }
   .sap-field:focus {
     @apply border-sap-blue;
@@ -240,8 +254,20 @@ html[data-theme='light'] {
   .sap-field:disabled {
     @apply bg-sap-fielddis text-sap-muted cursor-not-allowed;
   }
+  /* label satu baris dengan tinggi tetap → semua kontrol mulai sejajar */
   .sap-field-label {
-    @apply block text-2xs text-sap-muted mb-1 tracking-wide;
+    @apply block text-2xs text-sap-muted mb-1 tracking-wide truncate;
+    height: var(--sap-label-h);
+    line-height: var(--sap-label-h);
+  }
+  /* keterangan di bawah kontrol — tidak ikut menggeser kontrol lain */
+  .sap-field-hint {
+    @apply mt-1 text-xxs text-sap-muted/70 leading-snug;
+  }
+  /* pembungkus kontrol non-input (tombol / checkbox) agar setinggi field */
+  .sap-control-row {
+    @apply flex items-center gap-1.5;
+    height: var(--sap-control-h);
   }
   .sap-required::after {
     content: ' *';
@@ -250,10 +276,11 @@ html[data-theme='light'] {
 
   /* ---------- BUTTON ---------- */
   .sap-btn {
-    @apply inline-flex items-center gap-1.5 px-3 py-[5px] text-2xs rounded-[2px]
+    @apply inline-flex items-center justify-center gap-1.5 px-3 text-2xs rounded-[2px]
            border border-sap-border bg-sap-btn text-sap-text
            hover:bg-sap-btnhover active:bg-sap-btnactive transition-colors
-           disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap;
+           disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shrink-0;
+    height: var(--sap-control-h);
   }
   .sap-btn-primary {
     @apply border-sap-blue bg-sap-blue text-white hover:bg-sap-bluehover active:bg-sap-blueactive;

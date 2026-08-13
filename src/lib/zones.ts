@@ -1,5 +1,12 @@
 /**
- * Master Zone / Storage Section.
+ * Zona / Storage Section BAWAAN.
+ *
+ * PENTING: sejak T-Code **ZZONE** ada, sumber kebenaran zona adalah tabel
+ * `zones` di database. File ini tinggal berperan sebagai:
+ *   - daftar seed saat tabel masih kosong (lihat `src/lib/zonemaster.ts`), dan
+ *   - cadangan bila `npm run db:upgrade` belum dijalankan.
+ * Untuk logika runtime di server gunakan `listZones()` / `resolveZone()`,
+ * dan di client ambil dari endpoint `/api/zones`.
  *
  * Skema penamaan: prefix gudang + tipe penyimpanan, sehingga kode bin sendiri
  * sudah menjelaskan lokasi fisiknya tanpa perlu melihat kolom zona.
@@ -90,6 +97,21 @@ export const ZONE_GROUPS: { code: ZoneGroup; label: string }[] = [
   { code: 'KECIL', label: 'Gudang Kecil (Bin Box)' },
 ];
 
+/** Semua kelompok yang sah untuk master zone (ZZONE), termasuk TRANSIT & LAIN. */
+export const ZONE_GROUP_CODES: string[] = ['BESAR', 'KECIL', 'TRANSIT', 'LAIN'];
+
+/** Label lengkap kelompok zona — dipakai di layar ZZONE. */
+export const ZONE_GROUP_LABEL: Record<string, string> = {
+  BESAR: 'Gudang Besar (Heavy Duty Racking)',
+  KECIL: 'Gudang Kecil (Bin Box)',
+  TRANSIT: 'Transit / interim (GR & GI zone)',
+  LAIN: 'Lain-lain (staging, reject, karantina)',
+};
+
+/**
+ * @deprecated Hanya untuk zona bawaan. Di server pakai `resolveZone()` dari
+ * `src/lib/zonemaster.ts` supaya zona buatan user di ZZONE ikut terbaca.
+ */
 export function isInterimZone(zone: string): boolean {
   return INTERIM_ZONES.includes(String(zone ?? '').toUpperCase());
 }

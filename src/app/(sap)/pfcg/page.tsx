@@ -157,7 +157,7 @@ export default function PfcgPage() {
           icon={<ShieldCheck size={13} className="text-sap-blue" />}
         >
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 items-start">
               <Field label="Role Name" required hint="3–30 karakter: A–Z, 0–9, . _ -">
                 <Input
                   className="uppercase"

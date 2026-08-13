@@ -496,3 +496,97 @@ SELECT k.key, k.val, 'UPGRADE', CURRENT_TIMESTAMP
     ('PDT_ZRF08','1')
   ) AS k(key,val)
  WHERE NOT EXISTS (SELECT 1 FROM "system_settings" s WHERE s."key" = k.key);
+
+-- >>>
+-- ---------- MASTER ZONE (T-Code ZZONE) ----------
+CREATE TABLE IF NOT EXISTS "zones" (
+  "id"          TEXT NOT NULL,
+  "zone_code"   TEXT NOT NULL,
+  "label"       TEXT NOT NULL,
+  "zone_group"  TEXT NOT NULL DEFAULT 'LAIN',
+  "bin_pattern" TEXT,
+  "is_interim"  BOOLEAN NOT NULL DEFAULT false,
+  "is_pick"     BOOLEAN NOT NULL DEFAULT false,
+  "is_active"   BOOLEAN NOT NULL DEFAULT true,
+  "created_at"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "zones_pkey" PRIMARY KEY ("id")
+);
+
+-- >>>
+CREATE UNIQUE INDEX IF NOT EXISTS "zones_zone_code_key" ON "zones"("zone_code");
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "zones_is_active_idx" ON "zones"("is_active");
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "zones_zone_group_idx" ON "zones"("zone_group");
+
+-- >>>
+-- Seed zona bawaan (sama persis dengan konstanta lama di src/lib/zones.ts).
+INSERT INTO "zones" ("id","zone_code","label","zone_group","bin_pattern","is_interim","is_pick","is_active","created_at","updated_at")
+SELECT gen_random_uuid()::text, z.code, z.label, z.grp, z.pattern, z.interim, z.pick, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  FROM (VALUES
+    ('GB-HDR',      'Gudang Besar — Heavy Duty Racking',                        'BESAR',   'GB-A-01-02-1', false, false),
+    ('GB-PICK',     'Gudang Besar — Pick Bin',                                  'BESAR',   'GB-PICK-A-01', false, true ),
+    ('GK-BIN',      'Gudang Kecil — Bin Box',                                   'KECIL',   'GK-B-03-01-2', false, false),
+    ('GK-PICK',     'Gudang Kecil — Pick Bin',                                  'KECIL',   'GK-PICK-B-03', false, true ),
+    ('TRANSIT-IN',  'Transit penerimaan — hasil MIGO 101, menunggu put-away',   'TRANSIT', 'TRN-IN-01',    true,  false),
+    ('TRANSIT-OUT', 'Transit pengeluaran — hasil picking, siap goods issue',    'TRANSIT', 'TRN-OUT-01',   true,  false),
+    ('RACK-FAST',   'Racking fast moving (lama)',                               'LAIN',    'A-01-02-1',    false, false),
+    ('RACK-SLOW',   'Racking slow moving (lama)',                               'LAIN',    'B-01-02-1',    false, false),
+    ('RACK-BULK',   'Racking bulk / floor stack (lama)',                        'LAIN',    'C-01-01-1',    false, false),
+    ('STAGING',     'Staging area',                                             'LAIN',    'STG-01',       false, false),
+    ('REJECT',      'Barang reject',                                            'LAIN',    'RJ-01',        false, false),
+    ('QUARANTINE',  'Karantina / hold QC',                                      'LAIN',    'QC-01',        false, false)
+  ) AS z(code,label,grp,pattern,interim,pick)
+ WHERE NOT EXISTS (SELECT 1 FROM "zones" x WHERE x."zone_code" = z.code);
+
+-- >>>
+-- Zona yang sudah terlanjur dipakai bin tetapi belum ada di master ikut didaftarkan,
+-- supaya data lama tidak menjadi tidak valid setelah field zone dikunci.
+INSERT INTO "zones" ("id","zone_code","label","zone_group","bin_pattern","is_interim","is_pick","is_active","created_at","updated_at")
+SELECT gen_random_uuid()::text,
+       b."zone_id",
+       b."zone_id" || ' (hasil migrasi)',
+       'LAIN',
+       NULL,
+       bool_or(b."is_interim"),
+       false,
+       true,
+       CURRENT_TIMESTAMP,
+       CURRENT_TIMESTAMP
+  FROM "storage_bins" b
+ WHERE b."zone_id" IS NOT NULL
+   AND b."zone_id" <> ''
+   AND NOT EXISTS (SELECT 1 FROM "zones" x WHERE x."zone_code" = b."zone_id")
+ GROUP BY b."zone_id";
+
+-- >>>
+-- Samakan flag is_interim bin dengan master zone (bin lama ikut terkoreksi).
+UPDATE "storage_bins" b
+   SET "is_interim" = z."is_interim",
+       "updated_at" = CURRENT_TIMESTAMP
+  FROM "zones" z
+ WHERE z."zone_code" = b."zone_id"
+   AND b."is_interim" IS DISTINCT FROM z."is_interim";
+
+-- >>>
+-- ---------- KOLOM WARISAN: phys_inv_docs.bin_code ----------
+-- Dokumen stock opname versi lama menyimpan SATU bin di level dokumen.
+-- Sejak dokumen bisa mencakup banyak bin, bin disimpan di kolom array
+-- "frozen_bins" dan per baris di "phys_inv_doc_items"."bin_code", sehingga
+-- kolom lama ini tidak pernah diisi lagi. Selama masih NOT NULL, setiap
+-- pembuatan dokumen baru di LI01N ditolak PostgreSQL (Prisma: P2011).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'phys_inv_docs'
+       AND column_name = 'bin_code'
+       AND is_nullable = 'NO'
+  ) THEN
+    EXECUTE 'ALTER TABLE "phys_inv_docs" ALTER COLUMN "bin_code" DROP NOT NULL';
+  END IF;
+END $$;

@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { BinStatus } from '@prisma/client';
-import { isInterimZone } from '@/lib/zones';
+import { listZones } from '@/lib/zonemaster';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -31,6 +31,9 @@ export async function POST(req: NextRequest) {
 
     const results: RowResult[] = [];
 
+    // master zone dibaca sekali di luar loop — upload bisa ratusan baris
+    const zoneMap = new Map((await listZones()).map((z) => [z.zone_code, z]));
+
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const lineNo = offset + i + 1;
@@ -40,6 +43,9 @@ export async function POST(req: NextRequest) {
         if (!bin_code) throw new Error('Column bin_code is empty.');
         const zone_id = cleanStr(r.zone_id ?? r.ZONE_ID ?? r.Zone).toUpperCase();
         if (!zone_id) throw new Error('Column zone_id is empty.');
+        const zone = zoneMap.get(zone_id);
+        if (!zone) throw new Error(`Zone ${zone_id} does not exist in the zone master (ZZONE).`);
+        if (!zone.is_active) throw new Error(`Zone ${zone_id} is inactive (ZZONE).`);
 
         const max_weight_kg = Number(r.max_weight_kg ?? r.MAX_WEIGHT_KG ?? 1000) || 1000;
         const rawStatus = cleanStr(r.status ?? r.STATUS).toUpperCase();
@@ -57,11 +63,11 @@ export async function POST(req: NextRequest) {
 
         await prisma.storageBin.upsert({
           where: { bin_code },
-          create: { bin_code, zone_id, max_weight_kg, status, is_interim: isInterimZone(zone_id) },
+          create: { bin_code, zone_id, max_weight_kg, status, is_interim: zone.is_interim },
           update: {
             zone_id,
             max_weight_kg,
-            is_interim: isInterimZone(zone_id),
+            is_interim: zone.is_interim,
             status: hasStock ? BinStatus.OCCUPIED : status,
           },
         });

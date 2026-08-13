@@ -87,6 +87,11 @@ Kalau tabel user masih kosong, `ADMIN / admin123` dibuat otomatis saat login per
 DATABASE_URL="postgresql://user:pass@ep-xxx-pooler.neon.tech/wms?sslmode=require"
 DIRECT_URL="postgresql://user:pass@ep-xxx.neon.tech/wms?sslmode=require"
 AUTH_SECRET="random-string-minimal-32-karakter"
+
+# identitas sistem (opsional — hanya penanda visual, lihat bagian 3e)
+NEXT_PUBLIC_SAP_SYSTEM="PRD"
+NEXT_PUBLIC_SAP_CLIENT="300"
+NEXT_PUBLIC_SAP_ENV="PROD"
 ```
 
 * **Neon.tech** — `DATABASE_URL` pakai host `-pooler`, `DIRECT_URL` tanpa `-pooler`.
@@ -108,11 +113,27 @@ punya kemampuan yang sama:
 * **Sort** — klik judul kolom: naik → turun → tanpa sort. Angka, tanggal, dan teks
   diurutkan sesuai tipenya (mis. `GB-A-2` sebelum `GB-A-10`); sel kosong selalu di bawah.
 * **Lebar kolom** — tarik garis pemisah antar judul kolom untuk mengubah lebar.
-  Klik ganda pada garis pemisah = lebar otomatis kolom itu; tombol **Lebar otomatis**
-  menyesuaikan seluruh kolom. Perhitungannya memakai **rata-rata** lebar isi (bukan
-  baris terpanjang), sehingga satu deskripsi ekstra panjang tidak membuat kolom melebar
-  berlebihan — isi yang terpotong tetap bisa dilihat lewat tooltip.
+  Ada dua mode otomatis:
+
+  | Aksi | Dasar perhitungan |
+  |---|---|
+  | Lebar **awal** tabel & klik ganda pada garis pemisah | **isi terpanjang** (maks. 420 px) |
+  | Tombol **Lebar otomatis** | **rata-rata** isi (maks. 320 px) — tampilan lebih padat |
+  | Tombol **Lebar penuh** | kembali ke mode isi terpanjang |
+
+  Isi yang tetap terpotong bisa dibaca lewat tooltip.
+* **Perataan field** — semua layar seleksi memakai tinggi kontrol dan tinggi baris label
+  yang seragam (`--sap-control-h` / `--sap-label-h` di `globals.css`), sehingga field
+  yang punya teks bantuan (*hint*) tidak lagi menggeser field di sebelahnya. Tombol
+  (mis. **Execute**) dan checkbox di dalam baris field dibungkus `ActionField` /
+  `CheckField` supaya ikut sejajar dengan kotak input di sampingnya.
 * **Klik ganda pada sel** menyalin isinya ke clipboard (material, deskripsi, batch, dll).
+* **Panah ↑ / ↓** memindahkan fokus antar baris pada kolom yang sama. Tombol panah
+  **tidak lagi** menaikkan/menurunkan angka pada kolom quantity (begitu pula scroll
+  roda mouse), supaya entri massal tidak berubah tanpa disadari.
+* **Enter** atau **F8** menjalankan tombol *Execute* pada layar seleksi. Di MIGO,
+  Enter/F8 memunculkan **dialog konfirmasi posting** lebih dulu — dokumen tidak
+  pernah terbit hanya karena tombol Enter tertekan.
 * **Filter per kolom** — klik ikon corong di judul kolom, pilih operator lalu isi nilai:
 
   | Operator | Arti |
@@ -159,6 +180,110 @@ MB52, dan MM01.
 
 ---
 
+## 3e. Go-Live — Memisahkan DEV (client 100) dan PRODUCTION (client 300)
+
+### Konsep
+
+Aplikasi ini **tidak** memakai konsep multi-client (MANDT) di dalam tabel seperti SAP asli.
+Label `PRD / CLNT 100` di status bar murni penanda visual. Pemisahan lingkungan dilakukan
+dengan cara yang lebih sederhana **dan lebih aman**: **satu basis kode, dua database**.
+
+```
+  Repository (1 kode)
+        ├── Deploy DEV   → DATABASE_URL = wms_dev    → SYSTEM=DEV, CLIENT=100  (badge kuning)
+        └── Deploy PROD  → DATABASE_URL = wms_prod   → SYSTEM=PRD, CLIENT=300
+```
+
+Keuntungan: data dev mustahil tercampur ke produksi, backup/restore terpisah, dan uji coba
+upgrade skema bisa dilakukan di DEV lebih dulu. Tidak ada perubahan kode sama sekali.
+
+### Langkah membuat PRODUCTION (client 300)
+
+1. **Buat database baru** di Neon — cara termudah: `Project → Databases → New Database`
+   (mis. `wms_prod`), atau buat *branch* baru. Salin dua connection string:
+   yang memakai host `-pooler` (untuk `DATABASE_URL`) dan tanpa `-pooler` (untuk `DIRECT_URL`).
+
+2. **Siapkan skema** — salin `.env.production.example` menjadi `.env` (isi connection
+   string produksi), lalu:
+
+   ```bash
+   npx prisma db push      # database masih kosong → aman
+   npm run db:check        # pastikan seluruh kolom versi terbaru sudah ada
+   npm run db:reset        # (opsional) lihat isi database — harus kosong
+   ```
+
+3. **Isi user awal.** Tidak perlu `db:seed` (itu memuat data contoh). Cukup buka aplikasi
+   lalu login pertama kali — user `ADMIN / admin123` dibuat otomatis. **Segera ganti
+   password-nya di SU01.**
+
+4. **Deploy** — di Vercel buat project kedua dari repository yang sama, lalu isi
+   environment variable:
+
+   | Variable | DEV | PRODUCTION |
+   |---|---|---|
+   | `DATABASE_URL` | database dev | database prod |
+   | `DIRECT_URL` | database dev | database prod |
+   | `AUTH_SECRET` | random A | **random B (berbeda!)** |
+   | `NEXT_PUBLIC_SAP_SYSTEM` | `DEV` | `PRD` |
+   | `NEXT_PUBLIC_SAP_CLIENT` | `100` | `300` |
+   | `NEXT_PUBLIC_SAP_ENV` | `DEV` | `PROD` |
+
+   Lingkungan non-production otomatis menampilkan badge kuning **NON-PRODUCTION** di
+   bar judul dan layar logon, sehingga operator tidak salah memposting.
+
+5. **Upload master data produksi** lewat ZUPLOAD dengan urutan:
+   Material → Pallet → Storage Bin → Initial Stock → Safety Stock.
+
+6. **Checklist sebelum dipakai:**
+   - [ ] Password `ADMIN` sudah diganti (SU01)
+   - [ ] `AUTH_SECRET` produksi berbeda dari dev
+   - [ ] Bin transit ada dan terdaftar di ZSET (`DEFAULT_GR_BIN`, `DEFAULT_GI_BIN`)
+   - [ ] Role T-Code dibuat di PFCG lalu di-assign ke operator di SU01
+   - [ ] Flag **Akses PDT** menyala untuk operator gudang
+   - [ ] Backup/branch otomatis Neon aktif
+
+### Kalau nanti benar-benar butuh multi-client dalam satu database
+
+Perlu menambah kolom `client` pada **semua** tabel, memasukkannya ke setiap unique key
+(mis. `material_code` menjadi `client + material_code`), menambah field Client di layar
+logon, dan menyaring **setiap** query. Perubahan ini besar dan berisiko; dua database
+terpisah memberi manfaat yang sama tanpa risiko tersebut.
+
+---
+
+## 3f. Mengosongkan Data (dummy & log transaksi)
+
+Gunakan `npm run db:reset`. **Default-nya hanya simulasi** — tidak menghapus apa pun
+sampai diberi flag `--yes`.
+
+```bash
+npm run db:reset                          # lihat isi database & rencana penghapusan
+npm run db:reset -- --tx                  # simulasi hapus transaksi saja
+npm run db:reset -- --all --yes           # KOSONGKAN SEMUA (user tetap dipertahankan)
+```
+
+| Flag | Yang dihapus |
+|---|---|
+| `--tx` | Material document (MB51), transfer requirement, dokumen stock opname, Stock IM, Stock WM. Semua bin dikembalikan ke `EMPTY`. |
+| `--demo` | Material contoh dari seed saja (FG-0001…FG-0003, SP-1001, SP-1002) + palletization-nya. Master data buatan sendiri tetap aman. |
+| `--master` | Seluruh material, palletization, dan storage bin (otomatis termasuk `--tx`). |
+| `--counters` | Penomoran dokumen kembali ke nomor awal. |
+| `--users` | User selain ADMIN. |
+| `--settings` | Konfigurasi ZSET kembali ke nilai bawaan. |
+| `--all` | `--tx` + `--master` + `--counters`. **User tidak dihapus.** |
+| `--yes` | Menjalankan penghapusan (tanpa ini hanya dry run). |
+
+Catatan penting:
+
+* Setelah `--master`, **bin transit dibuat ulang otomatis** (sesuai `DEFAULT_GR_BIN` /
+  `DEFAULT_GI_BIN` di ZSET) karena MIGO 101/201 menolak posting bila bin interim tidak ada.
+  Matikan dengan `--no-interim` bila ingin benar-benar kosong.
+* Script menampilkan host database yang dituju sebelum menghapus — pastikan itu database
+  yang benar.
+* Selalu buat *branch/snapshot* Neon sebelum menjalankan reset di database berisi data nyata.
+
+---
+
 ## 4. Daftar T-Code
 
 Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`, format `/nMIGO` juga didukung).
@@ -167,7 +292,7 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 
 | T-Code | Fungsi |
 |---|---|
-| `MIGO` | Goods Movement — 101 GR, 201 GI (2 mode: request picking / post goods issue), 551/701/702 koreksi, **mode Cancellation 102/202/552/562/711/712** (input no. dokumen asal, data auto terisi & terkunci). Multi line item. |
+| `MIGO` | Goods Movement — 101 GR, 201 GI (2 mode: request picking / post goods issue), 551/701/702 koreksi, **mode Cancellation 102/202/552/562/711/712** (input no. dokumen asal, data auto terisi & terkunci). Multi line item, **konfirmasi sebelum posting**, dan **Batch Determination** (ikon di kolom Batch → daftar batch tersedia urut FEFO beserta bin & qty). |
 | `LI01N` | Create Physical Inventory Document — **multi-bin** (zona / daftar bin / seluruh gudang) |
 | `LI11N` | Enter Count Result **multi-line** → posting seluruh selisih 701/702 sekaligus |
 
@@ -184,9 +309,10 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 
 | T-Code | Fungsi |
 |---|---|
-| `MB52` | Global Stock Summary (IM) + indikator safety stock & konsistensi IM vs WM |
+| `MB52` | Stock Overview — **default level Material + Batch** (seperti LX02 tetapi *digabung dari seluruh storage bin*: qty total per batch, Mfg/Exp/GR date, jumlah bin, kolom **Storage Bin (gabungan)** berisi rincian `bin (qty) · bin (qty)`, alert kadaluarsa). Level **Material** (IM vs WM + safety stock) tetap tersedia lewat dropdown *Level Tampilan* |
 | `LX02` | Stock per Storage Bin — Bin, Batch, Mfg/Exp, **GR Date**, alert FEFO (alias `LX01`) |
-| `MB51` | Material Document History — filter tanggal, material, movement, bin, batch, user + **kolom deskripsi movement type** & penanda dokumen dibatalkan |
+| `MB51` | Material Document History **level IM** — 101/102, 201/202, 551/552, 561/562, 701/702/711/712. Filter tanggal, material, movement, bin, batch, user + kolom deskripsi movement type & penanda dokumen dibatalkan. Transfer bin (301) **tidak** ditampilkan di sini |
+| `LT22` | **Display Transfer Order** — riwayat pemindahan bin (movement 301) dari put-away, picking, LT01/LT10, dan PDT. Menampilkan bin asal/tujuan, TR terkait, serta penanda posting lewat PDT (alias `LT23`, `LT21`) |
 | `LS04` | Empty Bin List |
 
 ### Master Data
@@ -195,6 +321,7 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 |---|---|
 | `MM01` / `MM02` | Material Master **+ tabel palletization per kelompok gudang** + **Barcode B-POM, Barcode Produk (EAN), Kode OCS, Fix Bin** |
 | `LS01N` / `LS02N` / `LS06` | Storage Bin: create / change / block, plus mass generate |
+| `ZZONE` | **Zone / Storage Section** — master zona: create / change / hapus, penanda interim & pick face, kelompok gudang, plus tombol *Isi zona bawaan* dan *Sinkronkan bin* (alias `LS10`, `ZONE`; hanya ADMIN) |
 | `ZUPLOAD` | Upload Center — 5 tipe file |
 
 ### PDT Terminal (operator)
@@ -258,8 +385,30 @@ Auto-split bisa dimatikan global lewat `AUTO_SPLIT_PALLET` di ZSET.
 
 ## 6. Zona Gudang & Penamaan Bin
 
-Skema: **prefix gudang + tipe penyimpanan**, sehingga kode bin sendiri sudah
-menjelaskan lokasi fisiknya tanpa perlu melihat kolom zona.
+Zona adalah **master data** yang dikelola di T-Code **`ZZONE`** (padanan *Storage Type*
+di SAP WM — bukan Storage Location, karena zona tidak memecah stok di level IM).
+Sebelumnya daftar zona berupa konstanta di kode; sekarang zona bisa ditambah,
+diubah, dinonaktifkan, dan dihapus tanpa menyentuh source code.
+
+Setiap zona punya tiga penanda yang berpengaruh ke logic:
+
+| Penanda | Efek |
+|---|---|
+| **Interim (GR/GI)** | Bin di zona ini dianggap transit: tidak boleh jadi tujuan put-away, tidak boleh jadi sumber picking, dan tidak ikut dihitung saat stock opname |
+| **Pick face** | Penanda zona pengambilan eceran, dipakai sebagai acuan replenishment ZRF08 |
+| **Kelompok gudang** | `BESAR` / `KECIL` menentukan palletization yang dipakai MIGO saat memecah TR put-away |
+
+Karena `StorageBin.is_interim` ditulis saat bin dibuat, mengubah penanda *Interim*
+sebuah zona tidak otomatis mengoreksi bin lama. ZZONE menyediakan tombol
+**Sinkronkan bin** untuk menulis ulang flag itu di seluruh bin; mengubah flag lewat
+layar ZZONE juga langsung menyinkronkan bin pada zona yang bersangkutan.
+
+Field zona di **LS01N** dan validasi **ZUPLOAD** kini terkunci ke master: kode zona
+yang tidak terdaftar (atau berstatus nonaktif) akan ditolak, sehingga salah ketik
+tidak lagi diam-diam menciptakan zona baru.
+
+Skema penamaan bin bawaan: **prefix gudang + tipe penyimpanan**, sehingga kode bin
+sendiri sudah menjelaskan lokasi fisiknya tanpa perlu melihat kolom zona.
 
 | Zone ID | Keterangan | Format bin | Contoh |
 |---|---|---|---|
@@ -272,8 +421,10 @@ menjelaskan lokasi fisiknya tanpa perlu melihat kolom zona.
 | `STAGING` / `REJECT` / `QUARANTINE` | Area pendukung | — | `STG-01` |
 | `RACK-FAST` / `RACK-SLOW` / `RACK-BULK` | Zona lama, tetap didukung | — | `A-01-02-1` |
 
-Bin di zona `TRANSIT-IN` / `TRANSIT-OUT` otomatis ditandai **interim**: tidak boleh jadi
-tujuan put-away, tidak boleh jadi sumber picking, dan tidak pernah ikut dihitung saat stock opname.
+Semua zona di tabel itu adalah **nilai bawaan** yang dibuat otomatis saat
+`npm run db:upgrade`. Bila tabel zona ternyata masih kosong, tombol **Isi zona bawaan**
+di ZZONE membuatnya ulang. Zona yang sudah terlanjur dipakai bin tetapi tidak ada di
+daftar bawaan ikut didaftarkan otomatis supaya data lama tidak menjadi tidak valid.
 
 LS01N punya **mass generate** dengan kolom prefix gudang, jadi membuat 24 bin `GB-A-01-01-1`
 sampai `GB-B-04-03-1` cukup sekali klik.
@@ -339,6 +490,23 @@ halaman utama otomatis diarahkan ke menu **ZRF** — operator tidak perlu menget
 Tampilan mobile: sidebar berubah menjadi drawer, top bar & status bar dipadatkan,
 layar PDT memakai header sticky, target sentuh lebih besar, dan aman terhadap notch
 (safe-area). Field input PDT memakai font 16px agar iOS tidak melakukan auto-zoom.
+
+### Keyboard virtual otomatis tersembunyi
+
+Di layar ZRF, alur normal adalah *scan → field berikutnya difokus otomatis*. Tanpa
+penanganan khusus, setiap fokus otomatis memunculkan keyboard virtual yang menutupi
+separuh layar padahal operator tidak sedang mengetik.
+
+Karena itu semua field PDT bekerja begini:
+
+* Fokus **programatik** (setelah scan, setelah reset form, `autoFocus`) memakai
+  `inputmode="none"` — keyboard **tidak** muncul. Scanner tetap terbaca karena
+  keyboard-wedge mengirim keystroke seperti keyboard fisik.
+* Keyboard baru tampil bila operator **mengetuk field** itu sendiri, atau menekan
+  **ikon keyboard** di sisi kanan field.
+* Setelah **Enter** ditekan (termasuk Enter yang dikirim scanner di akhir barcode)
+  atau fokus berpindah, keyboard **tertutup lagi** dengan sendirinya.
+* Field bertipe tanggal dikecualikan supaya date picker bawaan tetap berfungsi.
 
 ### Kontrol aktif/nonaktif
 
@@ -432,6 +600,7 @@ Minimal satu ADMIN aktif harus selalu ada; user tidak dapat menghapus atau mengu
 | `npm run db:upgrade` | Upgrade skema ke versi terbaru **tanpa menghapus data**. Aman diulang. |
 | `npm run db:push` | Sinkronkan skema (hanya untuk database kosong / dev) |
 | `npm run db:seed` | Isi data contoh. Tidak menimpa user & password yang sudah ada. |
+| `npm run db:reset` | Kosongkan data terpilih (transaksi / master / penomoran). Default **dry run**, butuh `--yes`. Lihat bagian 3f. |
 
 ### Upgrade dari versi lama tanpa kehilangan data
 

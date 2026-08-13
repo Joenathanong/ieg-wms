@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Folder, Search, Save, Plus, Trash2, Lock, Unlock, Download, Wand2 } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
-import { invalidateMasterData } from '@/components/sap/hooks';
+import { useExecuteKey } from '@/components/sap/keynav';
+import { invalidateMasterData, useZones } from '@/components/sap/hooks';
 import { api, post, patch, del, qs } from '@/lib/client';
-import { ZONES as ZONE_DEFS } from '@/lib/zones';
 import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
@@ -18,12 +18,13 @@ interface Row {
   is_interim: boolean;
 }
 
-const ZONES = ZONE_DEFS.map((z) => z.code);
-
 const emptyForm = { bin_code: '', zone_id: 'GB-HDR', max_weight_kg: 1000 };
 
 export default function Ls01nPage() {
   const { setStatus } = useStatus();
+  // zona kini master data (ZZONE) — bukan lagi konstanta di kode
+  const { zones } = useZones();
+  const activeZones = zones.filter((z) => z.is_active);
   const [q, setQ] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
@@ -57,6 +58,19 @@ export default function Ls01nPage() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoneFilter]);
+
+  // Bila zona default (GB-HDR) sudah dihapus/dinonaktifkan di ZZONE,
+  // pilih zona aktif pertama supaya dropdown tidak kosong.
+  useEffect(() => {
+    if (activeZones.length === 0) return;
+    const has = (c: string) => activeZones.some((z) => z.zone_code === c);
+    if (!has(form.zone_id)) setForm((f) => ({ ...f, zone_id: activeZones[0].zone_code }));
+    if (!has(gen.zone)) setGen((g) => ({ ...g, zone: activeZones[0].zone_code }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zones]);
+
+  // Enter / F8 = Execute
+  useExecuteKey(run);
 
   async function save() {
     if (!form.bin_code.trim()) return setStatus('Storage bin is mandatory', 'E');
@@ -195,14 +209,25 @@ export default function Ls01nPage() {
             <Field
               label="Zone / Storage Section"
               required
-              hint={ZONE_DEFS.find((z) => z.code === form.zone_id)?.label}
+              hint={
+                zones.find((z) => z.zone_code === form.zone_id)?.label ??
+                'Daftar zona dikelola di T-Code ZZONE'
+              }
             >
-              <Input
-                list="dl-zones"
-                className="uppercase"
+              <Select
                 value={form.zone_id}
                 onChange={(e) => setForm({ ...form, zone_id: e.target.value })}
-              />
+              >
+                {/* zona bin yang sedang diubah tetap tampil walau sudah dinonaktifkan */}
+                {[
+                  ...activeZones,
+                  ...zones.filter((z) => !z.is_active && z.zone_code === form.zone_id),
+                ].map((z) => (
+                  <option key={z.zone_code} value={z.zone_code}>
+                    {z.zone_code} — {z.label}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="Max Weight (kg)">
               <Input
@@ -230,7 +255,7 @@ export default function Ls01nPage() {
         </Panel>
 
         <Panel title="Mass Generate Bins" icon={<Wand2 size={13} className="text-sap-blue" />}>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 items-start">
             <Field label="Prefix Gudang">
               <Input
                 className="uppercase"
@@ -247,12 +272,13 @@ export default function Ls01nPage() {
               />
             </Field>
             <Field label="Zone">
-              <Input
-                list="dl-zones"
-                className="uppercase"
-                value={gen.zone}
-                onChange={(e) => setGen({ ...gen, zone: e.target.value })}
-              />
+              <Select value={gen.zone} onChange={(e) => setGen({ ...gen, zone: e.target.value })}>
+                {activeZones.map((z) => (
+                  <option key={z.zone_code} value={z.zone_code}>
+                    {z.zone_code}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="Rack From">
               <Input
@@ -314,11 +340,13 @@ export default function Ls01nPage() {
           />
           <Select className="!w-[170px]" value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)}>
             <option value="">All zones</option>
-            {[...new Set([...ZONES, ...rows.map((r) => r.zone_id)])].sort().map((z) => (
-              <option key={z} value={z}>
-                {z}
-              </option>
-            ))}
+            {[...new Set([...zones.map((z) => z.zone_code), ...rows.map((r) => r.zone_id)])]
+              .sort()
+              .map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
           </Select>
           <Button variant="primary" onClick={run} loading={loading}>
             <Search size={13} /> Search
@@ -343,13 +371,6 @@ export default function Ls01nPage() {
         />
       </div>
 
-      <datalist id="dl-zones">
-        {[...new Set([...ZONES, ...rows.map((r) => r.zone_id)])].sort().map((z) => (
-          <option key={z} value={z}>
-            {ZONE_DEFS.find((d) => d.code === z)?.label ?? ''}
-          </option>
-        ))}
-      </datalist>
     </div>
   );
 }

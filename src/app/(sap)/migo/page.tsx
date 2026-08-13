@@ -14,10 +14,14 @@ import {
   ClipboardCheck,
   Boxes,
   ArrowRight,
+  Layers,
 } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Separator } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
+import { useExecuteKey } from '@/components/sap/keynav';
+import { ConfirmDialog } from '@/components/sap/Confirm';
+import { BatchDetermination } from '@/components/sap/BatchDetermination';
 import { api, post, fmtDate } from '@/lib/client';
 import { ZONE_GROUPS } from '@/lib/zones';
 
@@ -105,6 +109,10 @@ export default function MigoPage() {
   const [cancelRemarks, setCancelRemarks] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
 
+  // --- konfirmasi posting & batch determination ---
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [batchFor, setBatchFor] = useState<Line | null>(null);
+
   const mode: Mode = MOVEMENTS.find((m) => m.code === movement)?.mode ?? 'TR_IN';
   const isGiIssue = mode === 'TR_OUT' && giMode === 'ISSUE';
   // ISSUE mengeluarkan stok dari bin interim GI, jadi tidak perlu input bin manual
@@ -126,6 +134,7 @@ export default function MigoPage() {
   async function submitCancel() {
     if (!cancelPreview) return setStatus('Tampilkan dokumen terlebih dahulu', 'E');
     setBusy(true);
+    setConfirmOpen(false);
     const r = await post('/api/migo/cancel', {
       document_number: cancelPreview.document_number,
       remarks: cancelRemarks,
@@ -178,7 +187,8 @@ export default function MigoPage() {
     setStatus('Entry screen has been reset', 'I');
   }
 
-  async function submit() {
+  /** Bentuk payload item + validasi. null bila ada yang tidak lolos. */
+  function buildItems() {
     const items = lines
       .filter((l) => l.material_code.trim() !== '' || l.qty.trim() !== '')
       .map((l) => ({
@@ -193,12 +203,40 @@ export default function MigoPage() {
         remarks: l.remarks.trim() || null,
       }));
 
-    if (items.length === 0) return setStatus('Enter at least one line item', 'E');
-    for (const [i, it] of items.entries()) {
-      if (!it.material_code) return setStatus(`Line ${i + 1}: material number is missing`, 'E');
-      if (!it.qty || it.qty <= 0) return setStatus(`Line ${i + 1}: quantity must be greater than zero`, 'E');
-      if (!isTwoStep && !it.bin) return setStatus(`Line ${i + 1}: storage bin is missing`, 'E');
+    if (items.length === 0) {
+      setStatus('Enter at least one line item', 'E');
+      return null;
     }
+    for (const [i, it] of items.entries()) {
+      if (!it.material_code) {
+        setStatus(`Line ${i + 1}: material number is missing`, 'E');
+        return null;
+      }
+      if (!it.qty || it.qty <= 0) {
+        setStatus(`Line ${i + 1}: quantity must be greater than zero`, 'E');
+        return null;
+      }
+      if (!isTwoStep && !it.bin) {
+        setStatus(`Line ${i + 1}: storage bin is missing`, 'E');
+        return null;
+      }
+    }
+    return items;
+  }
+
+  /** Tombol Post / tombol Enter: validasi dulu, lalu minta konfirmasi. */
+  function askPost() {
+    if (isCancel) {
+      if (!cancelPreview) return setStatus('Tampilkan dokumen terlebih dahulu', 'E');
+      return setConfirmOpen(true);
+    }
+    if (!buildItems()) return;
+    setConfirmOpen(true);
+  }
+
+  async function submit() {
+    const items = buildItems();
+    if (!items) return;
 
     setBusy(true);
     const r = await post('/api/migo', {
@@ -218,11 +256,19 @@ export default function MigoPage() {
     }
   }
 
+  /* ---- ringkasan untuk dialog konfirmasi ---- */
+  const confirmLines = lines.filter((l) => l.material_code.trim() !== '' || l.qty.trim() !== '');
+  const confirmQty = confirmLines.reduce((a, l) => a + (Number(l.qty) || 0), 0);
+  const movementLabel = MOVEMENTS.find((m) => m.code === movement)?.label ?? movement;
+
+  // Enter / F8 = jalankan aksi utama layar (tetap lewat dialog konfirmasi)
+  useExecuteKey(askPost, !busy);
+
   return (
     <div className="space-y-3">
       {/* HEADER DATA */}
       <Panel title="MIGO — Goods Movement · Header Data" icon={<PackagePlus size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
           <Field label="Movement Type" required>
             <Select
               value={movement}
@@ -295,7 +341,7 @@ export default function MigoPage() {
           )}
 
           <Field label="Processing Level">
-            <div className="flex items-center gap-2 h-[27px]">
+            <div className="sap-control-row flex-wrap">
               {mode === 'TR_IN' && (
                 <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext gap-1">
                   <ArrowDownToLine size={11} /> IM + → GR ZONE
@@ -377,7 +423,7 @@ export default function MigoPage() {
             </p>
           ) : (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-start">
                 <Field label="Dokumen Asal">
                   <Input disabled value={cancelPreview.document_number} className="font-mono" />
                 </Field>
@@ -491,13 +537,29 @@ export default function MigoPage() {
                     </td>
                     <td className="font-mono text-sap-muted">{mat?.uom ?? '—'}</td>
                     <td>
-                      <Input
-                        className="uppercase !py-[3px]"
-                        disabled={batchDisabled}
-                        placeholder={batchDisabled ? 'n/a' : ''}
-                        value={l.batch_number}
-                        onChange={(e) => setLine(l.key, { batch_number: e.target.value })}
-                      />
+                      <div className="flex items-stretch gap-1">
+                        <Input
+                          className="uppercase !py-[3px]"
+                          disabled={batchDisabled}
+                          placeholder={batchDisabled ? 'n/a' : ''}
+                          value={l.batch_number}
+                          onChange={(e) => setLine(l.key, { batch_number: e.target.value })}
+                        />
+                        {/* Batch Determination — usulan batch (FEFO) untuk material baris ini */}
+                        <button
+                          type="button"
+                          title={
+                            l.material_code.trim()
+                              ? 'Batch determination — tampilkan batch yang tersedia (FEFO)'
+                              : 'Isi material terlebih dahulu'
+                          }
+                          disabled={batchDisabled || !l.material_code.trim()}
+                          onClick={() => setBatchFor(l)}
+                          className="sap-btn !px-1.5 !py-[3px] shrink-0"
+                        >
+                          <Layers size={12} />
+                        </button>
+                      </div>
                     </td>
                     {isInbound && (
                       <td>
@@ -600,7 +662,7 @@ export default function MigoPage() {
       <Toolbar>
         {isCancel ? (
           <>
-            <Button variant="danger" onClick={submitCancel} loading={busy} disabled={!cancelPreview}>
+            <Button variant="danger" onClick={askPost} loading={busy} disabled={!cancelPreview}>
               <Save size={13} /> Post Cancellation
             </Button>
             <Button
@@ -621,7 +683,7 @@ export default function MigoPage() {
           </>
         ) : (
           <>
-            <Button variant="primary" onClick={submit} loading={busy}>
+            <Button variant="primary" onClick={askPost} loading={busy}>
               <Save size={13} /> Post
             </Button>
             <Button onClick={reset}>
@@ -630,7 +692,8 @@ export default function MigoPage() {
             <Separator />
             <span className="text-xxs text-sap-muted flex items-center gap-1.5">
               <Info size={12} />
-              Semua item diposting dalam satu database transaction — bila satu baris gagal, seluruh dokumen dibatalkan.
+              Enter / F8 = Post (selalu lewat konfirmasi). Semua item diposting dalam satu database
+              transaction — bila satu baris gagal, seluruh dokumen dibatalkan.
             </span>
           </>
         )}
@@ -706,6 +769,79 @@ export default function MigoPage() {
         <Boxes size={12} /> Tabel palletization diatur di MM01 (material × SU type × kelompok gudang). Bila
         material belum punya baris palletization, qty tidak dipecah dan Transfer Requirement dibuat satu baris.
       </p>
+
+      {/* ---------- KONFIRMASI POSTING (ala SAP) ---------- */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={isCancel ? 'Konfirmasi Pembatalan' : 'Konfirmasi Posting'}
+        danger={isCancel}
+        busy={busy}
+        confirmLabel={isCancel ? 'Ya, batalkan' : 'Ya, posting'}
+        question={
+          isCancel
+            ? 'Yakin akan membatalkan dokumen ini? Stok akan dikembalikan seperti sebelum dokumen asal diposting.'
+            : 'Yakin akan memposting dokumen ini? Setelah diposting, stok langsung berubah.'
+        }
+        details={
+          isCancel && cancelPreview
+            ? [
+                { label: 'Dokumen asal', value: cancelPreview.document_number },
+                { label: 'Movement', value: cancelPreview.cancel_label },
+                { label: 'Material', value: `${cancelPreview.material_code} · ${cancelPreview.description}` },
+                {
+                  label: 'Quantity',
+                  value: `${cancelPreview.qty.toLocaleString('de-DE')} ${cancelPreview.uom}`,
+                },
+                { label: 'Batch', value: cancelPreview.batch_number ?? '—' },
+              ]
+            : [
+                { label: 'Movement Type', value: movementLabel },
+                ...(mode === 'TR_OUT'
+                  ? [
+                      {
+                        label: 'Langkah 201',
+                        value: giMode === 'REQUEST' ? 'Buat permintaan picking' : 'Post goods issue',
+                      },
+                    ]
+                  : []),
+                { label: 'Document Date', value: docDate },
+                { label: 'Jumlah line', value: `${confirmLines.length} item` },
+                { label: 'Total qty', value: confirmQty.toLocaleString('de-DE') },
+                ...(reference ? [{ label: 'Reference', value: reference }] : []),
+              ]
+        }
+        onConfirm={() => {
+          if (isCancel) {
+            submitCancel();
+          } else {
+            setConfirmOpen(false);
+            submit();
+          }
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
+
+      {/* ---------- BATCH DETERMINATION ---------- */}
+      <BatchDetermination
+        open={!!batchFor}
+        material={batchFor?.material_code.trim().toUpperCase() ?? ''}
+        description={matMap.get(batchFor?.material_code.trim().toUpperCase() ?? '')?.description}
+        /* untuk goods issue dari GI zone, stok justru ada di bin interim */
+        includeInterim={isGiIssue}
+        onPick={(b) => {
+          if (!batchFor) return;
+          setLine(batchFor.key, {
+            batch_number: b.batch_number,
+            ...(isInbound && b.exp_date ? { exp_date: b.exp_date.slice(0, 10) } : {}),
+            ...(!isTwoStep && b.bins[0] ? { bin: b.bins[0].bin_code } : {}),
+          });
+          setStatus(
+            `Batch ${b.batch_number} dipilih (${b.total_qty.toLocaleString('de-DE')} ${b.uom} tersedia)`,
+            'S'
+          );
+        }}
+        onClose={() => setBatchFor(null)}
+      />
     </div>
   );
 }

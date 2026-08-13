@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { SquareStack, Search, Download } from 'lucide-react';
-import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, exportCsv, type Column } from '@/components/sap/ui';
+import { Panel, Field, CheckField, Input, Select, Button, Toolbar, Grid, Badge, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
+import { useExecuteKey } from '@/components/sap/keynav';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, qs } from '@/lib/client';
 import { WILDCARD_HINT } from '@/lib/like';
@@ -43,6 +44,9 @@ export default function Ls04Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeBlocked]);
 
+  // Enter / F8 = Execute
+  useExecuteKey(run);
+
   const zones = [...new Set(bins.map((b) => b.zone_id))].sort();
 
   const cols: Column<Row>[] = [
@@ -56,7 +60,7 @@ export default function Ls04Page() {
   return (
     <div className="space-y-3">
       <Panel title="LS04 — Display Empty Storage Bins" icon={<SquareStack size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
           <Field label="Zone / Storage Section">
             <Select value={zone} onChange={(e) => setZone(e.target.value)}>
               <option value="">All zones</option>
@@ -76,15 +80,11 @@ export default function Ls04Page() {
               onKeyDown={(e) => e.key === 'Enter' && run()}
             />
           </Field>
-          <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer h-[27px]">
-            <input
-              type="checkbox"
-              className="accent-sap-blue"
-              checked={includeBlocked}
-              onChange={(e) => setIncludeBlocked(e.target.checked)}
-            />
-            Sertakan bin berstatus BLOCKED
-          </label>
+          <CheckField
+            label="Sertakan bin berstatus BLOCKED"
+            checked={includeBlocked}
+            onChange={setIncludeBlocked}
+          />
         </div>
       </Panel>
 

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { PackageCheck, Search, Save, RefreshCw, Info, Wand2, CheckSquare, Square } from 'lucide-react';
-import { Panel, Field, Input, Button, Toolbar, Separator } from '@/components/sap/ui';
+import { Panel, Field, ActionField, Input, Button, Toolbar, Separator} from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, fmtDate } from '@/lib/client';
@@ -168,7 +168,7 @@ function Lb12Inner() {
   return (
     <div className="space-y-3">
       <Panel title="LB12 — Process Transfer Requirement (Put-away / Picking)" icon={<PackageCheck size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-start">
           <Field label="Transfer Requirement" required>
             <Input
               className="uppercase"
@@ -178,11 +178,11 @@ function Lb12Inner() {
               onKeyDown={(e) => e.key === 'Enter' && load(trInput)}
             />
           </Field>
-          <div>
+          <ActionField>
             <Button variant="primary" onClick={() => load(trInput)} loading={loading}>
               <Search size={13} /> Display
             </Button>
-          </div>
+          </ActionField>
           {doc && (
             <div className="md:col-span-3 flex flex-wrap items-center gap-3 text-2xs font-mono text-sap-muted">
               <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext">{doc.tr_type}</span>

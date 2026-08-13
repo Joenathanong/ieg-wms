@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Boxes, Search, Save, Plus, Trash2, Download, Package, Star } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
+import { useExecuteKey } from '@/components/sap/keynav';
 import { invalidateMasterData, useMasterData, type PackagingLite } from '@/components/sap/hooks';
 import { api, post, patch, del, qs } from '@/lib/client';
 import { ZONE_GROUPS } from '@/lib/zones';
@@ -71,6 +72,9 @@ export default function Mm01Page() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Enter / F8 = Execute
+  useExecuteKey(run);
 
   async function save() {
     if (!form.material_code.trim()) return setStatus('Material number is mandatory', 'E');
@@ -234,7 +238,7 @@ export default function Mm01Page() {
               <Field label="Material Description" required>
                 <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 items-start">
                 <Field label="Base Unit of Measure">
                   <Select value={form.uom} onChange={(e) => setForm({ ...form, uom: e.target.value })}>
                     {['PC', 'BOX', 'CTN', 'PAL', 'KG', 'G', 'L', 'ML', 'M', 'ROL', 'SET'].map((u) => (
@@ -268,7 +272,7 @@ export default function Mm01Page() {
                 <p className="text-xxs uppercase tracking-wide text-sap-muted">
                   Identifikasi Barcode &amp; Lokasi
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 items-start">
                   <Field label="Barcode B-POM" hint="dipakai lookup scan PDT">
                     <Input
                       className="uppercase font-mono"
@@ -378,7 +382,7 @@ export default function Mm01Page() {
                   </tbody>
                 </table>
 
-                <div className="grid grid-cols-2 gap-2 border-t border-sap-border pt-3">
+                <div className="grid grid-cols-2 gap-2 items-start border-t border-sap-border pt-3">
                   <Field label="Pack Code" required>
                     <Input
                       className="uppercase"

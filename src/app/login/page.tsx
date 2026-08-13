@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { Boxes, KeyRound, User, Loader2, ShieldAlert } from 'lucide-react';
 import { post } from '@/lib/client';
+import { IS_PROD_SYSTEM, SAP_CLIENT, SAP_SYSTEM, SYSTEM_TITLE } from '@/lib/system';
 
 function LoginForm() {
   const router = useRouter();
@@ -32,7 +33,14 @@ function LoginForm() {
     <form onSubmit={submit} className="w-full max-w-[360px] sap-panel shadow-sap">
       <div className="sap-panel-title">
         <KeyRound size={13} className="text-sap-blue" />
-        SAP Logon — Client 100
+        <span>
+          SAP Logon — {SAP_SYSTEM} · Client {SAP_CLIENT}
+        </span>
+        {!IS_PROD_SYSTEM && (
+          <span className="ml-auto sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext">
+            NON-PRODUCTION
+          </span>
+        )}
       </div>
 
       <div className="p-5 space-y-3">
@@ -96,7 +104,9 @@ export default function LoginPage() {
         <Boxes size={26} className="text-sap-blue" />
         <div>
           <h1 className="text-base font-semibold tracking-wide">WMS LITE</h1>
-          <p className="text-2xs text-sap-muted font-mono">Warehouse Management — S/4HANA Style</p>
+          <p className="text-2xs text-sap-muted font-mono" title={SYSTEM_TITLE}>
+            {SYSTEM_TITLE}
+          </p>
         </div>
       </div>
 

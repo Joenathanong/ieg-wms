@@ -121,6 +121,21 @@ export default async function HelpPage() {
             isinya ke clipboard.
             <br />
             <br />
+            Tombol <b>panah ↑/↓</b> memindah baris pada tabel entri (tidak lagi mengubah angka),{' '}
+            <b>Enter / F8</b> = Execute, dan di MIGO selalu muncul <b>konfirmasi posting</b> lebih dulu.
+            Ikon di kolom Batch MIGO membuka <b>Batch Determination</b> (daftar batch urut FEFO).
+            Zona gudang kini master data di <b className="text-sap-blue">ZZONE</b> (padanan Storage Type
+            SAP): penanda <b>interim</b> dan <b>pick face</b> diatur di sana, dan field zona di LS01N
+            terkunci ke daftar tersebut.
+            <br />
+            <br />
+            Riwayat dipisah: <b className="text-sap-blue">MB51</b> untuk dokumen level IM dan{' '}
+            <b className="text-sap-blue">LT22</b> untuk perpindahan bin (301). <b>MB52</b> kini
+            tampil sampai <b>level batch</b> secara default — mirip LX02, tetapi qty-nya digabung
+            dari seluruh storage bin, dengan kolom <b>Storage Bin (gabungan)</b> yang merinci
+            bin beserta qty-nya.
+            <br />
+            <br />
             Kolom seleksi mendukung wildcard: <span className="font-mono">ABC*</span> menampilkan ABC1–ABC9,{' '}
             <span className="font-mono">*BC*</span> menampilkan ABC1–ABC9 dan BBC1. Kolom{' '}
             <b>Material / Description</b> mencari kode maupun deskripsi sekaligus. Pada status bar, ikon{' '}
@@ -148,6 +163,12 @@ export default async function HelpPage() {
           </p>
           <p>
             Semua posting dari PDT ditandai <b>via PDT</b> sehingga bisa dibedakan dari posting admin di MB51.
+            <br />
+            <br />
+            <b>Keyboard virtual otomatis tersembunyi.</b> Fokus yang berpindah sendiri setelah scan tidak
+            lagi memunculkan keyboard. Keyboard baru tampil bila field <b>diketuk</b> atau ikon{' '}
+            <b>keyboard</b> di sisi kanan field ditekan, lalu tertutup lagi begitu <b>Enter</b> ditekan
+            atau fokus berpindah. Scanner tetap bekerja normal karena mengirim keystroke seperti keyboard fisik.
           </p>
         </div>
       </section>

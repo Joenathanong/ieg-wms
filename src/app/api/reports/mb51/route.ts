@@ -5,13 +5,20 @@ import { handle, ok, cleanStr, toDate } from '@/lib/api';
 import { parseMovement, MOVEMENT_CODE, MOVEMENT_DESC } from '@/lib/movement';
 import { likeWhereAny } from '@/lib/like';
 import { materialCodeFilter } from '@/lib/search';
-import { Prisma } from '@prisma/client';
+import { MovementType, Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/reports/mb51 — Material Document List (audit trail)
- * Query: ?material=&movement=&bin=&batch=&user=&from=&to=&page=&size=
+ * GET /api/reports/mb51 — Material Document List (audit trail level IM)
+ * Query: ?material=&movement=&bin=&batch=&user=&from=&to=&page=&size=&withWm=1
+ *
+ * Sesuai pembagian SAP, MB51 hanya menampilkan dokumen **Inventory Management**
+ * (101/102, 201/202, 551/552, 561/562, 701/702/711/712). Pemindahan antar bin
+ * (movement 301) adalah dokumen level Warehouse Management dan ditampilkan di
+ * transaksi **LT22 — Display Transfer Order**.
+ *
+ * `withWm=1` tetap disediakan bila pengguna ingin melihat keduanya sekaligus.
  */
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -31,6 +38,13 @@ export async function GET(req: NextRequest) {
     const mt = movement ? parseMovement(movement) : null;
     if (movement && !mt) return ok({ rows: [], total: 0, page, size }, `Movement type ${movement} is not defined`);
 
+    /** 301 = dokumen level WM, tempatnya di LT22 — dikecualikan kecuali diminta khusus */
+    const withWm = sp.get('withWm') === '1';
+    const wmFilter: Prisma.MigoLogWhereInput =
+      withWm || mt === MovementType.TR_301_BIN
+        ? {}
+        : { movement_type: { not: MovementType.TR_301_BIN } };
+
     const dateFilter: Prisma.DateTimeFilter = {};
     if (from) dateFilter.gte = from;
     if (to) {
@@ -46,6 +60,7 @@ export async function GET(req: NextRequest) {
       AND: [
         (matFilter ?? {}) as Prisma.MigoLogWhereInput,
         mt ? { movement_type: mt } : {},
+        wmFilter,
         (likeWhereAny(['source_bin', 'target_bin'], bin) ?? {}) as Prisma.MigoLogWhereInput,
         (likeWhereAny(['batch_number'], batch) ?? {}) as Prisma.MigoLogWhereInput,
         (likeWhereAny(['user_id'], user) ?? {}) as Prisma.MigoLogWhereInput,
@@ -92,7 +107,8 @@ export async function GET(req: NextRequest) {
 
     return ok(
       { rows, total, page, size, pages: Math.max(1, Math.ceil(total / size)) },
-      `${total} material document(s) selected`
+      `${total} material document(s) selected` +
+        (withWm ? ' (termasuk transfer bin 301)' : ' — transfer bin (301) ada di LT22')
     );
   });
 }
