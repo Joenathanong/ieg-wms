@@ -80,7 +80,6 @@ export default function ZrfGrPage() {
     if (!rs.ok) {
       setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
       setMaterial('');
-      setTimeout(() => matRef.current?.focus(), 30);
       return;
     }
 
@@ -132,10 +131,8 @@ export default function ZrfGrPage() {
       setTimeout(() => next.ref.current?.focus(), 30);
       return;
     }
-    // Tidak ada lagi yang wajib: keyboard ditutup, kursor kembali ke Material
-    // supaya scan berikutnya langsung terbaca.
+    // Tidak ada lagi yang wajib -> lepas fokus supaya keyboard tertutup.
     (document.activeElement as HTMLElement | null)?.blur();
-    setTimeout(() => matRef.current?.focus(), 60);
   }
 
   function reset() {
@@ -147,7 +144,6 @@ export default function ZrfGrPage() {
     setReference('');
     setKnownBatch(null);
     setMsg(null);
-    setTimeout(() => matRef.current?.focus(), 30);
   }
 
   async function submit() {
@@ -181,8 +177,8 @@ export default function ZrfGrPage() {
       setMfgDate('');
       setReference('');
       setKnownBatch(null);
-      // siap scan berikutnya: fokus kembali ke Material
-      setTimeout(() => matRef.current?.focus(), 30);
+      // fokus tidak dikembalikan otomatis: keyboard virtual tidak ikut terbuka
+      (document.activeElement as HTMLElement | null)?.blur();
     }
   }
 
@@ -198,20 +194,10 @@ export default function ZrfGrPage() {
     >
       {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
-      {!material.trim() && (
-        <div className="rounded-[3px] border-2 border-dashed border-sap-blue/50 bg-sap-blue/5 px-3 py-2 text-center">
-          <p className="text-sm font-semibold text-sap-blue">Siap scan</p>
-          <p className="text-xxs text-sap-muted mt-0.5">
-            Kursor sudah di field Material. Ketuk fieldnya bila ingin mengetik manual.
-          </p>
-        </div>
-      )}
-
       <PdtInput
         ref={matRef}
         label="Material"
         list="dl-pdt-mat"
-        autoFocus
         value={material}
         onChange={(e) => setMaterial(e.target.value.toUpperCase())}
         onKeyDown={(e) => {
