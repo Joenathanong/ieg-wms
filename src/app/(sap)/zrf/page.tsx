@@ -3,6 +3,7 @@ import { PackagePlus, PackageMinus, PackageCheck, ArrowLeftRight, ClipboardList,
 import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
 import { getSettings, PDT_MODULE_SETTING } from '@/lib/settings';
+import { KeyboardPrefToggle } from '@/components/pdt/KeyboardPref';
 
 export const dynamic = 'force-dynamic';
 
@@ -126,6 +127,8 @@ export default async function ZrfMenu() {
           );
         })}
       </div>
+
+      <KeyboardPrefToggle />
 
       <p className="text-xxs text-sap-muted/60 text-center px-2">
         Semua posting dari layar ini ditandai <b>via PDT</b> di riwayat dokumen (MB51).

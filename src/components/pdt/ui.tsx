@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { ChevronLeft, Loader2, Keyboard, KeyboardOff } from 'lucide-react';
+import { readKeyboardPref, KBD_EVENT, type KeyboardPref } from '@/lib/pdtprefs';
 
 /**
  * Komponen UI khusus terminal PDT / RF scanner.
@@ -82,7 +83,22 @@ export const PdtInput = React.forwardRef<
   const innerRef = React.useRef<HTMLInputElement | null>(null);
   const [typing, setTyping] = React.useState(false);
 
-  const managed = autoHideKeyboard && !NATIVE_PICKER_TYPES.has(String(type ?? 'text'));
+  /**
+   * Preferensi perangkat. Dibaca setelah mount (cookie tidak tersedia saat
+   * render server) dan ikut berubah saat operator menggeser sakelarnya.
+   */
+  const [kbdPref, setKbdPref] = React.useState<KeyboardPref>('auto');
+  React.useEffect(() => {
+    setKbdPref(readKeyboardPref());
+    const onPref = (e: Event) => setKbdPref((e as CustomEvent<KeyboardPref>).detail);
+    window.addEventListener(KBD_EVENT, onPref);
+    return () => window.removeEventListener(KBD_EVENT, onPref);
+  }, []);
+
+  const managed =
+    autoHideKeyboard &&
+    kbdPref === 'auto' &&
+    !NATIVE_PICKER_TYPES.has(String(type ?? 'text'));
   /** mode saat user memang sedang mengetik manual */
   const typeMode = inputMode ?? 'text';
 
