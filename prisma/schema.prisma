@@ -294,6 +294,8 @@ model TransferReq {
   ref_doc    String?
   reference  String?
   remarks    String?
+  /// cost center pembebanan untuk TR PICK (201) — dibawa ke dokumen goods issue
+  cost_center String?
   created_by String
   created_at DateTime @default(now())
   closed_at  DateTime?
@@ -385,6 +387,10 @@ model PhysInvDocItem {
   bin_code      String
   material_code String
   batch_number  String?
+  /// diisi untuk baris TEMUAN (barang tidak tercatat): batch baru belum punya
+  /// quant, jadi tanggalnya harus ikut direkam saat menghitung supaya FEFO benar
+  mfg_date      DateTime?
+  exp_date      DateTime?
   /// snapshot stok sistem saat freeze
   book_qty      Int        @default(0)
   /// hasil hitung fisik

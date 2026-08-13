@@ -63,6 +63,12 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
             },
           });
 
+          // Tanggal quant hasil selisih:
+          //   - utamakan yang direkam saat menghitung (baris temuan),
+          //   - kalau tidak ada, ikuti quant yang sudah ada di bin itu,
+          //   - GR date untuk stok yang baru muncul = tanggal posting opname,
+          //     karena dari sudut pandang gudang barang ini "diterima" hari ini.
+          const postedAt = new Date();
           await applyStockWM(
             tx,
             {
@@ -71,7 +77,11 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
               batch_number: item.batch_number,
             },
             diff,
-            { mfg_date: quant?.mfg_date ?? null, exp_date: quant?.exp_date ?? null }
+            {
+              mfg_date: item.mfg_date ?? quant?.mfg_date ?? null,
+              exp_date: item.exp_date ?? quant?.exp_date ?? null,
+              gr_date: quant?.gr_date ?? postedAt,
+            }
           );
 
           await applyStockIM(tx, item.material_code, diff);

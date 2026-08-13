@@ -24,6 +24,7 @@ import { ConfirmDialog } from '@/components/sap/Confirm';
 import { BatchDetermination } from '@/components/sap/BatchDetermination';
 import { api, post, fmtDate } from '@/lib/client';
 import { ZONE_GROUPS } from '@/lib/zones';
+import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
 
 /* --------------------------------------------------------------- */
 
@@ -34,7 +35,7 @@ const MOVEMENTS = [
   { code: '551', label: '551 — Scrapping / Adjustment (-)', mode: 'DIRECT_MIN' },
   { code: '701', label: '701 — Phys. Inv. Difference (+)', mode: 'DIRECT_PLUS' },
   { code: '702', label: '702 — Phys. Inv. Difference (-)', mode: 'DIRECT_MIN' },
-  { code: 'CANCEL', label: 'Cancellation — 102 / 202 / 552 / 562 / 711 / 712', mode: 'CANCEL' },
+  { code: 'CANCEL', label: 'Cancellation — 102 / 202 / 552 / 562 / 602 / 711 / 712', mode: 'CANCEL' },
 ] as const;
 
 type Mode = (typeof MOVEMENTS)[number]['mode'];
@@ -96,8 +97,10 @@ export default function MigoPage() {
   const { materials, bins } = useMasterData();
   const { costCenters } = useCostCenters();
 
-  const [movement, setMovement] = useState<string>('101');
-  const [giMode, setGiMode] = useState<'REQUEST' | 'ISSUE'>('REQUEST');
+  // Semua pilihan header sengaja kosong: operator harus memilih sadar,
+  // supaya tidak ada dokumen terposting dengan movement/langkah default.
+  const [movement, setMovement] = useState<string>('');
+  const [giMode, setGiMode] = useState<'' | 'REQUEST' | 'ISSUE'>('');
   const [zoneGroup, setZoneGroup] = useState('');
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10));
   const [reference, setReference] = useState('');
@@ -116,14 +119,17 @@ export default function MigoPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [batchFor, setBatchFor] = useState<Line | null>(null);
 
-  const mode: Mode = MOVEMENTS.find((m) => m.code === movement)?.mode ?? 'TR_IN';
+  const mode: Mode | null = MOVEMENTS.find((m) => m.code === movement)?.mode ?? null;
   const isGiIssue = mode === 'TR_OUT' && giMode === 'ISSUE';
   // ISSUE mengeluarkan stok dari bin interim GI, jadi tidak perlu input bin manual
   const isTwoStep = mode === 'TR_IN' || mode === 'TR_OUT';
   const isInbound = mode === 'TR_IN' || mode === 'DIRECT_PLUS';
   const isCancel = mode === 'CANCEL';
   // 201 tahap ISSUE membebankan biaya ke cost center; 601 (penjualan) tidak.
-  const needsCc = mode === 'TR_OUT' && giMode === 'ISSUE';
+  // Ditampilkan di kedua langkah 201: diisi saat REQUEST akan diwarisi oleh
+  // langkah ISSUE, dan wajib paling lambat saat ISSUE.
+  const showCc = mode === 'TR_OUT';
+  const needsCc = showCc && giMode === 'ISSUE';
 
   async function loadCancelPreview() {
     const doc = cancelDoc.trim().toUpperCase();
@@ -189,6 +195,8 @@ export default function MigoPage() {
     setLines([emptyLine()]);
     setReference('');
     setCostCenter('');
+    setGiMode('');
+    setZoneGroup('');
     setPosted([]);
     setStatus('Entry screen has been reset', 'I');
   }
@@ -232,10 +240,13 @@ export default function MigoPage() {
 
   /** Tombol Post / tombol Enter: validasi dulu, lalu minta konfirmasi. */
   function askPost() {
+    if (!movement) return setStatus('Pilih movement type terlebih dahulu', 'E');
     if (isCancel) {
       if (!cancelPreview) return setStatus('Tampilkan dokumen terlebih dahulu', 'E');
       return setConfirmOpen(true);
     }
+    if (mode === 'TR_OUT' && !giMode) return setStatus('Pilih langkah 201 terlebih dahulu', 'E');
+    if (mode === 'TR_IN' && !zoneGroup) return setStatus('Pilih gudang tujuan terlebih dahulu', 'E');
     if (!buildItems()) return;
     setConfirmOpen(true);
   }
@@ -249,7 +260,7 @@ export default function MigoPage() {
       movement_type: movement,
       doc_date: docDate,
       reference,
-      ...(needsCc ? { cost_center: costCenter } : {}),
+      ...(showCc && costCenter ? { cost_center: costCenter } : {}),
       ...(mode === 'TR_OUT' ? { mode: giMode } : {}),
       ...(mode === 'TR_IN' && zoneGroup ? { zone_group: zoneGroup } : {}),
       items,
@@ -282,8 +293,12 @@ export default function MigoPage() {
               onChange={(e) => {
                 setMovement(e.target.value);
                 setPosted([]);
+                // pilihan turunan ikut direset supaya tidak terbawa dari movement lama
+                setGiMode('');
+                setZoneGroup('');
               }}
             >
+              <option value="">(pilih movement type)</option>
               {MOVEMENTS.map((m) => (
                 <option key={m.code} value={m.code}>
                   {m.label}
@@ -299,9 +314,9 @@ export default function MigoPage() {
           )}
 
           {mode === 'TR_IN' && (
-            <Field label="Gudang Tujuan" hint="menentukan baris palletization yang dipakai">
+            <Field label="Gudang Tujuan" required hint="menentukan baris palletization yang dipakai">
               <Select value={zoneGroup} onChange={(e) => setZoneGroup(e.target.value)}>
-                <option value="">(pakai default material)</option>
+                <option value="">(pilih gudang tujuan)</option>
                 {ZONE_GROUPS.map((g) => (
                   <option key={g.code} value={g.code}>
                     {g.label}
@@ -313,20 +328,23 @@ export default function MigoPage() {
 
           {mode === 'TR_OUT' && (
             <Field label="Langkah 201" required>
-              <Select value={giMode} onChange={(e) => setGiMode(e.target.value as 'REQUEST' | 'ISSUE')}>
+              <Select value={giMode} onChange={(e) => setGiMode(e.target.value as '' | 'REQUEST' | 'ISSUE')}>
+                <option value="">(pilih langkah)</option>
                 <option value="REQUEST">1 — Buat permintaan picking (Transfer Requirement)</option>
                 <option value="ISSUE">2 — Post goods issue dari GI zone</option>
               </Select>
             </Field>
           )}
 
-          {needsCc && (
+          {showCc && (
             <Field
               label="Cost Center"
-              required
+              required={needsCc}
               hint={
                 costCenters.find((c) => c.cost_center === costCenter)?.description ??
-                'Tujuan pembebanan biaya — dikelola di KS01'
+                (needsCc
+                  ? 'Wajib — kosongkan hanya bila ingin mewarisi dari TR'
+                  : 'Opsional di langkah 1; akan diwarisi langkah goods issue')
               }
             >
               <Select value={costCenter} onChange={(e) => setCostCenter(e.target.value)}>
@@ -595,6 +613,7 @@ export default function MigoPage() {
                         <Input
                           type="date"
                           className="!py-[3px]"
+                          title={`Terisi otomatis dari expired date dikurangi ${DEFAULT_SHELF_LIFE_YEARS} tahun — boleh diubah`}
                           value={l.mfg_date}
                           onChange={(e) => setLine(l.key, { mfg_date: e.target.value })}
                         />
@@ -606,7 +625,12 @@ export default function MigoPage() {
                           type="date"
                           className="!py-[3px]"
                           value={l.exp_date}
-                          onChange={(e) => setLine(l.key, { exp_date: e.target.value })}
+                          onChange={(e) =>
+                            setLine(l.key, {
+                              exp_date: e.target.value,
+                              mfg_date: fillMfg(e.target.value, l.mfg_date),
+                            })
+                          }
                         />
                       </td>
                     )}
@@ -836,7 +860,7 @@ export default function MigoPage() {
                 { label: 'Document Date', value: docDate },
                 { label: 'Jumlah line', value: `${confirmLines.length} item` },
                 { label: 'Total qty', value: confirmQty.toLocaleString('de-DE') },
-                ...(needsCc ? [{ label: 'Cost Center', value: costCenter || '—' }] : []),
+                ...(showCc ? [{ label: 'Cost Center', value: costCenter || '(warisi dari TR)' }] : []),
                 ...(reference ? [{ label: 'Reference', value: reference }] : []),
               ]
         }

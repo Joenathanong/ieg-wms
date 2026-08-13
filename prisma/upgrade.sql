@@ -678,3 +678,16 @@ UPDATE "phys_inv_bins" p
      SELECT 1 FROM "phys_inv_doc_items" i
       WHERE i."doc_id" = d."id" AND i."bin_code" = p."bin_code" AND i."counted_qty" IS NULL
    );
+
+-- >>>
+-- Cost center dibawa sejak permintaan picking (201 langkah 1) supaya operator
+-- di langkah goods issue tidak perlu menebak pembebanannya.
+ALTER TABLE "transfer_reqs" ADD COLUMN IF NOT EXISTS "cost_center" TEXT;
+
+-- >>>
+-- Tanggal untuk baris TEMUAN stock opname: batch yang belum pernah ada di bin
+-- tidak punya quant pembanding, jadi mfg/exp date harus direkam saat menghitung.
+ALTER TABLE "phys_inv_doc_items" ADD COLUMN IF NOT EXISTS "mfg_date" TIMESTAMP(3);
+
+-- >>>
+ALTER TABLE "phys_inv_doc_items" ADD COLUMN IF NOT EXISTS "exp_date" TIMESTAMP(3);

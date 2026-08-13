@@ -9,6 +9,7 @@ interface Suggestion {
   bin_code: string;
   zone_id: string;
   qty?: number;
+  exp_date?: string | null;
 }
 
 interface Item {
@@ -220,12 +221,40 @@ export function TrScreen({
             list="dl-pdt-sug"
             value={bin}
             onChange={(e) => setBin(e.target.value.toUpperCase())}
-            hint={
-              active.suggestions.length > 0
-                ? `Saran: ${active.suggestions.slice(0, 3).map((s) => s.bin_code + (s.qty ? `(${s.qty})` : '')).join(', ')}`
-                : undefined
-            }
           />
+
+          {/* Saran lokasi: operator picking perlu tahu barangnya ada di rak mana
+              saja. Urut FEFO (kedaluwarsa terdekat lebih dulu) dan bisa langsung
+              diketuk supaya tidak perlu mengetik kode bin. */}
+          {active.suggestions.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xxs uppercase tracking-wide text-sap-muted">
+                Tersedia di {active.suggestions.length} lokasi — urut FEFO
+              </p>
+              <div className="space-y-1 max-h-[26dvh] overflow-auto">
+                {active.suggestions.map((s) => (
+                  <button
+                    key={s.bin_code}
+                    type="button"
+                    onClick={() => setBin(s.bin_code)}
+                    className={`w-full text-left rounded-[3px] border px-3 py-2 flex items-center gap-2
+                      ${
+                        bin === s.bin_code
+                          ? 'border-sap-blue bg-sap-blue/10'
+                          : 'border-sap-border bg-sap-panelalt'
+                      }`}
+                  >
+                    <span className="font-mono text-sm text-sap-blue flex-1 truncate">{s.bin_code}</span>
+                    <span className="text-xxs font-mono text-sap-muted shrink-0">
+                      {s.zone_id}
+                      {s.exp_date ? ` · ED ${fmtDate(s.exp_date)}` : ''}
+                    </span>
+                    <span className="font-mono text-sm shrink-0">{s.qty ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <PdtInput
             label="Quantity"
@@ -244,6 +273,7 @@ export function TrScreen({
               <option key={s.bin_code} value={s.bin_code}>
                 {s.zone_id}
                 {s.qty ? ` · ${s.qty}` : ''}
+                {s.exp_date ? ` · ED ${fmtDate(s.exp_date)}` : ''}
               </option>
             ))}
           </datalist>

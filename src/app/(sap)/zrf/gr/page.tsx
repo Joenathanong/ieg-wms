@@ -6,6 +6,7 @@ import { PdtScreen, PdtInput, PdtButton, PdtRow, PdtMessage } from '@/components
 import { useMasterData } from '@/components/sap/hooks';
 import { post } from '@/lib/client';
 import { resolveScan } from '@/lib/barcode';
+import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
 
 export default function ZrfGrPage() {
   const { materials } = useMasterData();
@@ -15,6 +16,7 @@ export default function ZrfGrPage() {
   const [qty, setQty] = useState('');
   const [batch, setBatch] = useState('');
   const [expDate, setExpDate] = useState('');
+  const [mfgDate, setMfgDate] = useState('');
   const [reference, setReference] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'S' | 'E' | 'W' | 'I' } | null>(null);
@@ -43,6 +45,7 @@ export default function ZrfGrPage() {
     setQty('');
     setBatch('');
     setExpDate('');
+    setMfgDate('');
     setMsg(null);
     matRef.current?.focus();
   }
@@ -63,6 +66,7 @@ export default function ZrfGrPage() {
           qty: Number(qty),
           batch_number: batch.trim().toUpperCase() || null,
           exp_date: expDate || null,
+          mfg_date: mfgDate || null,
         },
       ],
     });
@@ -127,7 +131,22 @@ export default function ZrfGrPage() {
         onChange={(e) => setBatch(e.target.value.toUpperCase())}
       />
 
-      <PdtInput label="Expired Date" type="date" value={expDate} onChange={(e) => setExpDate(e.target.value)} />
+      <PdtInput
+        label="Expired Date"
+        type="date"
+        value={expDate}
+        onChange={(e) => {
+          setExpDate(e.target.value);
+          setMfgDate((m) => fillMfg(e.target.value, m));
+        }}
+      />
+      <PdtInput
+        label="Manufacturing Date"
+        type="date"
+        hint={`Terisi otomatis: expired date dikurangi ${DEFAULT_SHELF_LIFE_YEARS} tahun.`}
+        value={mfgDate}
+        onChange={(e) => setMfgDate(e.target.value)}
+      />
 
       <PdtInput
         label="Reference / DO"

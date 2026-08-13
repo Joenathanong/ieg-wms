@@ -421,6 +421,7 @@ export async function createTransferReq(
     ref_doc?: string | null;
     reference?: string | null;
     remarks?: string | null;
+    cost_center?: string | null;
     user_id: string;
   }
 ) {
@@ -434,6 +435,7 @@ export async function createTransferReq(
       ref_doc: args.ref_doc ?? null,
       reference: args.reference ?? null,
       remarks: args.remarks ?? null,
+      cost_center: args.cost_center ?? null,
       created_by: args.user_id,
       items: {
         create: args.items.map((it, i) => ({
@@ -553,6 +555,8 @@ export async function createPickRequest(
     zone_group?: string | null;
     reference?: string | null;
     remarks?: string | null;
+    /// dibawa ke TR supaya langkah goods issue mewarisi pembebanannya
+    cost_center?: string | null;
     user_id: string;
   }
 ) {
@@ -611,6 +615,7 @@ export async function createPickRequest(
     tr_type: TrType.PICK,
     reference: args.reference ?? null,
     remarks: args.remarks ?? null,
+    cost_center: args.cost_center ?? null,
     user_id: args.user_id,
     items: split.map((s) => ({
       material_code: material.material_code,

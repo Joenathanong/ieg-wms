@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
-import { handle, ok, cleanStr, toInt, normBatch } from '@/lib/api';
+import { handle, ok, cleanStr, toInt, toDate, normBatch } from '@/lib/api';
 import { BinStatus, PhysInvStatus } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
@@ -34,14 +34,28 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     });
     const mMap = new Map(materials.map((m) => [m.material_code, m]));
 
+    // Baris snapshot menyimpan qty saja; shelf life-nya ada di quant. Diambil
+    // supaya layar counting bisa menampilkan Exp/Mfg date apa adanya.
+    const quants = await prisma.stockWM.findMany({
+      where: { bin_code: { in: doc.frozen_bins } },
+      select: { material_code: true, bin_code: true, batch_number: true, mfg_date: true, exp_date: true },
+    });
+    const qKey = (m: string, b: string, batch: string | null) => `${m}|${b}|${batch ?? ''}`;
+    const qMap = new Map(quants.map((q) => [qKey(q.material_code, q.bin_code, q.batch_number), q]));
+
     return ok(
       {
         ...doc,
-        items: doc.items.map((i) => ({
-          ...i,
-          description: mMap.get(i.material_code)?.description ?? '',
-          uom: mMap.get(i.material_code)?.uom ?? 'PC',
-        })),
+        items: doc.items.map((i) => {
+          const q = qMap.get(qKey(i.material_code, i.bin_code, i.batch_number));
+          return {
+            ...i,
+            mfg_date: i.mfg_date ?? q?.mfg_date ?? null,
+            exp_date: i.exp_date ?? q?.exp_date ?? null,
+            description: mMap.get(i.material_code)?.description ?? '',
+            uom: mMap.get(i.material_code)?.uom ?? 'PC',
+          };
+        }),
       },
       `Document ${doc.doc_number} displayed — ${doc.items.length} line(s) across ${doc.frozen_bins.length} bin(s)`
     );
@@ -98,7 +112,12 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           if (existing) {
             await tx.physInvDocItem.update({
               where: { id: existing.id },
-              data: { counted_qty: counted, diff_qty: counted - existing.book_qty },
+              data: {
+                counted_qty: counted,
+                diff_qty: counted - existing.book_qty,
+                ...(raw.mfg_date !== undefined ? { mfg_date: toDate(raw.mfg_date) } : {}),
+                ...(raw.exp_date !== undefined ? { exp_date: toDate(raw.exp_date) } : {}),
+              },
             });
           } else {
             if (!material_code) throw new HttpError(400, 'Material number is mandatory for new count item.');
@@ -111,12 +130,17 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             if (mat.is_batch_managed && !batch_number)
               throw new HttpError(400, `Material ${material_code} is batch managed. Batch is mandatory.`);
 
+            // Batch temuan belum punya quant pembanding, jadi tanggalnya harus
+            // ikut disimpan di sini supaya posting 701 nanti menghasilkan quant
+            // dengan shelf life yang benar (FEFO).
             await tx.physInvDocItem.create({
               data: {
                 doc_id: d.id,
                 bin_code,
                 material_code,
                 batch_number: mat.is_batch_managed ? batch_number : null,
+                mfg_date: toDate(raw.mfg_date),
+                exp_date: toDate(raw.exp_date),
                 book_qty: 0,
                 counted_qty: counted,
                 diff_qty: counted,

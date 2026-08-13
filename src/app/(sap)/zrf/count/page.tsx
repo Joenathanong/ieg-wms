@@ -5,6 +5,7 @@ import { ClipboardList, Save, RefreshCw, ChevronRight, Plus, Trash2, PackageX, L
 import { PdtScreen, PdtInput, PdtButton, PdtRow, PdtMessage } from '@/components/pdt/ui';
 import { api, patch, fmtDateTime } from '@/lib/client';
 import { resolveScan } from '@/lib/barcode';
+import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
 
 interface Item {
   id: string;
@@ -49,6 +50,8 @@ interface Extra {
   key: string;
   material_code: string;
   batch_number: string;
+  mfg_date: string;
+  exp_date: string;
   qty: string;
 }
 
@@ -131,6 +134,8 @@ export default function ZrfCountPage() {
           bin_code: binCode,
           material_code: code,
           batch_number: e.batch_number.trim().toUpperCase() || null,
+          mfg_date: e.mfg_date || null,
+          exp_date: e.exp_date || null,
           counted_qty: n,
         });
       }
@@ -349,6 +354,36 @@ export default function ZrfCountPage() {
                   }
                 />
                 <PdtInput
+                  label="Expired Date"
+                  type="date"
+                  hint="Kosongkan bila material tidak punya masa simpan."
+                  value={e.exp_date}
+                  onChange={(ev) =>
+                    setExtras((s) =>
+                      s.map((x) =>
+                        x.key === e.key
+                          ? {
+                              ...x,
+                              exp_date: ev.target.value,
+                              mfg_date: fillMfg(ev.target.value, x.mfg_date),
+                            }
+                          : x
+                      )
+                    )
+                  }
+                />
+                <PdtInput
+                  label="Manufacturing Date"
+                  type="date"
+                  hint={`Otomatis: expired date − ${DEFAULT_SHELF_LIFE_YEARS} tahun.`}
+                  value={e.mfg_date}
+                  onChange={(ev) =>
+                    setExtras((s) =>
+                      s.map((x) => (x.key === e.key ? { ...x, mfg_date: ev.target.value } : x))
+                    )
+                  }
+                />
+                <PdtInput
                   label="Qty fisik"
                   type="number"
                   inputMode="numeric"
@@ -371,6 +406,8 @@ export default function ZrfCountPage() {
                   key: Math.random().toString(36).slice(2),
                   material_code: '',
                   batch_number: '',
+                  mfg_date: '',
+                  exp_date: '',
                   qty: '',
                 },
               ])

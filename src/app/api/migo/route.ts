@@ -47,15 +47,11 @@ export async function POST(req: NextRequest) {
     /** khusus 201: REQUEST = buat TR picking, ISSUE = posting goods issue dari GI zone */
     const giMode = cleanStr(body.mode).toUpperCase() === 'ISSUE' ? 'ISSUE' : 'REQUEST';
 
-    // 201 = pemakaian internal: biayanya harus punya tujuan pembebanan.
-    // Divalidasi hanya saat posting nyata (mode ISSUE); tahap REQUEST baru
-    // membuat transfer requirement dan belum menyentuh biaya.
-    if (needsCostCenter(mt) && giMode === 'ISSUE') {
-      if (!cost_center)
-        throw new HttpError(
-          400,
-          `Cost center is mandatory for movement ${body.movement_type} (goods issue to cost center). Maintain it in KS01.`
-        );
+    // 201 = pemakaian internal, biayanya harus punya tujuan pembebanan.
+    // Cost center boleh diisi sejak langkah REQUEST (ikut tersimpan di transfer
+    // requirement) dan WAJIB ada saat langkah ISSUE. Bila operator ISSUE tidak
+    // mengisinya, nilainya diambil dari TR yang bersangkutan.
+    if (cost_center) {
       const cc = await prisma.costCenter.findUnique({ where: { cost_center } });
       if (!cc) throw new HttpError(400, `Cost center ${cost_center} does not exist (KS01).`);
       if (!cc.is_active) throw new HttpError(400, `Cost center ${cost_center} is inactive.`);
@@ -107,6 +103,7 @@ export async function POST(req: NextRequest) {
               batch_number: normBatch(it.batch_number),
               pack_code: cleanStr(it.pack_code).toUpperCase() || null,
               reference,
+              cost_center,
               remarks: cleanStr(it.remarks) || null,
               user_id: user.username,
             });
@@ -119,13 +116,27 @@ export async function POST(req: NextRequest) {
               tr_lines: r.tr.items.length,
             });
           } else if (mt === MovementType.GI_201) {
-            // ISSUE — keluarkan stok yang sudah dipicking ke GI zone
+            // ISSUE — keluarkan stok yang sudah dipicking ke GI zone.
+            // Pembebanan diambil dari input; bila kosong, warisi dari TR asal.
+            const trRef = cleanStr(it.tr_number).toUpperCase() || null;
+            let cc = cost_center;
+            if (!cc && trRef) {
+              const tr = await tx.transferReq.findUnique({ where: { tr_number: trRef } });
+              cc = tr?.cost_center ?? null;
+            }
+            if (!cc)
+              throw new HttpError(
+                400,
+                `Line ${i + 1}: cost center is mandatory for goods issue 201. ` +
+                  `Pilih di layar, atau isi saat membuat permintaan picking. Master-nya di KS01.`
+              );
+
             const r = await postGoodsIssue(tx, {
               material_code,
               qty,
               batch_number: normBatch(it.batch_number),
               reference,
-              cost_center,
+              cost_center: cc,
               remarks: cleanStr(it.remarks) || null,
               tr_number: cleanStr(it.tr_number).toUpperCase() || null,
               doc_date: docDate,

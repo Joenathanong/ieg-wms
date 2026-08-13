@@ -7,6 +7,7 @@ import { Panel, Field, ActionField, Input, Select, Button, Toolbar, Badge, Separ
 import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, patch, fmtDate } from '@/lib/client';
+import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
 
 interface Item {
   id: string;
@@ -15,6 +16,8 @@ interface Item {
   description: string;
   uom: string;
   batch_number: string | null;
+  mfg_date: string | null;
+  exp_date: string | null;
   book_qty: number;
   counted_qty: number | null;
   diff_qty: number;
@@ -54,6 +57,9 @@ interface NewRow {
   bin_code: string;
   material_code: string;
   batch_number: string;
+  /** hanya untuk baris temuan: batch baru belum punya quant pembanding */
+  mfg_date: string;
+  exp_date: string;
   counted_qty: string;
 }
 
@@ -153,6 +159,8 @@ function Li11nInner() {
           bin_code: e.bin_code.trim().toUpperCase(),
           material_code: e.material_code.trim().toUpperCase(),
           batch_number: e.batch_number.trim().toUpperCase() || null,
+          mfg_date: e.mfg_date || null,
+          exp_date: e.exp_date || null,
           counted_qty: Number(e.counted_qty),
         })),
     ];
@@ -283,6 +291,8 @@ function Li11nInner() {
                     bin_code: binFilter.toUpperCase() || doc.frozen_bins[0] || '',
                     material_code: '',
                     batch_number: '',
+                    mfg_date: '',
+                    exp_date: '',
                     counted_qty: '',
                   },
                 ])
@@ -298,7 +308,7 @@ function Li11nInner() {
 
           <Panel title={`Count Lines — ${doc.doc_number}`} bodyClassName="p-0">
             <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 430px)' }}>
-              <table className="sap-grid min-w-[980px]">
+              <table className="sap-grid min-w-[1230px]">
                 <thead>
                   <tr>
                     <th className="w-[40px] text-center">#</th>
@@ -306,6 +316,8 @@ function Li11nInner() {
                     <th className="w-[145px]">Material</th>
                     <th className="w-[220px]">Description</th>
                     <th className="w-[130px]">Batch</th>
+                    <th className="w-[125px]">Exp. Date</th>
+                    <th className="w-[125px]">Mfg Date</th>
                     <th className="w-[90px] text-right">Book Qty</th>
                     <th className="w-[105px] text-right">Counted Qty</th>
                     <th className="w-[90px] text-right">Difference</th>
@@ -316,7 +328,7 @@ function Li11nInner() {
                 <tbody>
                   {visibleItems.length === 0 && extra.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="py-6 text-center text-sap-muted">
+                      <td colSpan={12} className="py-6 text-center text-sap-muted">
                         Tidak ada stok tercatat pada bin dalam cakupan. Tambahkan item bila ditemukan barang fisik.
                       </td>
                     </tr>
@@ -335,6 +347,8 @@ function Li11nInner() {
                         <td className="font-mono">{it.material_code}</td>
                         <td className="text-sap-muted truncate max-w-[220px]">{it.description}</td>
                         <td className="font-mono">{it.batch_number || '—'}</td>
+                        <td className="font-mono text-sap-muted">{fmtDate(it.exp_date) || '—'}</td>
+                        <td className="font-mono text-sap-muted">{fmtDate(it.mfg_date) || '—'}</td>
                         <td className="text-right font-mono tabular-nums">{it.book_qty}</td>
                         <td>
                           <Input
@@ -400,6 +414,37 @@ function Li11nInner() {
                           value={e.batch_number}
                           onChange={(ev) =>
                             setExtra((s) => s.map((x) => (x.key === e.key ? { ...x, batch_number: ev.target.value } : x)))
+                          }
+                        />
+                      </td>
+                      <td>
+                        <Input
+                          type="date"
+                          className="!py-[3px]"
+                          value={e.exp_date}
+                          onChange={(ev) =>
+                            setExtra((s) =>
+                              s.map((x) =>
+                                x.key === e.key
+                                  ? {
+                                      ...x,
+                                      exp_date: ev.target.value,
+                                      mfg_date: fillMfg(ev.target.value, x.mfg_date),
+                                    }
+                                  : x
+                              )
+                            )
+                          }
+                        />
+                      </td>
+                      <td>
+                        <Input
+                          type="date"
+                          className="!py-[3px]"
+                          title={`Otomatis: expired date − ${DEFAULT_SHELF_LIFE_YEARS} tahun`}
+                          value={e.mfg_date}
+                          onChange={(ev) =>
+                            setExtra((s) => s.map((x) => (x.key === e.key ? { ...x, mfg_date: ev.target.value } : x)))
                           }
                         />
                       </td>
