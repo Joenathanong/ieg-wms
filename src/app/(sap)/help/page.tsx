@@ -124,6 +124,11 @@ export default async function HelpPage() {
             Tombol <b>panah ↑/↓</b> memindah baris pada tabel entri (tidak lagi mengubah angka),{' '}
             <b>Enter / F8</b> = Execute, dan di MIGO selalu muncul <b>konfirmasi posting</b> lebih dulu.
             Ikon di kolom Batch MIGO membuka <b>Batch Determination</b> (daftar batch urut FEFO).
+            Goods issue dipisah menurut tujuannya: <b>201</b> untuk pemakaian internal yang wajib
+            menyebut <b>Cost Center</b> (master-nya di <b className="text-sap-blue">KS01</b>), dan
+            <b> 601</b> untuk penjualan. Keduanya bisa dibatalkan lewat MIGO Cancellation (202 dan 602).
+            <br />
+            <br />
             Zona gudang kini master data di <b className="text-sap-blue">ZZONE</b> (padanan Storage Type
             SAP): penanda <b>interim</b> dan <b>pick face</b> diatur di sana, dan field zona di LS01N
             terkunci ke daftar tersebut.
@@ -163,6 +168,14 @@ export default async function HelpPage() {
           </p>
           <p>
             Semua posting dari PDT ditandai <b>via PDT</b> sehingga bisa dibedakan dari posting admin di MB51.
+            <br />
+            <br />
+            <b className="text-sap-blue">ZRF09 — SO Penjualan.</b> Pengambilan di pick bin dikerjakan
+            program lain, jadi saldo buku selalu lebih tinggi dari fisik. Operator menghitung sisa fisik
+            pick bin dan selisihnya diposting sebagai <b>601 Goods Issue Penjualan</b>; bila fisik justru
+            lebih banyak, kelebihannya diposting <b>701</b>. Dokumen bisa dicicil per bin lintas shift.
+            Saldo buku dikunci saat bin dibuka — kalau ada replenishment masuk sebelum posting, bin
+            ditolak dan diminta hitung ulang.
             <br />
             <br />
             <b>Keyboard virtual otomatis tersembunyi.</b> Fokus yang berpindah sendiri setelah scan tidak

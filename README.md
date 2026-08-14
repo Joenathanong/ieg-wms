@@ -292,7 +292,7 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 
 | T-Code | Fungsi |
 |---|---|
-| `MIGO` | Goods Movement — 101 GR, 201 GI (2 mode: request picking / post goods issue), 551/701/702 koreksi, **mode Cancellation 102/202/552/562/711/712** (input no. dokumen asal, data auto terisi & terkunci). Multi line item, **konfirmasi sebelum posting**, dan **Batch Determination** (ikon di kolom Batch → daftar batch tersedia urut FEFO beserta bin & qty). |
+| `MIGO` | Goods Movement — 101 GR, **201 GI ke Cost Center** (2 mode: request picking / post goods issue), **601 GI Penjualan** (langsung dari bin), 551/701/702 koreksi, **mode Cancellation 102/202/552/562/602/711/712** (input no. dokumen asal, data auto terisi & terkunci). Multi line item, **konfirmasi sebelum posting**, dan **Batch Determination** (ikon di kolom Batch → daftar batch tersedia urut FEFO beserta bin & qty). |
 | `LI01N` | Create Physical Inventory Document — **multi-bin** (zona / daftar bin / seluruh gudang) |
 | `LI11N` | Enter Count Result **multi-line** → posting seluruh selisih 701/702 sekaligus |
 
@@ -336,6 +336,7 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 | `ZRF05` | Stock Count — input hasil opname per bin |
 | `ZRF06` | Inquiry — cek isi rak / lokasi material |
 | `ZRF07` | Goods Issue — keluarkan barang dari transit-out (201) |
+| `ZRF09` | **SO Penjualan** — buka dokumen per shift, scan pick bin, isi sisa fisik; selisih `buku − fisik` diposting **601 GI Penjualan**, fisik lebih diposting **701**. Bisa dicicil per bin lintas shift |
 | `ZRF08` | **Replenishment** — scan bin ATAU material → list stok urut **FEFO** (ED terdekat paling atas; **bila ED sama, qty terkecil didahulukan** agar sisa kecil cepat habis) → pilih → qty + S-Bin tujuan (saran otomatis dari **Fix Bin** material, tetap bisa diganti) → posting 301 |
 
 > **Barcode PDT.** Field scan material di ZRF01 / ZRF06 / ZRF08 mendukung:
@@ -350,7 +351,7 @@ Ketik pada **Command Field** di pojok kiri atas lalu Enter (shortcut `Ctrl + /`,
 |---|---|
 | `SU01` | User Maintenance (ADMIN) — flag **Akses PDT** per user + **assign Role T-Code (PFCG)** |
 | `PFCG` | Role Maintenance (ADMIN) — buat role berisi daftar T-Code yang diizinkan (termasuk per-ZRF01–08), lalu assign ke user di SU01. User tanpa role = akses penuh sesuai role dasar; ADMIN tidak pernah dibatasi. Berlaku pada login berikutnya. |
-| `ZSET` | System Configuration (ADMIN) — master switch PDT, **toggle per T-Code ZRF01–ZRF08**, bin transit, auto-split pallet |
+| `ZSET` | System Configuration (ADMIN) — master switch PDT, **toggle per T-Code ZRF01–ZRF09**, bin transit, auto-split pallet |
 
 ---
 
@@ -515,7 +516,7 @@ Admin mengatur semuanya di **ZSET**:
 | Setting | Efek |
 |---|---|
 | `PDT_ENABLED` | Master switch — mematikan seluruh modul PDT sekaligus |
-| `PDT_ZRF01` … `PDT_ZRF07` | Toggle **per T-Code**, bisa dimatikan satu per satu |
+| `PDT_ZRF01` … `PDT_ZRF09` | Toggle **per T-Code**, bisa dimatikan satu per satu |
 
 Modul yang dimatikan langsung terkunci **tanpa perlu login ulang**: di menu ZRF entri-nya
 tampil abu-abu dengan ikon gembok, dan bila route-nya dibuka langsung akan muncul layar
@@ -524,6 +525,40 @@ tampil abu-abu dengan ikon gembok, dan bila route-nya dibuka langsung akan muncu
 Sebagai lapisan tambahan (opsional), setiap user punya flag **Akses PDT** di `SU01`.
 Biarkan menyala untuk semua operator kalau Anda hanya ingin memakai kontrol per T-Code.
 Flag per user disematkan di token session sehingga perubahannya berlaku pada login berikutnya.
+
+---
+
+## 9b. SO Penjualan (ZRF09)
+
+Pengambilan barang di pick bin dikerjakan program lain di luar WMS ini, sehingga
+saldo buku pick bin selalu lebih tinggi dari fisiknya. **Selisih itulah yang diakui
+sebagai penjualan.**
+
+Alur: buka dokumen SO untuk satu shift/periode → scan pick bin → sistem menampilkan
+seluruh material & batch di bin itu beserta saldo buku → operator mengisi **sisa fisik**
+→ posting per bin.
+
+| Kondisi | Hasil posting |
+|---|---|
+| buku > fisik | **601** Goods Issue Penjualan dari bin tersebut |
+| fisik > buku | **701** penyesuaian tambah (bukan penjualan) |
+| sama | tidak ada dokumen material, bin tetap tercatat sudah dihitung |
+
+Dokumen sengaja **dicicil**: satu dokumen boleh mencakup beberapa rak saja per shift,
+persis seperti cycle count. Nomor dokumen SO ikut jadi *reference* pada setiap dokumen
+material, jadi dari MB51 bisa ditelusuri balik.
+
+**Pengaman saldo.** Saldo buku dikunci saat operator membuka bin. Saat posting, server
+membandingkannya dengan saldo terkini; bila berubah — misalnya ada replenishment masuk
+di tengah penghitungan — seluruh bin ditolak dan diminta hitung ulang. Ini mencegah
+barang yang baru masuk ikut terhitung sebagai terjual.
+
+Aturan lain: satu bin hanya boleh dihitung sekali per dokumen, bin interim ditolak, dan
+sisa fisik wajib diisi eksplisit (kosong ≠ nol). Seluruh posting satu bin berjalan dalam
+satu transaksi.
+
+Membatalkan dokumen SO **tidak** membatalkan posting yang sudah terjadi — pembatalan
+dilakukan per dokumen material lewat MIGO Cancellation (601 → 602).
 
 ---
 
