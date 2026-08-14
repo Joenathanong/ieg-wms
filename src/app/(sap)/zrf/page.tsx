@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { PackagePlus, PackageMinus, PackageCheck, ArrowLeftRight, ClipboardList, Search, Smartphone, Lock, Layers, Monitor } from 'lucide-react';
+import { PackagePlus, PackageMinus, PackageCheck, ArrowLeftRight, ClipboardList, Search, Smartphone, Lock, Layers, Monitor, Receipt } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
 import { getSettings, PDT_MODULE_SETTING } from '@/lib/settings';
@@ -14,6 +14,7 @@ const MENU = [
   { code: 'ZRF08', label: 'Replenishment', desc: 'Isi ulang fix bin — list FEFO (301)', href: '/zrf/replenish', Icon: Layers },
   { code: 'ZRF05', label: 'Stock Count', desc: 'Input hasil stock opname', href: '/zrf/count', Icon: ClipboardList },
   { code: 'ZRF07', label: 'Goods Issue', desc: 'Keluarkan barang dari transit-out (201)', href: '/zrf/gi', Icon: PackageMinus },
+  { code: 'ZRF09', label: 'SO Penjualan', desc: 'Hitung sisa pick bin — selisih jadi GI 601', href: '/zrf/salestake', Icon: Receipt },
   { code: 'ZRF06', label: 'Inquiry', desc: 'Cek isi rak / lokasi material', href: '/zrf/inquiry', Icon: Search },
 ];
 

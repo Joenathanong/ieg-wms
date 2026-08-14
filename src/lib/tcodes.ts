@@ -56,6 +56,7 @@ export const TCODES: TCodeEntry[] = [
   { code: 'ZRF06', title: 'PDT — Bin / Material Inquiry', path: '/zrf/inquiry', group: 'PDT', pdtOnly: true },
   { code: 'ZRF07', title: 'PDT — Goods Issue (201)', path: '/zrf/gi', group: 'PDT', pdtOnly: true },
   { code: 'ZRF08', title: 'PDT — Replenishment (FEFO ke Fix Bin)', path: '/zrf/replenish', group: 'PDT', pdtOnly: true },
+  { code: 'ZRF09', title: 'PDT — SO Penjualan (sisa pick bin -> GI 601)', path: '/zrf/salestake', group: 'PDT', pdtOnly: true },
 
   // ---------------- SYSTEM ----------------
   { code: 'SU01', title: 'User Maintenance', path: '/su01', group: 'SYSTEM', adminOnly: true },

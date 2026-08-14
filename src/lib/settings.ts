@@ -25,6 +25,7 @@ export const SETTING_KEYS = {
   PDT_ZRF06: 'PDT_ZRF06',
   PDT_ZRF07: 'PDT_ZRF07',
   PDT_ZRF08: 'PDT_ZRF08',
+  PDT_ZRF09: 'PDT_ZRF09',
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -43,6 +44,7 @@ export const SETTING_DEFAULTS: Record<SettingKey, string> = {
   PDT_ZRF06: '1',
   PDT_ZRF07: '1',
   PDT_ZRF08: '1',
+  PDT_ZRF09: '1',
 };
 
 /** T-Code PDT -> key setting yang mengontrolnya. */
@@ -55,6 +57,7 @@ export const PDT_MODULE_SETTING: Record<string, SettingKey> = {
   ZRF06: 'PDT_ZRF06',
   ZRF07: 'PDT_ZRF07',
   ZRF08: 'PDT_ZRF08',
+  ZRF09: 'PDT_ZRF09',
 };
 
 export const SETTING_META: { key: SettingKey; label: string; hint: string; type: 'BOOL' | 'BIN' }[] = [
@@ -122,6 +125,12 @@ export const SETTING_META: { key: SettingKey; label: string; hint: string; type:
     key: 'PDT_ZRF08',
     label: 'ZRF08 — Replenishment (PDT)',
     hint: 'Izinkan operator memindahkan stok ke fix bin / pick bin lewat PDT (list FEFO).',
+    type: 'BOOL',
+  },
+  {
+    key: 'PDT_ZRF09',
+    label: 'ZRF09 — SO Penjualan (PDT)',
+    hint: 'Hitung sisa fisik pick bin; selisihnya diposting sebagai goods issue penjualan (601).',
     type: 'BOOL',
   },
   {

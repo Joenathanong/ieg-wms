@@ -62,6 +62,13 @@ enum PhysInvStatus {
   POSTED // selisih sudah di-clearing via 701/702
 }
 
+/// Status dokumen SO Penjualan (ZRF09)
+enum SalesTakeStatus {
+  OPEN // masih dicicil per bin
+  CLOSED // ditutup, tidak menerima bin baru
+  CANCELLED
+}
+
 /// Jenis Transfer Requirement
 enum TrType {
   PUTAWAY // dari GR-ZONE ke rak penyimpanan (hasil MIGO 101)
@@ -193,6 +200,56 @@ model StorageBin {
   @@index([status])
   @@index([is_interim])
   @@map("storage_bins")
+}
+
+/// SO Penjualan — perhitungan sisa fisik pick bin (T-Code ZRF09).
+///
+/// Barang di pick bin diambil oleh program picking di luar sistem ini, jadi
+/// saldo buku selalu lebih tinggi dari fisik. Selisihnya diakui sebagai
+/// penjualan (movement 601). Dokumen sengaja DICICIL: satu dokumen bisa
+/// mencakup beberapa bin yang dihitung bertahap per shift.
+model SalesTakeDoc {
+  id         String          @id @default(uuid())
+  doc_number String          @unique
+  status     SalesTakeStatus @default(OPEN)
+  /// penanda periode / shift, mis. "SHIFT-1 13.08"
+  reference  String?
+  remarks    String?
+  created_by String
+  created_at DateTime        @default(now())
+  closed_at  DateTime?
+
+  items SalesTakeItem[]
+
+  @@index([status])
+  @@map("sales_take_docs")
+}
+
+model SalesTakeItem {
+  id            String       @id @default(uuid())
+  doc_id        String
+  doc           SalesTakeDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
+  bin_code      String
+  material_code String
+  batch_number  String?
+  /// saldo buku SAAT dihitung — dikunci supaya replenishment yang masuk
+  /// belakangan tidak ikut terhitung sebagai penjualan
+  book_qty      Int
+  /// sisa fisik hasil hitung operator
+  actual_qty    Int
+  /// book - actual bila positif -> diposting sebagai GI penjualan (601)
+  sold_qty      Int          @default(0)
+  /// actual - book bila positif -> diposting sebagai penyesuaian (701)
+  surplus_qty   Int          @default(0)
+  /// nomor material document hasil posting
+  gi_document   String?
+  adj_document  String?
+  counted_by    String
+  counted_at    DateTime     @default(now())
+
+  @@index([doc_id])
+  @@index([bin_code])
+  @@map("sales_take_items")
 }
 
 // ---------------------------------------------------------------------

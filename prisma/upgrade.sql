@@ -691,3 +691,70 @@ ALTER TABLE "phys_inv_doc_items" ADD COLUMN IF NOT EXISTS "mfg_date" TIMESTAMP(3
 
 -- >>>
 ALTER TABLE "phys_inv_doc_items" ADD COLUMN IF NOT EXISTS "exp_date" TIMESTAMP(3);
+
+-- >>>
+-- ---------- SO PENJUALAN (T-Code ZRF09) ----------
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'SalesTakeStatus') THEN
+    CREATE TYPE "SalesTakeStatus" AS ENUM ('OPEN','CLOSED','CANCELLED');
+  END IF;
+END $$;
+
+-- >>>
+CREATE TABLE IF NOT EXISTS "sales_take_docs" (
+  "id"         TEXT NOT NULL,
+  "doc_number" TEXT NOT NULL,
+  "status"     "SalesTakeStatus" NOT NULL DEFAULT 'OPEN',
+  "reference"  TEXT,
+  "remarks"    TEXT,
+  "created_by" TEXT NOT NULL,
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "closed_at"  TIMESTAMP(3),
+  CONSTRAINT "sales_take_docs_pkey" PRIMARY KEY ("id")
+);
+
+-- >>>
+CREATE UNIQUE INDEX IF NOT EXISTS "sales_take_docs_doc_number_key" ON "sales_take_docs"("doc_number");
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "sales_take_docs_status_idx" ON "sales_take_docs"("status");
+
+-- >>>
+CREATE TABLE IF NOT EXISTS "sales_take_items" (
+  "id"            TEXT NOT NULL,
+  "doc_id"        TEXT NOT NULL,
+  "bin_code"      TEXT NOT NULL,
+  "material_code" TEXT NOT NULL,
+  "batch_number"  TEXT,
+  "book_qty"      INTEGER NOT NULL,
+  "actual_qty"    INTEGER NOT NULL,
+  "sold_qty"      INTEGER NOT NULL DEFAULT 0,
+  "surplus_qty"   INTEGER NOT NULL DEFAULT 0,
+  "gi_document"   TEXT,
+  "adj_document"  TEXT,
+  "counted_by"    TEXT NOT NULL,
+  "counted_at"    TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "sales_take_items_pkey" PRIMARY KEY ("id")
+);
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "sales_take_items_doc_id_idx" ON "sales_take_items"("doc_id");
+
+-- >>>
+CREATE INDEX IF NOT EXISTS "sales_take_items_bin_code_idx" ON "sales_take_items"("bin_code");
+
+-- >>>
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sales_take_items_doc_id_fkey') THEN
+    ALTER TABLE "sales_take_items"
+      ADD CONSTRAINT "sales_take_items_doc_id_fkey"
+      FOREIGN KEY ("doc_id") REFERENCES "sales_take_docs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+-- >>>
+INSERT INTO "system_settings" ("key","value","updated_by","updated_at")
+SELECT 'PDT_ZRF09', '1', 'UPGRADE', CURRENT_TIMESTAMP
+ WHERE NOT EXISTS (SELECT 1 FROM "system_settings" WHERE "key" = 'PDT_ZRF09');

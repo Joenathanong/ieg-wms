@@ -17,6 +17,8 @@ export const NR = {
   TRREQ: { key: 'TRREQ', start: 100, format: (n: number) => 'TR' + String(n).padStart(8, '0') },
   /** Physical Inventory Document (LI01N)        -> 100000101, ...                */
   PIDOC: { key: 'PIDOC', start: 100, format: (n: number) => String(100_000_000 + n) },
+  /** Dokumen SO Penjualan (ZRF09)               -> SO00000101, ...              */
+  SODOC: { key: 'SODOC', start: 100, format: (n: number) => 'SO' + String(n).padStart(8, '0') },
 } as const;
 
 export type NRKey = keyof typeof NR;
