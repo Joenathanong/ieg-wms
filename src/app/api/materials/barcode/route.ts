@@ -21,9 +21,9 @@ export async function GET(req: NextRequest) {
     const m = await prisma.material.findFirst({
       where: {
         OR: [
-          { material_code: { equals: code, mode: 'insensitive' } },
-          { barcode_bpom: { equals: code, mode: 'insensitive' } },
-          { barcode_produk: { equals: code, mode: 'insensitive' } },
+          { material_code: { equals: code } },
+          { barcode_bpom: { equals: code } },
+          { barcode_produk: { equals: code } },
         ],
       },
     });

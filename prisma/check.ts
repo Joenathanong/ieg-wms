@@ -18,7 +18,6 @@ function hostOf(url?: string): string {
 
 async function main() {
   console.log('→ DATABASE_URL host :', hostOf(process.env.DATABASE_URL));
-  console.log('→ DIRECT_URL host   :', hostOf(process.env.DIRECT_URL));
   console.log('');
 
   const t0 = Date.now();
@@ -30,12 +29,12 @@ async function main() {
     console.error('✖ Tidak bisa terhubung ke database.\n');
     if (/Can't reach database server|P1001/i.test(m)) {
       console.error('  Penyebab yang paling sering, berurutan:');
-      console.error('   1. Compute Neon sedang suspend / kuota jam-compute bulan ini habis.');
+      console.error('   1. Cluster TiDB Serverless sedang di-scale-to-zero / kuota bulan ini habis.');
       console.error('      Buka https://console.neon.tech → pilih project → lihat status Compute.');
       console.error('   2. Jaringan kantor memblokir port 5432 keluar.');
       console.error('   3. Endpoint berubah setelah branch di-reset — salin ulang connection string.');
     } else if (/password authentication failed|P1000/i.test(m)) {
-      console.error('  Username / password di .env salah. Salin ulang dari Neon console.');
+      console.error('  Username / password di .env salah. Salin ulang dari TiDB Cloud (Connect).');
     } else if (/does not exist/i.test(m)) {
       console.error('  Nama database di connection string tidak ditemukan.');
     }
@@ -44,10 +43,13 @@ async function main() {
   }
 
   // ringkasan isi database
-  const tables = await prisma.$queryRaw<{ table_name: string }[]>`
-    SELECT table_name FROM information_schema.tables
-     WHERE table_schema = 'public' ORDER BY table_name`;
-  console.log(`Tabel terpasang (${tables.length}):`, tables.map((t) => t.table_name).join(', ') || '(kosong)');
+  const tables = await prisma.$queryRaw<{ TABLE_NAME: string }[]>`
+    SELECT TABLE_NAME FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME`;
+  console.log(
+    `Tabel terpasang (${tables.length}):`,
+    tables.map((t) => t.TABLE_NAME).join(', ') || '(kosong)'
+  );
 
   const missing: string[] = [];
   const need = [
@@ -66,14 +68,14 @@ async function main() {
   ];
   for (const [t, c] of need) {
     const r = await prisma.$queryRaw<{ n: bigint }[]>`
-      SELECT COUNT(*)::bigint AS n FROM information_schema.columns
-       WHERE table_schema='public' AND table_name=${t} AND column_name=${c}`;
+      SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME=${t} AND COLUMN_NAME=${c}`;
     if (Number(r[0]?.n ?? 0) === 0) missing.push(`${t}.${c}`);
   }
 
   if (missing.length) {
     console.log('\n⚠  Skema tertinggal. Kolom yang belum ada:', missing.join(', '));
-    console.log('   Perbaiki tanpa kehilangan data dengan:  npm run db:upgrade');
+    console.log('   Perbaiki dengan:  npm run db:push  lalu  npm run db:upgrade');
   } else {
     console.log('\n✔ Skema sudah sesuai versi terbaru.');
     const u = await prisma.user.count();

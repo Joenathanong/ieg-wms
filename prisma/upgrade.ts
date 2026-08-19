@@ -1,14 +1,39 @@
 /**
- * Menjalankan prisma/upgrade.sql — upgrade skema TANPA menghapus data.
- * Aman diulang berkali-kali.
+ * Pelengkap skema untuk TiDB / MySQL — dijalankan SETELAH `npm run db:push`.
  *
- *   npm run db:upgrade
+ *   npm run db:push      <- membentuk seluruh tabel dari schema.prisma
+ *   npm run db:upgrade   <- skrip ini
+ *
+ * Tiga tugasnya:
+ *   1. menjalankan prisma/upgrade.sql (isian awal konfigurasi ZSET),
+ *   2. menyeragamkan collation seluruh tabel ke utf8mb4_general_ci supaya
+ *      pencarian tidak peka huruf besar-kecil,
+ *   3. melonggarkan kolom warisan NOT NULL yang tidak dikenal aplikasi.
+ *
+ * Aman diulang berkali-kali.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+/**
+ * Collation yang dipakai bila sebuah tabel perlu diperbaiki.
+ *
+ * PostgreSQL peka huruf besar-kecil dan aplikasi ini dulu mengandalkan
+ * `mode: 'insensitive'` milik Prisma — fitur yang TIDAK ada di MySQL/TiDB.
+ * Penggantinya adalah collation case-insensitive pada tabelnya, sehingga
+ * pencarian material dan barcode tetap berperilaku sama.
+ *
+ * Yang dibutuhkan aplikasi hanyalah SIFAT case-insensitive, bukan nama
+ * collation tertentu. Semua collation berakhiran `_ci` sudah memenuhinya
+ * (TiDB memakai utf8mb4_unicode_ci sebagai bawaan), jadi tabel seperti itu
+ * DIBIARKAN apa adanya — menulis ulang seluruh tabel tanpa manfaat hanya
+ * menambah risiko. Yang diperbaiki hanya tabel yang benar-benar peka huruf
+ * besar-kecil, mis. utf8mb4_bin.
+ */
+const TARGET_COLLATION = 'utf8mb4_general_ci';
 
 function label(sql: string): string {
   const line =
@@ -19,57 +44,72 @@ function label(sql: string): string {
   return line.replace(/\s+/g, ' ').slice(0, 78);
 }
 
+/** Pastikan tidak ada tabel yang peka huruf besar-kecil. */
+async function normalizeCollation() {
+  const tables = await prisma.$queryRaw<{ TABLE_NAME: string; TABLE_COLLATION: string | null }[]>`
+    SELECT TABLE_NAME, TABLE_COLLATION
+      FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+  `;
+
+  let changed = 0;
+  for (const t of tables) {
+    const coll = t.TABLE_COLLATION ?? '';
+    if (coll.endsWith('_ci')) continue; // sudah case-insensitive, biarkan
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE \`${t.TABLE_NAME}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE ${TARGET_COLLATION}`
+    );
+    console.log(`  ✔ ${t.TABLE_NAME} — ${coll || '?'} -> ${TARGET_COLLATION}`);
+    changed++;
+  }
+
+  console.log(
+    changed === 0
+      ? '\n✔ Semua tabel sudah case-insensitive.'
+      : `\n✔ ${changed} tabel diperbaiki ke ${TARGET_COLLATION}.`
+  );
+}
+
 /**
- * Longgarkan "kolom warisan": kolom yang masih NOT NULL tanpa default di
- * database, tetapi sudah tidak dikenal oleh skema Prisma saat ini.
- *
- * Kolom seperti ini muncul kalau sebuah field pernah dihapus/dipindah pada
- * versi aplikasi berikutnya (mis. `phys_inv_docs.bin_code` yang dulu menyimpan
- * satu bin per dokumen). Aplikasi tidak pernah mengisinya lagi, sementara
- * PostgreSQL tetap mewajibkannya — akibatnya SETIAP INSERT ke tabel itu ditolak
- * dengan "Null constraint violation" (Prisma P2011).
- *
- * Kolomnya sengaja TIDAK dihapus supaya data lama tetap bisa dibaca; cukup
- * dijadikan nullable agar tidak lagi memblokir baris baru.
+ * Longgarkan kolom yang masih NOT NULL tanpa default tetapi sudah tidak
+ * dikenal skema Prisma. Kolom seperti ini memblokir SETIAP INSERT ke tabelnya,
+ * karena Prisma tidak pernah mengirim nilainya.
  */
 async function relaxLegacyColumns() {
-  const models = Prisma.dmmf.datamodel.models;
   const found: string[] = [];
 
-  for (const m of models) {
+  for (const m of Prisma.dmmf.datamodel.models) {
     const table = m.dbName ?? m.name;
     const known = new Set(
       m.fields.filter((f) => f.kind !== 'object').map((f) => f.dbName ?? f.name)
     );
 
     const cols = await prisma.$queryRaw<
-      { column_name: string; is_nullable: string; column_default: string | null }[]
+      { COLUMN_NAME: string; IS_NULLABLE: string; COLUMN_DEFAULT: string | null; COLUMN_TYPE: string }[]
     >`
-      SELECT column_name, is_nullable, column_default
-        FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = ${table}
+      SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_TYPE
+        FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ${table}
     `;
 
     for (const c of cols) {
-      if (known.has(c.column_name)) continue;
-      if (c.is_nullable !== 'NO' || c.column_default) continue;
+      if (known.has(c.COLUMN_NAME)) continue;
+      if (c.IS_NULLABLE !== 'NO' || c.COLUMN_DEFAULT !== null) continue;
 
+      // MySQL butuh definisi tipe lengkap saat mengubah kolom
       await prisma.$executeRawUnsafe(
-        `ALTER TABLE "${table}" ALTER COLUMN "${c.column_name}" DROP NOT NULL`
+        `ALTER TABLE \`${table}\` MODIFY \`${c.COLUMN_NAME}\` ${c.COLUMN_TYPE} NULL`
       );
-      found.push(`${table}.${c.column_name}`);
-      console.log(`  ✔ ${table}.${c.column_name} — kolom warisan dilonggarkan (DROP NOT NULL)`);
+      found.push(`${table}.${c.COLUMN_NAME}`);
+      console.log(`  ✔ ${table}.${c.COLUMN_NAME} — kolom warisan dilonggarkan`);
     }
   }
 
-  if (found.length === 0) {
-    console.log('\n✔ Tidak ada kolom warisan yang memblokir INSERT.');
-  } else {
-    console.log(
-      `\n✔ ${found.length} kolom warisan dilonggarkan: ${found.join(', ')}\n` +
-        `   Kolom tidak dihapus — isi lamanya tetap tersimpan. Hapus manual bila sudah yakin tidak dibutuhkan.`
-    );
-  }
+  console.log(
+    found.length === 0
+      ? '\n✔ Tidak ada kolom warisan yang memblokir INSERT.'
+      : `\n✔ ${found.length} kolom warisan dilonggarkan: ${found.join(', ')}`
+  );
 }
 
 async function main() {
@@ -79,19 +119,19 @@ async function main() {
     .map((s) => s.trim())
     .filter((s) => s && !/^(--[^\n]*\n?)+$/.test(s));
 
-  console.log(`→ Menjalankan ${statements.length} langkah upgrade ...\n`);
+  // Collation dibereskan lebih dulu supaya statement di upgrade.sql tidak
+  // pernah membandingkan teks antar-collation yang berbeda.
+  await normalizeCollation();
 
-  let done = 0;
+  console.log(`\n→ Menjalankan ${statements.length} langkah isian awal ...\n`);
+
   for (const sql of statements) {
     try {
       await prisma.$executeRawUnsafe(sql);
-      done++;
       console.log(`  ✔ ${label(sql)}`);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
-      // beberapa langkah memang boleh gagal bila objek sudah ada
-      if (/already exists|duplicate/i.test(m)) {
-        done++;
+      if (/already exists|Duplicate/i.test(m)) {
         console.log(`  · ${label(sql)}  (sudah ada, dilewati)`);
       } else {
         console.error(`\n  ✖ GAGAL: ${label(sql)}`);
@@ -101,27 +141,19 @@ async function main() {
     }
   }
 
-  console.log(`\n✔ Upgrade selesai — ${done}/${statements.length} langkah.`);
-
   await relaxLegacyColumns();
-
-  const placeholder = await prisma.physInvDocItem.count({ where: { bin_code: '*MIGRASI*' } });
-  if (placeholder > 0) {
-    console.log(
-      `\n⚠  ${placeholder} baris stock opname lama tidak bisa ditebak bin-nya dan diberi kode '*MIGRASI*'.\n` +
-        `   Dokumen PI lama tersebut sebaiknya dibatalkan lalu dibuat ulang di LI01N.`
-    );
-  }
 
   const users = await prisma.user.count();
   if (users === 0) {
     console.log('\n⚠  Belum ada user sama sekali. Jalankan: npm run db:seed');
   }
+
+  console.log('\n✔ Selesai.');
 }
 
 main()
   .catch((e) => {
-    console.error('\nUpgrade dibatalkan. Tidak ada data yang dihapus.');
+    console.error('\nUpgrade dibatalkan.');
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);
   })

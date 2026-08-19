@@ -20,9 +20,37 @@ export interface SessionPayload {
   auth_role?: string | null;
 }
 
+/**
+ * Nilai cadangan untuk pengembangan lokal saja. Nilainya sengaja ditulis
+ * terang-terangan supaya jelas bahwa siapa pun yang membaca repositori ini
+ * bisa memakainya — karena itu di production nilai ini DITOLAK.
+ */
+const DEV_FALLBACK_SECRET = 'dev-only-insecure-secret-change-me-32chars';
+
+/**
+ * Kunci penandatangan session.
+ *
+ * Di production, AUTH_SECRET yang hilang, terlalu pendek, atau masih memakai
+ * nilai cadangan akan MENGGAGALKAN pembuatan dan pemeriksaan session — bukan
+ * diam-diam memakai nilai cadangan. Bedanya besar: dengan nilai cadangan,
+ * siapa pun yang tahu isinya bisa menempa token ADMIN, dan tidak akan ada
+ * satu pun gejala yang terlihat. Lebih baik aplikasi menolak login sama
+ * sekali (langsung ketahuan saat deploy) daripada berjalan mulus tanpa
+ * pengamanan sama sekali.
+ */
 function secretKey(): Uint8Array {
-  const s = process.env.AUTH_SECRET || 'dev-only-insecure-secret-change-me-32chars';
-  return new TextEncoder().encode(s);
+  const s = process.env.AUTH_SECRET ?? '';
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (isProd && (s.length < 32 || s === DEV_FALLBACK_SECRET)) {
+    throw new Error(
+      'AUTH_SECRET belum diisi dengan benar di lingkungan production. ' +
+        'Isi environment variable AUTH_SECRET dengan string acak minimal 32 karakter: ' +
+        'node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64url\'))"'
+    );
+  }
+
+  return new TextEncoder().encode(s || DEV_FALLBACK_SECRET);
 }
 
 export async function signSession(payload: SessionPayload): Promise<string> {

@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireAdmin, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { RESTRICTABLE_TCODES } from '@/lib/tcodes';
+import { fromDbList, toDbList } from '@/lib/dblist';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ export async function GET() {
         id: r.id,
         role_name: r.role_name,
         description: r.description,
-        tcodes: r.tcodes,
+        tcodes: fromDbList(r.tcodes),
         user_count: r._count.users,
         updated_at: r.updated_at,
       })),
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
     if (exists) throw new HttpError(409, `Role ${role_name} already exists.`);
 
     const role = await prisma.authRole.create({
-      data: { role_name, description: cleanStr(b.description), tcodes },
+      data: { role_name, description: cleanStr(b.description), tcodes: toDbList(tcodes) },
     });
 
     return ok(role, `Role ${role_name} created by ${admin.username}`);

@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt, toDate, normBatch } from '@/lib/api';
 import { BinStatus, PhysInvStatus } from '@prisma/client';
+import { fromDbList, toDbList } from '@/lib/dblist';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -37,7 +38,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     // Baris snapshot menyimpan qty saja; shelf life-nya ada di quant. Diambil
     // supaya layar counting bisa menampilkan Exp/Mfg date apa adanya.
     const quants = await prisma.stockWM.findMany({
-      where: { bin_code: { in: doc.frozen_bins } },
+      where: { bin_code: { in: fromDbList(doc.frozen_bins) } },
       select: { material_code: true, bin_code: true, batch_number: true, mfg_date: true, exp_date: true },
     });
     const qKey = (m: string, b: string, batch: string | null) => `${m}|${b}|${batch ?? ''}`;
@@ -46,6 +47,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     return ok(
       {
         ...doc,
+        // kolomnya teks di database, tetapi API selalu memberi array
+        frozen_bins: fromDbList(doc.frozen_bins),
         items: doc.items.map((i) => {
           const q = qMap.get(qKey(i.material_code, i.bin_code, i.batch_number));
           return {
@@ -57,7 +60,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           };
         }),
       },
-      `Document ${doc.doc_number} displayed — ${doc.items.length} line(s) across ${doc.frozen_bins.length} bin(s)`
+      `Document ${doc.doc_number} displayed — ${doc.items.length} line(s) across ${fromDbList(doc.frozen_bins).length} bin(s)`
     );
   });
 }
@@ -122,7 +125,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           } else {
             if (!material_code) throw new HttpError(400, 'Material number is mandatory for new count item.');
             if (!bin_code) throw new HttpError(400, 'Storage bin is mandatory for new count item.');
-            if (!d.frozen_bins.includes(bin_code))
+            if (!fromDbList(d.frozen_bins).includes(bin_code))
               throw new HttpError(400, `Bin ${bin_code} is not part of document ${d.doc_number}.`);
 
             const mat = await tx.material.findUnique({ where: { material_code } });
@@ -161,7 +164,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           byBin.set(i.bin_code, e);
         }
 
-        const done = new Set(countedBins.filter((c) => d.frozen_bins.includes(c)));
+        const frozen = fromDbList(d.frozen_bins);
+        const done = new Set(countedBins.filter((c) => frozen.includes(c)));
         for (const [bin, e] of byBin) {
           if (e.total > 0 && e.total === e.filled) done.add(bin);
         }
@@ -186,7 +190,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const counted = doc.items.filter((i) => i.counted_qty !== null).length;
     const binsDone = doc.bins.filter((x) => x.counted_at !== null).length;
     return ok(
-      doc,
+      { ...doc, frozen_bins: fromDbList(doc.frozen_bins) },
       `Count saved for ${doc.doc_number} — ${binsDone}/${doc.bins.length} bin(s) done, ` +
         `${counted}/${doc.items.length} line(s) counted, net difference ${diff > 0 ? '+' : ''}${diff}`
     );
@@ -210,7 +214,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
       await tx.physInvDoc.delete({ where: { id: d.id } });
 
       // release semua bin sesuai stok aktual
-      for (const bin_code of d.frozen_bins) {
+      for (const bin_code of fromDbList(d.frozen_bins)) {
         const agg = await tx.stockWM.aggregate({ where: { bin_code }, _sum: { qty: true } });
         await tx.storageBin.updateMany({
           where: { bin_code },
@@ -220,6 +224,9 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
       return d;
     }, { timeout: 30000, maxWait: 10000 });
 
-    return ok({ id: doc.id }, `Document ${doc.doc_number} deleted — ${doc.frozen_bins.length} bin(s) released`);
+    return ok(
+      { id: doc.id },
+      `Document ${doc.doc_number} deleted — ${fromDbList(doc.frozen_bins).length} bin(s) released`
+    );
   });
 }

@@ -5,6 +5,7 @@ import { handle, ok } from '@/lib/api';
 import { nextDocNumber } from '@/lib/docnum';
 import { applyStockIM, applyStockWM } from '@/lib/wms';
 import { BinStatus, MovementType, PhysInvStatus } from '@prisma/client';
+import { fromDbList, toDbList } from '@/lib/dblist';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -115,7 +116,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         }
 
         // release semua bin yang di-freeze
-        for (const bin_code of doc.frozen_bins) {
+        for (const bin_code of fromDbList(doc.frozen_bins)) {
           const agg = await tx.stockWM.aggregate({ where: { bin_code }, _sum: { qty: true } });
           await tx.storageBin.updateMany({
             where: { bin_code },
@@ -128,7 +129,11 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
           data: { status: PhysInvStatus.POSTED, posted_at: new Date() },
         });
 
-        return { doc_number: doc.doc_number, bins: doc.frozen_bins.length, documents: docs };
+        return {
+          doc_number: doc.doc_number,
+          bins: fromDbList(doc.frozen_bins).length,
+          documents: docs,
+        };
       },
       { timeout: 60000, maxWait: 15000 }
     );

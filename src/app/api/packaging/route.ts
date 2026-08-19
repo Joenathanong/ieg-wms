@@ -4,6 +4,7 @@ import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /** GET /api/packaging?material=  — daftar tipe kemasan / pallet */
 export async function GET(req: NextRequest) {

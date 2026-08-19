@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { CommandField } from './CommandField';
+import { DbStatus } from '@/components/sap/DbStatus';
 import { Sidebar } from './Sidebar';
 import { StatusBar, StatusProvider, useStatus } from './StatusBar';
 import { ThemeToggle } from './ThemeToggle';
@@ -83,6 +84,9 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
               </span>
             )}
           </span>
+          {/* Indikator koneksi database — sengaja ditaruh persis di sebelah
+              identitas user, tempat operator sudah biasa melihat status sesi. */}
+          <DbStatus />
           <ThemeToggle className="!px-2 !py-1.5 sm:!px-1.5 sm:!py-1" />
           <Link
             href="/help"

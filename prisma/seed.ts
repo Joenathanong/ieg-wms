@@ -8,6 +8,33 @@
  */
 import { PrismaClient, BinStatus, MovementType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { ZONES } from '../src/lib/zones';
+import { SETTING_DEFAULTS } from '../src/lib/settings';
+
+/**
+ * `npm run db:seed -- --minimal`
+ *
+ * Mode untuk database SUNGGUHAN: hanya menanam yang memang dibutuhkan supaya
+ * aplikasi bisa dipakai — user, konfigurasi, master zona, dan bin transit.
+ * Material contoh, master pallet contoh, operator contoh, dan saldo awal
+ * contoh TIDAK dibuat. Tanpa ini, database produksi lahir berisi barang
+ * karangan yang harus dibersihkan satu per satu.
+ */
+const MINIMAL = process.argv.slice(2).includes('--minimal');
+
+/**
+ * Password ADMIN awal. Wajib diisi pada mode --minimal: 'admin123' tertulis
+ * di repositori ini, jadi memakainya di sistem yang bisa diakses publik sama
+ * saja dengan tidak memasang password.
+ */
+const ADMIN_PASSWORD = process.env.BOOTSTRAP_ADMIN_PASSWORD ?? '';
+if (MINIMAL && ADMIN_PASSWORD.length < 8) {
+  console.error(
+    '\n✖ Mode --minimal butuh BOOTSTRAP_ADMIN_PASSWORD minimal 8 karakter.\n' +
+      '  Contoh:  BOOTSTRAP_ADMIN_PASSWORD="..." npm run db:seed -- --minimal\n'
+  );
+  process.exit(1);
+}
 
 const prisma = new PrismaClient();
 
@@ -103,21 +130,12 @@ const INITIAL = [
   { material_code: 'SP-1002', bin_code: 'GK-B-01-02-1', batch: null, mfg: null, exp: null, qty: 25 },
 ];
 
-const SETTINGS = [
-  { key: 'PDT_ENABLED', value: '1' },
-  { key: 'AUTO_SPLIT_PALLET', value: '1' },
-  { key: 'PDT_STRICT_FEFO', value: '0' },
-  { key: 'DEFAULT_GR_BIN', value: 'TRN-IN-01' },
-  { key: 'DEFAULT_GI_BIN', value: 'TRN-OUT-01' },
-  { key: 'PDT_ZRF01', value: '1' },
-  { key: 'PDT_ZRF02', value: '1' },
-  { key: 'PDT_ZRF03', value: '1' },
-  { key: 'PDT_ZRF04', value: '1' },
-  { key: 'PDT_ZRF05', value: '1' },
-  { key: 'PDT_ZRF06', value: '1' },
-  { key: 'PDT_ZRF07', value: '1' },
-  { key: 'PDT_ZRF08', value: '1' },
-];
+// Diturunkan dari SETTING_DEFAULTS supaya tidak pernah ketinggalan saat ada
+// setting baru — dulu daftar ini ditulis manual dan sempat tertinggal ZRF09.
+const SETTINGS = (Object.keys(SETTING_DEFAULTS) as (keyof typeof SETTING_DEFAULTS)[]).map((key) => ({
+  key,
+  value: SETTING_DEFAULTS[key],
+}));
 
 async function main() {
   console.log('→ Seeding users ...');
@@ -126,13 +144,13 @@ async function main() {
     create: {
       username: 'ADMIN',
       full_name: 'System Administrator',
-      password_hash: await bcrypt.hash('admin123', 10),
+      password_hash: await bcrypt.hash(ADMIN_PASSWORD || 'admin123', 10),
       role: 'ADMIN',
       pdt_enabled: true,
     },
     update: { pdt_enabled: true },
   });
-  await prisma.user.upsert({
+  if (!MINIMAL) await prisma.user.upsert({
     where: { username: 'WHOPR01' },
     create: {
       username: 'WHOPR01',
@@ -143,7 +161,7 @@ async function main() {
     },
     update: { pdt_enabled: true },
   });
-  await prisma.user.upsert({
+  if (!MINIMAL) await prisma.user.upsert({
     where: { username: 'WHOPR02' },
     create: {
       username: 'WHOPR02',
@@ -164,13 +182,13 @@ async function main() {
     });
   }
 
-  console.log('→ Seeding materials ...');
-  for (const m of MATERIALS) {
+  console.log(MINIMAL ? '· Material contoh dilewati (--minimal)' : '→ Seeding materials ...');
+  for (const m of MINIMAL ? [] : MATERIALS) {
     await prisma.material.upsert({ where: { material_code: m.material_code }, create: m, update: m });
   }
 
-  console.log('→ Seeding palletization master ...');
-  for (const p of PACKAGINGS) {
+  console.log(MINIMAL ? '· Master pallet contoh dilewati (--minimal)' : '→ Seeding palletization master ...');
+  for (const p of MINIMAL ? [] : PACKAGINGS) {
     await prisma.packagingType.upsert({
       where: { material_code_pack_code: { material_code: p.material_code, pack_code: p.pack_code } },
       create: p,
@@ -178,8 +196,33 @@ async function main() {
     });
   }
 
-  console.log('→ Seeding storage bins ...');
-  for (const b of buildBins()) {
+  // Zona harus ada SEBELUM bin: bin menunjuk zone_id, dan LS01N menolak bin
+  // yang zonanya tidak terdaftar di master.
+  console.log('→ Seeding zones ...');
+  for (const z of ZONES) {
+    await prisma.zone.upsert({
+      where: { zone_code: z.code },
+      create: {
+        zone_code: z.code,
+        label: z.label,
+        zone_group: z.group,
+        bin_pattern: z.binPattern ?? null,
+        is_interim: !!z.interim,
+        is_pick: !!z.pick,
+        is_active: true,
+      },
+      // Zona yang sudah ada tidak ditimpa — perubahan admin di ZZONE
+      // (mis. ganti label atau menonaktifkan zona) harus bertahan.
+      update: {},
+    });
+  }
+
+  // Pada --minimal hanya bin TRANSIT yang dibuat: MIGO 101/201 menolak posting
+  // bila bin interim tidak ada, sedangkan rak sungguhan diunggah lewat ZUPLOAD
+  // sesuai denah gudang — bukan memakai contoh dari skrip ini.
+  const binsToSeed = MINIMAL ? buildBins().filter((b) => b.is_interim) : buildBins();
+  console.log(`→ Seeding storage bins (${binsToSeed.length}) ...`);
+  for (const b of binsToSeed) {
     await prisma.storageBin.upsert({
       where: { bin_code: b.bin_code },
       create: { ...b, is_interim: b.is_interim ?? false, status: BinStatus.EMPTY },
@@ -187,14 +230,14 @@ async function main() {
     });
   }
 
-  console.log('→ Seeding initial stock (561) ...');
+  console.log(MINIMAL ? '· Saldo awal contoh dilewati (--minimal)' : '→ Seeding initial stock (561) ...');
   await prisma.documentCounter.upsert({
     where: { key: 'MATDOC' },
     create: { key: 'MATDOC', last_num: 100 },
     update: {},
   });
 
-  for (const s of INITIAL) {
+  for (const s of MINIMAL ? [] : INITIAL) {
     const exists = await prisma.stockWM.findFirst({
       where: { material_code: s.material_code, bin_code: s.bin_code, batch_number: s.batch },
     });
@@ -242,10 +285,17 @@ async function main() {
     });
   }
 
-  console.log('✔ Seed selesai.');
-  console.log('  Login admin    : ADMIN / admin123        (PDT aktif)');
-  console.log('  Login operator : WHOPR01 / operator123   (PDT aktif)');
-  console.log('  Login operator : WHOPR02 / operator123   (PDT nonaktif)');
+  console.log('\n✔ Seed selesai.');
+  if (MINIMAL) {
+    console.log('  Mode          : --minimal (tanpa data contoh)');
+    console.log('  Login admin   : ADMIN / (BOOTSTRAP_ADMIN_PASSWORD)');
+    console.log('  Berikutnya    : buat user di SU01, unggah master & bin lewat ZUPLOAD.');
+  } else {
+    console.log('  Login admin    : ADMIN / admin123        (PDT aktif)');
+    console.log('  Login operator : WHOPR01 / operator123   (PDT aktif)');
+    console.log('  Login operator : WHOPR02 / operator123   (PDT nonaktif)');
+    console.log('\n  ⚠ Berisi data CONTOH. Untuk database sungguhan pakai: npm run db:seed -- --minimal');
+  }
 }
 
 main()

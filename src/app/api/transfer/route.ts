@@ -5,7 +5,7 @@ import { handle, ok, cleanStr, toInt, toDate, normBatch } from '@/lib/api';
 import { postBinTransfer } from '@/lib/wms';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 /**
  * POST /api/transfer  — LT01 (single) & LT10 (mass)

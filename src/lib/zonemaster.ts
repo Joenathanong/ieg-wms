@@ -37,24 +37,44 @@ export function seedZoneRows(): ZoneRow[] {
   }));
 }
 
+function toRows(rows: { zone_code: string; label: string; zone_group: string; bin_pattern: string | null; is_interim: boolean; is_pick: boolean; is_active: boolean }[]): ZoneRow[] {
+  return rows.map((z) => ({
+    zone_code: z.zone_code,
+    label: z.label,
+    zone_group: z.zone_group,
+    bin_pattern: z.bin_pattern,
+    is_interim: z.is_interim,
+    is_pick: z.is_pick,
+    is_active: z.is_active,
+  }));
+}
+
 /**
- * Baca seluruh zona. Bila tabel belum ada (upgrade belum dijalankan) atau masih
- * kosong, kembalikan konstanta bawaan supaya aplikasi tetap jalan.
+ * Baca seluruh zona.
+ *
+ * Bila tabel ADA tetapi masih kosong, isinya ditanam lebih dulu dari konstanta
+ * bawaan, lalu dibaca ulang.
+ *
+ * Ini memperbaiki jebakan yang halus pada versi sebelumnya: dulu tabel kosong
+ * langsung dijawab dengan konstanta, tanpa menuliskannya. Layar ZZONE jadi
+ * memperlihatkan 13 zona yang sebenarnya TIDAK ADA di database. Begitu admin
+ * menambah satu zona sungguhan, tabel tidak lagi kosong, jalur konstanta
+ * berhenti dipakai, dan ke-13 zona tadi lenyap dari layar — persis seperti
+ * terhapus, padahal tidak pernah tersimpan.
+ *
+ * Konstanta sekarang hanya dipakai bila tabelnya benar-benar belum dibuat
+ * (`db:push` belum dijalankan), yaitu keadaan di mana menulis pun mustahil.
  */
 export async function listZones(): Promise<ZoneRow[]> {
   try {
     const rows = await prisma.zone.findMany({ orderBy: { zone_code: 'asc' } });
-    if (rows.length > 0) {
-      return rows.map((z) => ({
-        zone_code: z.zone_code,
-        label: z.label,
-        zone_group: z.zone_group,
-        bin_pattern: z.bin_pattern,
-        is_interim: z.is_interim,
-        is_pick: z.is_pick,
-        is_active: z.is_active,
-      }));
-    }
+    if (rows.length > 0) return toRows(rows);
+
+    // Tabel kosong -> tanam bawaan sekali, lalu baca ulang. Aman bila dua
+    // permintaan melakukannya bersamaan: createMany memakai skipDuplicates.
+    await seedZones();
+    const seeded = await prisma.zone.findMany({ orderBy: { zone_code: 'asc' } });
+    if (seeded.length > 0) return toRows(seeded);
   } catch {
     /* tabel belum dibuat — pakai konstanta */
   }

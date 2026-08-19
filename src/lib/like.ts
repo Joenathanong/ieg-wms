@@ -9,6 +9,18 @@
  *   A*B*C      -> diawali "A", mengandung "B", diakhiri "C"
  *
  * Semua perbandingan case-insensitive.
+ *
+ * CARA case-insensitive-nya berbeda dari versi PostgreSQL. Di sana dipakai
+ * `mode: 'insensitive'` milik Prisma — opsi yang HANYA ada untuk PostgreSQL
+ * dan MongoDB; di MySQL/TiDB Prisma menolaknya dengan "Unknown argument `mode`".
+ *
+ * Di MySQL/TiDB sifat itu melekat pada COLLATION tabel, bukan pada query.
+ * Database ini memakai collation berakhiran `_ci` (utf8mb4_unicode_ci), yang
+ * artinya LIKE dan '=' sudah mengabaikan besar-kecil huruf dengan sendirinya.
+ * Jadi opsi `mode` cukup dihapus — perilakunya tetap sama.
+ *
+ * `npm run db:diag` memeriksa collation ini dan memperingatkan bila ada tabel
+ * yang peka huruf besar-kecil; `npm run db:upgrade` yang memperbaikinya.
  */
 
 export interface WildcardPattern {
@@ -41,14 +53,14 @@ export function parseWildcard(term: string): WildcardPattern | null {
 export function likeWhere(field: string, term: string): Record<string, unknown>[] {
   const p = parseWildcard(term);
   if (!p) return [];
-  const mode = 'insensitive' as const;
 
-  if (!p.wildcard) return [{ [field]: { contains: p.contains[0], mode } }];
+  // Tanpa `mode: 'insensitive'` — lihat catatan di kepala file.
+  if (!p.wildcard) return [{ [field]: { contains: p.contains[0] } }];
 
   const out: Record<string, unknown>[] = [];
-  if (p.startsWith) out.push({ [field]: { startsWith: p.startsWith, mode } });
-  if (p.endsWith) out.push({ [field]: { endsWith: p.endsWith, mode } });
-  for (const c of p.contains) out.push({ [field]: { contains: c, mode } });
+  if (p.startsWith) out.push({ [field]: { startsWith: p.startsWith } });
+  if (p.endsWith) out.push({ [field]: { endsWith: p.endsWith } });
+  for (const c of p.contains) out.push({ [field]: { contains: c } });
   return out;
 }
 

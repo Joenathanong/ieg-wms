@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireAdmin, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { RESTRICTABLE_TCODES } from '@/lib/tcodes';
+import { fromDbList, toDbList } from '@/lib/dblist';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     if (b.tcodes !== undefined) {
       const tcodes = validateTcodes(b.tcodes);
       if (tcodes.length === 0) throw new HttpError(400, 'Select at least one T-Code for this role.');
-      data.tcodes = tcodes;
+      data.tcodes = toDbList(tcodes);
     }
     if (Object.keys(data).length === 0) throw new HttpError(400, 'No changes were made.');
 

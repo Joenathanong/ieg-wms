@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireAdmin, requireUser, hashPassword, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { UserRole } from '@prisma/client';
+import { fromDbList, toDbList } from '@/lib/dblist';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,15 @@ export async function GET() {
         created_at: true,
       },
     });
-    return ok(users, `${users.length} user(s) selected`);
+    // tcodes disimpan sebagai teks di database, tetapi API selalu
+    // mengembalikannya sebagai array supaya layar tidak perlu berubah.
+    const rows = users.map((u) => ({
+      ...u,
+      auth_role: u.auth_role
+        ? { ...u.auth_role, tcodes: fromDbList(u.auth_role.tcodes) }
+        : null,
+    }));
+    return ok(rows, `${rows.length} user(s) selected`);
   });
 }
 

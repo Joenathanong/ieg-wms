@@ -1,5 +1,5 @@
 // =====================================================================
-//  WMS SAP LITE — Prisma Schema (PostgreSQL / Neon.tech / Supabase)
+//  IEG WMS — Prisma Schema (TiDB Serverless / protokol MySQL)
 //  Mengadopsi logika SAP S/4HANA Modul WM (Warehouse Mgmt) & IM (Inventory Mgmt)
 //
 //  Alur 2-step:
@@ -10,10 +10,14 @@ generator client {
   provider = "prisma-client-js"
 }
 
+/// TiDB Serverless memakai protokol MySQL.
+/// `relationMode = "prisma"` dipakai karena TiDB Serverless tidak menjamin
+/// dukungan foreign key seperti MySQL biasa — integritas relasi ditegakkan
+/// Prisma di sisi aplikasi, dan setiap relasi wajib punya index sendiri.
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
 }
 
 // ---------------------------------------------------------------------
@@ -90,8 +94,8 @@ enum TrStatus {
 model Material {
   id               String   @id @default(uuid())
   material_code    String   @unique
-  description      String
-  uom              String   @default("PC")
+  description      String   @db.VarChar(255)
+  uom              String   @default("PC") @db.VarChar(16)
   is_batch_managed Boolean  @default(true)
   min_safety_stock Int      @default(0)
   /// Barcode B-POM (registrasi BPOM) — dipakai lookup scan PDT
@@ -99,7 +103,7 @@ model Material {
   /// Barcode produk (EAN/UPC kemasan) — dipakai lookup scan PDT
   barcode_produk   String?
   /// Kode OCS — identifier panjang, mis. GIMMICK-HANASUI-EYEMAZING-EYESHADOW-PALETTE-SUNSET
-  kode_ocs         String?
+  kode_ocs         String?  @db.VarChar(255)
   /// Fix bin — bin picking tetap material ini; saran tujuan replenishment ZRF08
   fix_bin          String?
   created_at       DateTime @default(now())
@@ -127,7 +131,7 @@ model PackagingType {
   su_type       String   @default("PAL")
   /// kelompok gudang: BESAR | KECIL | null (berlaku untuk semua)
   zone_group    String?
-  description   String   @default("")
+  description   String   @default("") @db.VarChar(255)
   /// jumlah base UoM per 1 unit kemasan (mis. 1000 PC per pallet)
   qty_per_unit  Int
   is_default    Boolean  @default(false)
@@ -146,9 +150,9 @@ model CostCenter {
   id          String   @id @default(uuid())
   /// contoh: CC-PROD-01, CC-MAINT
   cost_center String   @unique
-  description String
+  description String   @db.VarChar(255)
   /// departemen / pemilik anggaran, bebas diisi
-  department  String?
+  department  String?  @db.VarChar(255)
   is_active   Boolean  @default(true)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
@@ -164,7 +168,7 @@ model Zone {
   id          String   @id @default(uuid())
   /// contoh: GB-HDR, GB-PICK, GK-BIN, TRANSIT-IN
   zone_code   String   @unique
-  label       String
+  label       String   @db.VarChar(255)
   /// kelompok gudang untuk palletization: BESAR | KECIL | TRANSIT | LAIN
   zone_group  String   @default("LAIN")
   /// contoh format bin yang disarankan, dipakai sebagai hint di LS01N
@@ -213,8 +217,8 @@ model SalesTakeDoc {
   doc_number String          @unique
   status     SalesTakeStatus @default(OPEN)
   /// penanda periode / shift, mis. "SHIFT-1 13.08"
-  reference  String?
-  remarks    String?
+  reference  String?      @db.VarChar(255)
+  remarks    String?      @db.VarChar(255)
   created_by String
   created_at DateTime        @default(now())
   closed_at  DateTime?
@@ -302,8 +306,8 @@ model MigoLog {
   batch_number    String?
   qty             Int
   uom             String       @default("PC")
-  reference       String?
-  remarks         String?
+  reference       String?      @db.VarChar(255)
+  remarks         String?      @db.VarChar(255)
   /// cost center pembebanan — wajib untuk movement 201 (GI Cost Center)
   cost_center     String?
   /// nomor Transfer Requirement terkait (bila ada)
@@ -349,8 +353,8 @@ model TransferReq {
   status     TrStatus @default(OPEN)
   /// nomor material document asal (MIGO 101) bila ada
   ref_doc    String?
-  reference  String?
-  remarks    String?
+  reference  String?  @db.VarChar(255)
+  remarks    String?  @db.VarChar(255)
   /// cost center pembebanan untuk TR PICK (201) — dibawa ke dokumen goods issue
   cost_center String?
   created_by String
@@ -400,9 +404,13 @@ model PhysInvDoc {
   /// BIN_LIST | ZONE | ALL — cara pemilihan cakupan dokumen
   scope_type   String        @default("BIN_LIST")
   /// deskripsi cakupan, mis. "RACK-FAST" atau "A-01-01-1, A-01-02-1"
-  scope_value  String        @default("")
-  /// daftar bin yang di-freeze oleh dokumen ini (untuk di-release saat posting/cancel)
-  frozen_bins  String[]      @default([])
+  scope_value  String        @default("") @db.VarChar(500)
+  /// Daftar bin yang di-freeze dokumen ini, dipisah koma.
+  /// MySQL/TiDB tidak punya tipe array — konversi ke array dilakukan di
+  /// lapisan API lewat `fromDbList`/`toDbList` (src/lib/dblist.ts).
+  /// Tanpa @default: MySQL/TiDB melarang DEFAULT pada kolom TEXT.
+  /// Nilainya selalu diisi saat create (lihat api/physinv/route.ts).
+  frozen_bins  String        @db.Text
   status       PhysInvStatus @default(CREATED)
   planned_date DateTime      @default(now())
   counted_at   DateTime?
@@ -470,9 +478,11 @@ model PhysInvDocItem {
 model AuthRole {
   id          String   @id @default(uuid())
   role_name   String   @unique
-  description String   @default("")
+  description String   @default("") @db.VarChar(255)
   /// daftar T-Code yang diizinkan, mis. ["MIGO","MB51","ZRF04","ZRF08"]
-  tcodes      String[] @default([])
+  /// Daftar T-Code yang diizinkan, dipisah koma (lihat src/lib/dblist.ts).
+  /// Tanpa @default: MySQL/TiDB melarang DEFAULT pada kolom TEXT.
+  tcodes      String   @db.Text
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
@@ -484,7 +494,7 @@ model AuthRole {
 model User {
   id            String    @id @default(uuid())
   username      String    @unique
-  full_name     String
+  full_name     String    @db.VarChar(255)
   password_hash String
   role          UserRole  @default(OPERATOR)
   is_active     Boolean   @default(true)

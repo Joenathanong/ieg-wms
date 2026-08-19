@@ -6,6 +6,7 @@ import { nextDocNumber } from '@/lib/docnum';
 import { SalesTakeStatus } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /**
  * GET /api/salestake?status=

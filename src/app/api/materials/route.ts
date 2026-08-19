@@ -62,8 +62,8 @@ export async function POST(req: NextRequest) {
       const dup = await prisma.material.findFirst({
         where: {
           OR: [
-            { barcode_bpom: { equals: val, mode: 'insensitive' } },
-            { barcode_produk: { equals: val, mode: 'insensitive' } },
+            { barcode_bpom: { equals: val } },
+            { barcode_produk: { equals: val } },
           ],
         },
       });

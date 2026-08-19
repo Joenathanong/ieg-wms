@@ -41,7 +41,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
-      <body>{children}</body>
+      {/* suppressHydrationWarning: ekstensi browser (Grammarly dkk) menyuntikkan
+          atribut seperti data-gr-ext-installed ke <body> sebelum React sempat
+          hydrate. Itu di luar kendali aplikasi dan tidak perlu jadi error. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

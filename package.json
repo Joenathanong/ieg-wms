@@ -1,5 +1,5 @@
 {
-  "name": "wms-sap-lite",
+  "name": "ieg-wms",
   "version": "1.0.0",
   "private": true,
   "description": "Lightweight SAP S/4HANA-style Warehouse Management System (WM/IM) - Next.js + Prisma + PostgreSQL",
@@ -14,6 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:upgrade": "tsx prisma/upgrade.ts",
     "db:check": "tsx prisma/check.ts",
+    "db:url": "tsx prisma/url.ts",
     "db:diag": "tsx prisma/diag.ts",
     "db:reset": "tsx prisma/reset.ts",
     "db:studio": "prisma studio"

@@ -27,8 +27,9 @@ async function loadKpi() {
       prisma.migoLog.count({
         where: { doc_date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
       }),
+      // MySQL/TiDB: COUNT(*) sudah BIGINT, tidak perlu cast seperti di PostgreSQL
       prisma.$queryRaw<{ count: bigint }[]>`
-        SELECT COUNT(*)::bigint AS count
+        SELECT COUNT(*) AS count
         FROM materials m
         LEFT JOIN stock_im s ON s.material_code = m.material_code
         WHERE COALESCE(s.total_qty, 0) < m.min_safety_stock AND m.min_safety_stock > 0

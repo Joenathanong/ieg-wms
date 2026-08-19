@@ -1,10 +1,14 @@
-# WMS LITE — Warehouse Management System (SAP S/4HANA Style)
+# IEG WMS — Warehouse Management System (SAP S/4HANA Style) · **edisi TiDB**
 
 Aplikasi Full-Stack WMS Lightweight berbasis web yang mengadopsi logika **SAP S/4HANA Modul WM/IM**
 dengan dua tema visual: **Quartz Dark / Dark Crystal** (default) dan **SAP Morning Horizon** (light).
 Toggle tema ada di top bar (ikon matahari/bulan); preferensi disimpan per browser.
 
-Siap deploy gratis di **Vercel** (Serverless Next.js) + **Neon.tech / Supabase** (PostgreSQL).
+Siap deploy gratis di **Vercel** (Serverless Next.js) + **TiDB Serverless** (protokol MySQL).
+
+> **Edisi TiDB.** Repo ini adalah salinan `wms-sap-lite` yang databasenya dialihkan dari
+> PostgreSQL (Neon) ke **TiDB Serverless**. Seluruh fungsi, layar, dan T-Code identik —
+> yang berubah hanya lapisan database. Perbedaannya dirangkum di **bagian 1b**.
 
 ---
 
@@ -16,7 +20,7 @@ Siap deploy gratis di **Vercel** (Serverless Next.js) + **Neon.tech / Supabase**
 | Styling | Tailwind CSS + Lucide Icons |
 | Excel Parser | SheetJS (`xlsx`) — dijalankan **di browser** |
 | ORM | Prisma ORM |
-| Database | PostgreSQL (Neon.tech / Supabase) |
+| Database | **TiDB Serverless** (protokol MySQL) |
 | Auth | JWT (jose) di HttpOnly cookie + bcryptjs |
 
 > **Catatan keamanan dependensi.** `npm audit` = **0 vulnerabilities**.
@@ -24,6 +28,27 @@ Siap deploy gratis di **Vercel** (Serverless Next.js) + **Neon.tech / Supabase**
 > (RCE, CVSS 10.0). SheetJS diambil dari **CDN resmi SheetJS** (`cdn.sheetjs.com`), bukan npm registry,
 > karena versi npm (0.18.5) sudah tidak di-maintain. Kalau CDN tidak bisa diakses dari jaringan Anda,
 > ganti baris `xlsx` di `package.json` menjadi `"xlsx": "^0.18.5"`.
+
+---
+
+## 1b. Perbedaan terhadap edisi PostgreSQL
+
+MySQL — dan karenanya TiDB — tidak punya beberapa hal yang dipakai edisi PostgreSQL.
+Tiga penyesuaian di bawah ini adalah SATU-SATUNYA perbedaan perilaku; sisanya identik.
+
+| Hal | PostgreSQL (Neon) | TiDB (repo ini) |
+|---|---|---|
+| Daftar dalam satu kolom | tipe array `text[]` (`frozen_bins`, `tcodes`) | teks dipisah koma; konversi di `src/lib/dblist.ts`. **API tetap mengirim & menerima array**, jadi tidak ada layar yang berubah |
+| Pencarian tanpa peka huruf | `mode: 'insensitive'` milik Prisma | collation `utf8mb4_general_ci` pada tabel, diseragamkan oleh `npm run db:upgrade` |
+| Pembentukan skema | `prisma/upgrade.sql` 118 langkah bertahap | `npm run db:push` langsung dari `schema.prisma`; `upgrade.sql` tinggal berisi isian konfigurasi awal |
+
+Catatan lain: `DIRECT_URL` tidak dipakai lagi (khusus Neon), dan relasi memakai
+`relationMode = "prisma"` sehingga integritas antar tabel dijaga Prisma, bukan foreign key
+database. Setiap relasi karena itu wajib punya index — sudah terpasang semua.
+
+**Yang masih perlu diperhatikan saat beban tinggi:** TiDB bisa mengembalikan *write conflict*
+pada transaksi yang bertabrakan. Kalau nanti muncul di operasi nyata, penanganannya adalah
+mengulang transaksi yang gagal — belum dipasang karena belum terbukti diperlukan.
 
 ---
 
@@ -64,9 +89,10 @@ yang belum menyelesaikan pekerjaan.
 ```bash
 npm install
 
-cp .env.example .env      # isi kredensial Neon / Supabase
-npx prisma db push        # buat tabel
-npm run db:seed           # data contoh + user + konfigurasi awal
+cp .env.example .env      # isi kredensial TiDB Serverless
+npm run db:push           # buat seluruh tabel dari schema.prisma
+npm run db:upgrade        # collation + isian konfigurasi awal
+npm run db:seed           # data contoh + user
 
 npm run dev               # http://localhost:3000
 ```
@@ -84,8 +110,7 @@ Kalau tabel user masih kosong, `ADMIN / admin123` dibuat otomatis saat login per
 ### Environment Variable
 
 ```env
-DATABASE_URL="postgresql://user:pass@ep-xxx-pooler.neon.tech/wms?sslmode=require"
-DIRECT_URL="postgresql://user:pass@ep-xxx.neon.tech/wms?sslmode=require"
+DATABASE_URL="mysql://xxxxxxxx.root:PASSWORD@gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/wms?sslaccept=strict"
 AUTH_SECRET="random-string-minimal-32-karakter"
 
 # identitas sistem (opsional — hanya penanda visual, lihat bagian 3e)
@@ -94,14 +119,43 @@ NEXT_PUBLIC_SAP_CLIENT="300"
 NEXT_PUBLIC_SAP_ENV="PROD"
 ```
 
-* **Neon.tech** — `DATABASE_URL` pakai host `-pooler`, `DIRECT_URL` tanpa `-pooler`.
-* **Supabase** — `DATABASE_URL` port `6543`, `DIRECT_URL` port `5432`.
+* Ambil connection string dari **TiDB Cloud → Connect → Connect With: Prisma**.
+* `sslaccept=strict` **wajib** — TiDB Serverless menolak koneksi tanpa TLS.
+* Nama database dibuat sendiri lewat TiDB Cloud (SQL Editor: `CREATE DATABASE wms;`).
 
 ### Deploy ke Vercel
 
 Push ke GitHub → import di Vercel → isi 3 environment variable di atas untuk scope
 Production/Preview/Development → Deploy. Script `build` sudah menjalankan `prisma generate`.
-Jalankan `npx prisma db push` sekali dari lokal dengan `.env` produksi.
+Jalankan `npm run db:push` lalu `npm run db:upgrade` sekali dari lokal dengan `.env` produksi.
+
+**Tiga hal khusus serverless — urut dari yang paling berpengaruh:**
+
+1. **Region fungsi harus sekawasan dengan database.** Cluster TiDB ada di
+   `ap-southeast-1` (Singapura), sedangkan bawaan Vercel adalah `iad1`
+   (Amerika). Setiap query akan menyeberangi Pasifik, dan satu layar bisa
+   menembak puluhan query. `vercel.json` di repo ini sudah mengunci region ke
+   `sin1`; pastikan Project Settings → Functions tidak menimpanya.
+
+2. **`maxDuration` harus lebih panjang daripada batas transaksi Prisma.**
+   Seluruh route yang membuka transaksi memakai `export const maxDuration = 60`,
+   sedangkan Prisma menyerah di 15 + 30 detik (lihat `src/lib/prisma.ts`).
+   Urutan ini disengaja: yang menyerah lebih dulu harus lapisan database,
+   supaya operator menerima pesan error yang jelas alih-alih fungsi mati
+   diam-diam. Bila plan Vercel Anda tidak mengizinkan 60 detik, turunkan
+   `maxDuration` DAN batas transaksi bersamaan, jangan salah satu saja.
+
+3. **Batasi pool koneksi lewat `DATABASE_URL`.** Tambahkan
+   `&connection_limit=3&pool_timeout=20`. Tiap instance fungsi membuka pool
+   sendiri, jadi tanpa batas ini jumlah koneksi tumbuh mengikuti trafik, bukan
+   mengikuti kebutuhan. Angka 3 adalah titik tengah: `1` menyerialkan request
+   yang datang bersamaan ke instance yang sama, terlalu besar memboroskan
+   kuota koneksi cluster. Untuk server biasa yang selalu menyala, jangan
+   dipakai — bawaan Prisma sudah tepat.
+
+Keep-alive di ZSET tetap berjalan dari layar yang terbuka dan tidak terpengaruh
+Vercel. Yang bertambah di serverless adalah cold start fungsi; bila database
+ikut tidur, keduanya menumpuk.
 
 ---
 

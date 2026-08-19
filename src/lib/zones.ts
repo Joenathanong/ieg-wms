@@ -97,6 +97,17 @@ export const ZONE_GROUPS: { code: ZoneGroup; label: string }[] = [
   { code: 'KECIL', label: 'Gudang Kecil (Bin Box)' },
 ];
 
+/**
+ * Gudang tujuan bawaan untuk penerimaan (MIGO 101).
+ *
+ * Hampir seluruh barang masuk ke Heavy Duty Racking di Gudang Besar, jadi
+ * pilihan ini yang dipasang lebih dulu — operator tinggal menggantinya ke
+ * Gudang Kecil pada kasus yang jarang. Bin fisiknya sendiri tetap ditentukan
+ * saat put-away (LB12 / ZRF02); pilihan di sini menentukan baris palletization
+ * mana yang dipakai saat memecah qty.
+ */
+export const DEFAULT_GR_ZONE_GROUP: ZoneGroup = 'BESAR';
+
 /** Semua kelompok yang sah untuk master zone (ZZONE), termasuk TRANSIT & LAIN. */
 export const ZONE_GROUP_CODES: string[] = ['BESAR', 'KECIL', 'TRANSIT', 'LAIN'];
 

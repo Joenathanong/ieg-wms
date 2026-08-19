@@ -3,8 +3,10 @@ import prisma from '@/lib/prisma';
 import { requireUser, requireAdmin, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr } from '@/lib/api';
 import { getSettings, SETTING_DEFAULTS, type SettingKey } from '@/lib/settings';
+import { normalizeHHMM, clampInterval } from '@/lib/keepalive';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /** GET /api/settings — ZSET */
 export async function GET() {
@@ -29,6 +31,16 @@ export async function PATCH(req: NextRequest) {
       let value = cleanStr(body[k]);
       if (SETTING_DEFAULTS[k] === '1' || SETTING_DEFAULTS[k] === '0') {
         value = body[k] === true || value === '1' || value.toUpperCase() === 'TRUE' ? '1' : '0';
+      }
+      if (k === 'KEEPALIVE_FROM' || k === 'KEEPALIVE_TO') {
+        const hhmm = normalizeHHMM(value);
+        if (!hhmm) throw new HttpError(400, `${k} must be a time in HH:MM format, e.g. 07:00.`);
+        value = hhmm;
+      }
+      // Interval dibulatkan ke rentang aman, bukan ditolak: salah ketik di sini
+      // paling parah membuat ping terlalu sering, bukan merusak data.
+      if (k === 'KEEPALIVE_INTERVAL') {
+        value = String(clampInterval(value));
       }
       if (k === 'DEFAULT_GR_BIN' || k === 'DEFAULT_GI_BIN') {
         value = value.toUpperCase();

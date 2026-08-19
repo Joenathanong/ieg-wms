@@ -7,6 +7,7 @@ import { useStatus } from '@/components/sap/StatusBar';
 import { useMasterData, useZones } from '@/components/sap/hooks';
 import { api, patch } from '@/lib/client';
 import { SETTING_META } from '@/lib/settings';
+import { KEEPALIVE_MIN_INTERVAL, KEEPALIVE_MAX_INTERVAL } from '@/lib/keepalive';
 
 type Settings = Record<string, string>;
 
@@ -68,6 +69,21 @@ export default function ZsetPage() {
                       {values[m.key] === '1' ? 'AKTIF' : 'NONAKTIF'}
                     </span>
                   </label>
+                ) : m.type === 'TIME' ? (
+                  <Input
+                    type="time"
+                    value={values[m.key] ?? ''}
+                    onChange={(e) => setValues((s) => ({ ...s, [m.key]: e.target.value }))}
+                  />
+                ) : m.type === 'NUM' ? (
+                  <Input
+                    type="number"
+                    min={KEEPALIVE_MIN_INTERVAL}
+                    max={KEEPALIVE_MAX_INTERVAL}
+                    className="text-right"
+                    value={values[m.key] ?? ''}
+                    onChange={(e) => setValues((s) => ({ ...s, [m.key]: e.target.value }))}
+                  />
                 ) : (
                   <Input
                     list="dl-interim"

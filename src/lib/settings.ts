@@ -26,6 +26,16 @@ export const SETTING_KEYS = {
   PDT_ZRF07: 'PDT_ZRF07',
   PDT_ZRF08: 'PDT_ZRF08',
   PDT_ZRF09: 'PDT_ZRF09',
+
+  /* --- Keep-alive database (TiDB Serverless tidur saat menganggur) --- */
+  /** '1' = kirim ping berkala pada jam kerja */
+  KEEPALIVE_ENABLED: 'KEEPALIVE_ENABLED',
+  /** jam mulai, format HH:MM */
+  KEEPALIVE_FROM: 'KEEPALIVE_FROM',
+  /** jam selesai, format HH:MM (boleh melewati tengah malam) */
+  KEEPALIVE_TO: 'KEEPALIVE_TO',
+  /** jarak antar ping dalam menit */
+  KEEPALIVE_INTERVAL: 'KEEPALIVE_INTERVAL',
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -45,6 +55,10 @@ export const SETTING_DEFAULTS: Record<SettingKey, string> = {
   PDT_ZRF07: '1',
   PDT_ZRF08: '1',
   PDT_ZRF09: '1',
+  KEEPALIVE_ENABLED: '0',
+  KEEPALIVE_FROM: '07:00',
+  KEEPALIVE_TO: '22:00',
+  KEEPALIVE_INTERVAL: '4',
 };
 
 /** T-Code PDT -> key setting yang mengontrolnya. */
@@ -60,7 +74,12 @@ export const PDT_MODULE_SETTING: Record<string, SettingKey> = {
   ZRF09: 'PDT_ZRF09',
 };
 
-export const SETTING_META: { key: SettingKey; label: string; hint: string; type: 'BOOL' | 'BIN' }[] = [
+export const SETTING_META: {
+  key: SettingKey;
+  label: string;
+  hint: string;
+  type: 'BOOL' | 'BIN' | 'TIME' | 'NUM';
+}[] = [
   {
     key: 'PDT_ENABLED',
     label: 'Modul PDT (ZRF) aktif',
@@ -132,6 +151,34 @@ export const SETTING_META: { key: SettingKey; label: string; hint: string; type:
     label: 'ZRF09 — SO Penjualan (PDT)',
     hint: 'Hitung sisa fisik pick bin; selisihnya diposting sebagai goods issue penjualan (601).',
     type: 'BOOL',
+  },
+  {
+    key: 'KEEPALIVE_ENABLED',
+    label: 'Jaga database tetap bangun (keep-alive)',
+    hint:
+      'Database serverless tidur sendiri saat lama menganggur, sehingga transaksi pertama sesudahnya terasa menggantung. ' +
+      'Bila aktif, layar yang sedang terbuka mengirim query paling ringan secara berkala — hanya di dalam jam kerja di bawah.',
+    type: 'BOOL',
+  },
+  {
+    key: 'KEEPALIVE_FROM',
+    label: 'Keep-alive mulai jam',
+    hint: 'Format 24 jam, mis. 07:00. Jam mulai sama dengan jam selesai berarti sepanjang hari.',
+    type: 'TIME',
+  },
+  {
+    key: 'KEEPALIVE_TO',
+    label: 'Keep-alive sampai jam',
+    hint: 'Format 24 jam, mis. 22:00. Boleh melewati tengah malam untuk shift malam (mis. 22:00 sampai 06:00).',
+    type: 'TIME',
+  },
+  {
+    key: 'KEEPALIVE_INTERVAL',
+    label: 'Jarak antar ping (menit)',
+    hint:
+      'Harus lebih rapat daripada ambang tidur database, kalau tidak cluster tetap sempat tertidur di sela ping. ' +
+      'Isian di luar 1–60 menit akan dibulatkan ke batas terdekat.',
+    type: 'NUM',
   },
   {
     key: 'DEFAULT_GR_BIN',

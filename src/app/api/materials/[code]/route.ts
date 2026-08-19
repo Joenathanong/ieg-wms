@@ -4,6 +4,7 @@ import { requireWrite, requireAdmin, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ code: string }> };
 
@@ -45,8 +46,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         where: {
           material_code: { not: material_code },
           OR: [
-            { barcode_bpom: { equals: val, mode: 'insensitive' } },
-            { barcode_produk: { equals: val, mode: 'insensitive' } },
+            { barcode_bpom: { equals: val } },
+            { barcode_produk: { equals: val } },
           ],
         },
       });

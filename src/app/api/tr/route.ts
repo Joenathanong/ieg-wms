@@ -8,6 +8,7 @@ import { materialCodeFilter } from '@/lib/search';
 import { Prisma, TrStatus, TrType } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /**
  * GET /api/tr?status=&type=&material=&tr=  — LB10 Transfer Requirement List

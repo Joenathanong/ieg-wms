@@ -23,10 +23,19 @@ import { useExecuteKey } from '@/components/sap/keynav';
 import { ConfirmDialog } from '@/components/sap/Confirm';
 import { BatchDetermination } from '@/components/sap/BatchDetermination';
 import { api, post, fmtDate } from '@/lib/client';
-import { ZONE_GROUPS } from '@/lib/zones';
+import { ZONE_GROUPS, DEFAULT_GR_ZONE_GROUP } from '@/lib/zones';
 import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
+import { BATCH_CODE_LENGTH, parseBatchCode } from '@/lib/batchcode';
 
 /* --------------------------------------------------------------- */
+
+/** Balasan /api/materials/batch. `found` = batch sudah pernah terdaftar. */
+interface BatchInfo {
+  found: boolean;
+  source?: 'STOCK' | 'CODE' | 'NONE';
+  mfg_date?: string | null;
+  exp_date?: string | null;
+}
 
 const MOVEMENTS = [
   { code: '101', label: '101 — Goods Receipt (GR)', mode: 'TR_IN' },
@@ -101,7 +110,11 @@ export default function MigoPage() {
   // supaya tidak ada dokumen terposting dengan movement/langkah default.
   const [movement, setMovement] = useState<string>('');
   const [giMode, setGiMode] = useState<'' | 'REQUEST' | 'ISSUE'>('');
-  const [zoneGroup, setZoneGroup] = useState('');
+  // Kecuali gudang tujuan, seluruh pilihan header memang sengaja kosong supaya
+  // operator memilih sadar. Gudang tujuan dikecualikan karena hampir seluruh
+  // penerimaan masuk ke Heavy Duty Racking — memaksa memilih setiap kali hanya
+  // menambah satu klik yang jawabannya selalu sama, dan tetap bisa diubah.
+  const [zoneGroup, setZoneGroup] = useState<string>(DEFAULT_GR_ZONE_GROUP);
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10));
   const [reference, setReference] = useState('');
   const [costCenter, setCostCenter] = useState('');
@@ -165,6 +178,77 @@ export default function MigoPage() {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
+  /**
+   * Isi manufacturing & expired date otomatis begitu nomor batch selesai diketik.
+   *
+   * Dua sumber, berurutan:
+   *   1. batch yang SUDAH pernah terdaftar -> ditanya ke server, tanggalnya
+   *      dipakai ulang supaya satu nomor batch tidak pernah punya dua tanggal
+   *      kedaluwarsa berbeda;
+   *   2. batch baru berpola 6 karakter (mis. G26339) -> dihitung DI LAYAR dari
+   *      kodenya sendiri: huruf = bulan, 2 digit berikutnya = tahun produksi.
+   *
+   * Sumber 2 sengaja tidak bergantung pada server: pola batch sepenuhnya bisa
+   * dibaca dari teksnya, jadi tidak ada alasan pengisian otomatis ikut gagal
+   * saat permintaan ke server gagal, lambat, atau modulnya belum ter-reload.
+   *
+   * Isian operator TIDAK PERNAH ditimpa — hanya field yang masih kosong diisi.
+   */
+  async function loadBatchDates(line: Line) {
+    const m = line.material_code.trim().toUpperCase();
+    const b = line.batch_number.trim().toUpperCase();
+    if (!b) return;
+
+    // Kedua tanggal sudah diisi operator -> tidak ada yang perlu ditebak.
+    const wantMfg = line.mfg_date.trim() === '';
+    const wantExp = line.exp_date.trim() === '';
+    if (!wantMfg && !wantExp) return;
+
+    // Sumber 1 — batch yang sudah terdaftar. Butuh material; kalau materialnya
+    // belum diisi, langkah ini dilewati dan pembacaan kode tetap jalan.
+    let registered = false;
+    let exp = '';
+    let mfg = '';
+    if (m) {
+      const r = await api<BatchInfo>(
+        `/api/materials/batch?material=${encodeURIComponent(m)}&batch=${encodeURIComponent(b)}`
+      );
+      registered = !!(r.ok && r.data?.found);
+      exp = r.ok && r.data?.exp_date ? String(r.data.exp_date).slice(0, 10) : '';
+      mfg = r.ok && r.data?.mfg_date ? String(r.data.mfg_date).slice(0, 10) : '';
+    }
+
+    // Sumber 2 — pola nomor batch, dihitung di layar tanpa server.
+    if (!exp && !mfg) {
+      const code = parseBatchCode(b);
+      if (code) {
+        exp = code.exp_date;
+        mfg = code.mfg_date;
+      }
+    }
+    if ((wantMfg ? mfg : '') === '' && (wantExp ? exp : '') === '') return;
+
+    setLines((ls) =>
+      ls.map((l) => {
+        if (l.key !== line.key) return l;
+        // nomor batch sempat diubah lagi sebelum balasan tiba -> abaikan
+        if (l.batch_number.trim().toUpperCase() !== b) return l;
+        return {
+          ...l,
+          mfg_date: l.mfg_date || mfg,
+          exp_date: l.exp_date || exp,
+        };
+      })
+    );
+
+    setStatus(
+      registered
+        ? `Batch ${b} sudah terdaftar — tanggal diambil dari batch yang ada.`
+        : `Batch ${b} baru — tanggal dibaca dari nomor batch (boleh diubah).`,
+      'I'
+    );
+  }
+
   /** Pratinjau pemecahan pallet untuk satu line. */
   function palletPreview(l: Line): { lines: number; per: number; pack: string } | null {
     const mat = matMap.get(l.material_code.trim().toUpperCase());
@@ -196,7 +280,7 @@ export default function MigoPage() {
     setReference('');
     setCostCenter('');
     setGiMode('');
-    setZoneGroup('');
+    setZoneGroup(DEFAULT_GR_ZONE_GROUP);
     setPosted([]);
     setStatus('Entry screen has been reset', 'I');
   }
@@ -295,7 +379,7 @@ export default function MigoPage() {
                 setPosted([]);
                 // pilihan turunan ikut direset supaya tidak terbawa dari movement lama
                 setGiMode('');
-                setZoneGroup('');
+                setZoneGroup(DEFAULT_GR_ZONE_GROUP);
               }}
             >
               <option value="">(pilih movement type)</option>
@@ -316,7 +400,6 @@ export default function MigoPage() {
           {mode === 'TR_IN' && (
             <Field label="Gudang Tujuan" required hint="menentukan baris palletization yang dipakai">
               <Select value={zoneGroup} onChange={(e) => setZoneGroup(e.target.value)}>
-                <option value="">(pilih gudang tujuan)</option>
                 {ZONE_GROUPS.map((g) => (
                   <option key={g.code} value={g.code}>
                     {g.label}
@@ -589,8 +672,19 @@ export default function MigoPage() {
                           className="uppercase !py-[3px]"
                           disabled={batchDisabled}
                           placeholder={batchDisabled ? 'n/a' : ''}
+                          title={
+                            isInbound
+                              ? `Tanggal terisi otomatis dari batch yang sudah terdaftar, atau dari kode batch ${BATCH_CODE_LENGTH} karakter (mis. G26339 = Juli 2026)`
+                              : undefined
+                          }
                           value={l.batch_number}
                           onChange={(e) => setLine(l.key, { batch_number: e.target.value })}
+                          onBlur={() => {
+                            if (isInbound) void loadBatchDates(l);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && isInbound) void loadBatchDates(l);
+                          }}
                         />
                         {/* Batch Determination — usulan batch (FEFO) untuk material baris ini */}
                         <button
@@ -613,7 +707,7 @@ export default function MigoPage() {
                         <Input
                           type="date"
                           className="!py-[3px]"
-                          title={`Terisi otomatis dari expired date dikurangi ${DEFAULT_SHELF_LIFE_YEARS} tahun — boleh diubah`}
+                          title={`Terisi otomatis dari nomor batch, atau dari expired date dikurangi ${DEFAULT_SHELF_LIFE_YEARS} tahun — boleh diubah`}
                           value={l.mfg_date}
                           onChange={(e) => setLine(l.key, { mfg_date: e.target.value })}
                         />

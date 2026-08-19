@@ -5,12 +5,16 @@ import { PackagePlus, Save, RotateCcw } from 'lucide-react';
 import { PdtScreen, PdtInput, PdtButton, PdtRow, PdtMessage } from '@/components/pdt/ui';
 import { useMasterData } from '@/components/sap/hooks';
 import { api, post, fmtDate } from '@/lib/client';
+import { parseBatchCode } from '@/lib/batchcode';
 import { resolveScan } from '@/lib/barcode';
 import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
 import { useScanGun } from '@/lib/scanner';
 
 interface BatchInfo {
+  /** true = batch sudah pernah terdaftar (tanggalnya pasti) */
   found: boolean;
+  /** STOCK = dari batch yang ada, CODE = dibaca dari pola nomor batch */
+  source?: 'STOCK' | 'CODE' | 'NONE';
   mfg_date?: string | null;
   exp_date?: string | null;
   on_hand?: number;
@@ -38,9 +42,15 @@ export default function ZrfGrPage() {
   const splitLines = pack && Number(qty) > 0 ? Math.ceil(Number(qty) / pack.qty_per_unit) : 0;
 
   /**
-   * Batch yang sudah pernah terdaftar dipakai ulang tanggalnya, supaya satu
-   * nomor batch tidak berakhir dengan dua tanggal kedaluwarsa yang berbeda.
-   * Isian manual operator tidak ditimpa.
+   * Tanggal batch diisi otomatis dari dua sumber, ditentukan server:
+   *   1. batch yang SUDAH pernah terdaftar -> tanggalnya dipakai ulang, supaya
+   *      satu nomor batch tidak berakhir dengan dua tanggal kedaluwarsa berbeda;
+   *   2. batch baru berpola 6 karakter (mis. G26339) -> tanggal dibaca dari
+   *      kodenya: huruf = bulan, 2 digit berikutnya = tahun produksi.
+   *
+   * Hanya sumber (1) yang membuat batch dianggap "dikenal" — hasil pembacaan
+   * kode tetap perkiraan, jadi expired date tetap wajib dikonfirmasi operator.
+   * Isian manual operator tidak pernah ditimpa.
    */
   async function loadBatchDates(mCode: string, bCode: string) {
     const m = mCode.trim().toUpperCase();
@@ -50,16 +60,30 @@ export default function ZrfGrPage() {
     const r = await api<BatchInfo>(
       `/api/materials/batch?material=${encodeURIComponent(m)}&batch=${encodeURIComponent(b)}`
     );
-    if (!r.ok || !r.data?.found) return setKnownBatch(null);
+    const info = r.ok ? r.data ?? null : null;
+    setKnownBatch(info?.found ? info : null);
 
-    setKnownBatch(r.data);
-    const exp = r.data.exp_date ? String(r.data.exp_date).slice(0, 10) : '';
-    const mfg = r.data.mfg_date ? String(r.data.mfg_date).slice(0, 10) : '';
+    let exp = info?.exp_date ? String(info.exp_date).slice(0, 10) : '';
+    let mfg = info?.mfg_date ? String(info.mfg_date).slice(0, 10) : '';
+
+    // Pola nomor batch dihitung di perangkat, tanpa server — supaya di PDT
+    // pengisian otomatis tetap jalan walau jaringannya sedang buruk.
+    if (!exp && !mfg) {
+      const code = parseBatchCode(b);
+      if (code) {
+        exp = code.exp_date;
+        mfg = code.mfg_date;
+      }
+    }
+    if (!exp && !mfg) return;
+
     setExpDate((v) => v || exp);
     setMfgDate((v) => v || mfg);
     if (exp) {
       setMsg({
-        text: `Batch ${b} sudah terdaftar — ED ${fmtDate(exp)} terisi otomatis.`,
+        text: info?.found
+          ? `Batch ${b} sudah terdaftar — ED ${fmtDate(exp)} terisi otomatis.`
+          : `Batch ${b} baru — ED ${fmtDate(exp)} dibaca dari nomor batch, periksa lagi.`,
         type: 'I',
       });
     }

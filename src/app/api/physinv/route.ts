@@ -4,6 +4,10 @@ import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toDate } from '@/lib/api';
 import { nextDocNumber } from '@/lib/docnum';
 import { BinStatus, PhysInvStatus } from '@prisma/client';
+import { fromDbList, toDbList } from '@/lib/dblist';
+
+/** jumlah bin dari kolom teks — dipakai pada pesan hasil */
+const binCountOf = (v: string) => fromDbList(v).length;
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -22,7 +26,7 @@ export async function GET(req: NextRequest) {
           status && Object.values(PhysInvStatus).includes(status as PhysInvStatus)
             ? { status: status as PhysInvStatus }
             : {},
-          bin ? { items: { some: { bin_code: { contains: bin, mode: 'insensitive' } } } } : {},
+          bin ? { items: { some: { bin_code: { contains: bin } } } } : {},
         ],
       },
       include: { items: true, bins: true },
@@ -35,7 +39,7 @@ export async function GET(req: NextRequest) {
       doc_number: d.doc_number,
       scope_type: d.scope_type,
       scope_value: d.scope_value,
-      bin_count: d.frozen_bins.length,
+      bin_count: fromDbList(d.frozen_bins).length,
       status: d.status,
       planned_date: d.planned_date,
       counted_at: d.counted_at,
@@ -124,7 +128,7 @@ export async function POST(req: NextRequest) {
           select: { doc_number: true, frozen_bins: true },
         });
         for (const o of open) {
-          const clash = o.frozen_bins.filter((x) => binCodes.includes(x));
+          const clash = fromDbList(o.frozen_bins).filter((x) => binCodes.includes(x));
           if (clash.length > 0)
             throw new HttpError(
               400,
@@ -144,7 +148,7 @@ export async function POST(req: NextRequest) {
             doc_number,
             scope_type,
             scope_value: scope_value.slice(0, 500),
-            frozen_bins: binCodes,
+            frozen_bins: toDbList(binCodes),
             status: PhysInvStatus.FROZEN,
             planned_date: toDate(b.planned_date) ?? new Date(),
             created_by: user.username,
@@ -179,8 +183,8 @@ export async function POST(req: NextRequest) {
     );
 
     return ok(
-      result,
-      `Physical inventory document ${result.doc_number} created — ${result.frozen_bins.length} bin(s) frozen, ${result.items.length} line(s) snapshot`
+      { ...result, frozen_bins: fromDbList(result.frozen_bins) },
+      `Physical inventory document ${result.doc_number} created — ${binCountOf(result.frozen_bins)} bin(s) frozen, ${result.items.length} line(s) snapshot`
     );
   });
 }

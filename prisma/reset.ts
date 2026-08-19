@@ -167,7 +167,7 @@ async function main() {
   if (!OPT.confirm) {
     console.log(
       '\n  Ini baru simulasi. Tambahkan --yes untuk benar-benar menghapus.\n' +
-        '  Disarankan backup dulu (Neon: buat branch/snapshot sebelum reset).\n'
+        '  Disarankan backup dulu (TiDB Cloud: buat backup/branch sebelum reset).\n'
     );
     return;
   }
