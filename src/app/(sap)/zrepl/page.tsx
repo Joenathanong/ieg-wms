@@ -32,17 +32,19 @@ import {
   XCircle,
   ClipboardCheck,
   Split,
+  PackageSearch,
+  X,
 } from 'lucide-react';
 import { Panel, Input, Button, Toolbar } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
-import { useMasterData } from '@/components/sap/hooks';
+import { useMaterialCatalog } from '@/lib/catalog';
 import { ConfirmDialog } from '@/components/sap/Confirm';
 import {
   BatchDetermination,
   quantKey,
   type BatchProposal,
 } from '@/components/sap/BatchDetermination';
-import { post, fmtDate } from '@/lib/client';
+import { api, post, qs, fmtDate } from '@/lib/client';
 
 /** Replenishment berjalan di Gudang Besar: racking dan pick bin sama-sama BESAR. */
 const ZONE_GROUP = 'BESAR';
@@ -59,6 +61,18 @@ interface Line {
   exp_date: string | null;
   /** true bila tujuan diketik sendiri karena material tidak punya Fix Bin */
   manualTarget: boolean;
+}
+
+/** Satu baris stok hasil pencarian bebas. */
+interface PickedQuant {
+  id: string;
+  material_code: string;
+  description: string;
+  uom: string;
+  batch_number: string;
+  bin_code: string;
+  exp_date: string | null;
+  qty: number;
 }
 
 interface CheckResult {
@@ -184,6 +198,180 @@ function MaterialPicker({
   );
 }
 
+/**
+ * Pencari stok bebas — boleh dimulai dari rak, batch, atau material.
+ *
+ * Batch determination menuntut material diisi lebih dulu, dan itu tidak selalu
+ * cocok dengan kenyataan di lapangan: petugas sering berdiri di depan rak dan
+ * tahu nomor raknya, bukan kode materialnya. Layar ini membalik urutannya —
+ * apa pun yang diketahui lebih dulu bisa dipakai sebagai titik masuk, dan
+ * sekali dipilih, keempat kolom line terisi sekaligus.
+ */
+function QuantPicker({
+  open,
+  initial,
+  onPick,
+  onClose,
+}: {
+  open: boolean;
+  initial: { material: string; batch: string; bin: string };
+  onPick: (q: PickedQuant) => void;
+  onClose: () => void;
+}) {
+  const [material, setMaterial] = useState(initial.material);
+  const [batch, setBatch] = useState(initial.batch);
+  const [bin, setBin] = useState(initial.bin);
+  const [rows, setRows] = useState<PickedQuant[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const search = useCallback(
+    async (f: { material: string; batch: string; bin: string }) => {
+      const m = f.material.trim().toUpperCase();
+      const b = f.batch.trim().toUpperCase();
+      const bn = f.bin.trim().toUpperCase();
+      if (!m && !b && !bn) {
+        setRows([]);
+        setMsg('Isi salah satu: rak, batch, atau material.');
+        return;
+      }
+      setLoading(true);
+      setMsg('');
+      const r = await api<PickedQuant[]>(
+        '/api/stock/quants' +
+          qs({ bin: bn, batch: b, q: m, exclInterim: 1, zoneGroup: ZONE_GROUP })
+      );
+      setLoading(false);
+      if (!r.ok) {
+        setRows([]);
+        setMsg(r.message);
+        return;
+      }
+      const list = r.data ?? [];
+      setRows(list);
+      if (list.length === 0) setMsg('Tidak ada stok Gudang Besar untuk kriteria ini.');
+    },
+    []
+  );
+
+  // Setiap kali dibuka, isian disamakan dengan line-nya lalu langsung dicari
+  // bila sudah ada petunjuk — supaya operator tidak perlu menekan Cari dua kali.
+  useEffect(() => {
+    if (!open) return;
+    setMaterial(initial.material);
+    setBatch(initial.batch);
+    setBin(initial.bin);
+    setRows([]);
+    setMsg('');
+    if (initial.material || initial.batch || initial.bin) void search(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const go = () => void search({ material, batch, bin });
+
+  return (
+    <div data-modal className="fixed inset-0 z-[88] flex items-center justify-center p-3">
+      <button type="button" aria-label="Tutup" onClick={onClose} className="absolute inset-0 bg-black/50" />
+      <div className="relative w-full max-w-[820px] max-h-[85dvh] flex flex-col sap-panel shadow-sap">
+        <div className="sap-panel-title">
+          <PackageSearch size={13} className="text-sap-blue" />
+          <span>Cari stok — mulai dari rak, batch, atau material</span>
+          <button type="button" onClick={onClose} aria-label="Tutup" className="ml-auto sap-btn sap-btn-ghost !px-1.5 !py-1">
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="p-3 grid grid-cols-1 sm:grid-cols-4 gap-2 border-b border-sap-border">
+          <Input
+            className="uppercase"
+            placeholder="Rak"
+            value={bin}
+            onChange={(e) => setBin(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && go()}
+          />
+          <Input
+            className="uppercase"
+            placeholder="Batch"
+            value={batch}
+            onChange={(e) => setBatch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && go()}
+          />
+          <Input
+            className="uppercase"
+            placeholder="Kode / nama barang"
+            value={material}
+            onChange={(e) => setMaterial(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && go()}
+          />
+          <Button variant="primary" onClick={go} loading={loading} className="justify-center">
+            <Search size={13} /> Cari
+          </Button>
+        </div>
+
+        <div className="p-3 overflow-auto">
+          {msg && (
+            <div className="rounded-[3px] border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
+              {msg}
+            </div>
+          )}
+          {rows.length > 0 && (
+            <table className="sap-grid">
+              <thead>
+                <tr>
+                  <th className="w-[150px]">Material</th>
+                  <th>Deskripsi</th>
+                  <th className="w-[140px]">Batch</th>
+                  <th className="w-[130px]">Rak</th>
+                  <th className="w-[110px]">Exp. Date</th>
+                  <th className="w-[90px] text-right">Qty</th>
+                  <th className="w-[80px]"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((q) => (
+                  <tr key={q.id}>
+                    <td className="font-mono text-sap-blue">{q.material_code}</td>
+                    <td className="text-sap-muted truncate max-w-[220px]">{q.description}</td>
+                    <td className="font-mono">{q.batch_number || '—'}</td>
+                    <td className="font-mono">{q.bin_code}</td>
+                    <td className="font-mono">{fmtDate(q.exp_date) || '—'}</td>
+                    <td className="text-right font-mono tabular-nums">
+                      {q.qty} {q.uom}
+                    </td>
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onPick(q);
+                          onClose();
+                        }}
+                        className="sap-btn sap-btn-primary !py-[3px] !px-2"
+                      >
+                        Pilih
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 let seq = 0;
 const emptyLine = (): Line => ({
   key: `L${++seq}`,
@@ -199,11 +387,12 @@ const emptyLine = (): Line => ({
 
 export default function ZreplPage() {
   const { setStatus } = useStatus();
-  const { materials } = useMasterData();
+  const { materials, loading: catalogLoading } = useMaterialCatalog();
 
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [batchFor, setBatchFor] = useState<Line | null>(null);
   const [binFor, setBinFor] = useState<{ line: Line; proposal: BatchProposal } | null>(null);
+  const [quantFor, setQuantFor] = useState<Line | null>(null);
   const [checks, setChecks] = useState<CheckResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -266,9 +455,18 @@ export default function ZreplPage() {
       .map((l) => quantKey(l.batch_number, l.source_bin));
   }
 
-  /** Terapkan pilihan batch + rak ke sebuah line, pecah bila qty melebihi isi rak. */
-  function applyPick(l: Line, b: BatchProposal, bin: { bin_code: string; qty: number }) {
+  /**
+   * Terapkan satu quant (material + batch + rak) ke sebuah line.
+   *
+   * Dipakai oleh KEDUA jalur masuk — batch determination maupun pencarian
+   * bebas — supaya aturan pemecahan qty hanya ada di satu tempat.
+   */
+  function applyQuant(
+    l: Line,
+    pick: { material_code: string; batch_number: string; bin_code: string; qty: number; exp_date: string | null }
+  ) {
     const want = Number(l.qty) || 0;
+    const mat = matMap.get(pick.material_code.toUpperCase());
 
     setLines((ls) => {
       const idx = ls.findIndex((x) => x.key === l.key);
@@ -276,14 +474,17 @@ export default function ZreplPage() {
 
       const filled: Line = {
         ...ls[idx],
-        batch_number: b.batch_number,
-        source_bin: bin.bin_code,
-        available: bin.qty,
-        exp_date: b.exp_date,
-        qty: String(Math.min(want || bin.qty, bin.qty) || bin.qty),
+        material_code: pick.material_code,
+        target_bin: ls[idx].manualTarget ? ls[idx].target_bin : mat?.fix_bin ?? '',
+        manualTarget: ls[idx].manualTarget || (!!mat && !mat.fix_bin),
+        batch_number: pick.batch_number,
+        source_bin: pick.bin_code,
+        available: pick.qty,
+        exp_date: pick.exp_date,
+        qty: String(Math.min(want || pick.qty, pick.qty) || pick.qty),
       };
 
-      const shortage = want - bin.qty;
+      const shortage = want - pick.qty;
       if (shortage <= 0) {
         const next = [...ls];
         next[idx] = filled;
@@ -304,9 +505,9 @@ export default function ZreplPage() {
     });
 
     setChecks([]);
-    if (want > bin.qty) {
+    if (want > pick.qty) {
       setStatus(
-        `Rak ${bin.bin_code} hanya berisi ${bin.qty} — sisa ${want - bin.qty} dipindahkan ke line baru.`,
+        `Rak ${pick.bin_code} hanya berisi ${pick.qty} — sisa ${want - pick.qty} dipindahkan ke line baru.`,
         'W'
       );
     }
@@ -318,7 +519,13 @@ export default function ZreplPage() {
     if (!l) return;
 
     if (b.bins.length === 1) {
-      applyPick(l, b, b.bins[0]);
+      applyQuant(l, {
+        material_code: l.material_code.trim().toUpperCase(),
+        batch_number: b.batch_number,
+        bin_code: b.bins[0].bin_code,
+        qty: b.bins[0].qty,
+        exp_date: b.exp_date,
+      });
       return;
     }
     // Batch ada di beberapa rak — petugas memilih raknya sendiri.
@@ -399,8 +606,13 @@ export default function ZreplPage() {
           Bin tujuan diambil dari <b>Fix Bin</b> material (MM01). Batch dipilih lewat batch
           determination FEFO dan hanya menampilkan stok <b>Gudang Besar</b>; batch pada rak yang
           sudah dipakai line lain tidak ditawarkan lagi. Qty yang melebihi isi satu rak otomatis
-          dipecah menjadi line baru.
+          dipecah menjadi line baru. Pengisian tidak harus mulai dari material — ikon{' '}
+          <PackageSearch size={11} className="inline align-[-1px] text-sap-blue" /> membuka
+          pencarian stok yang bisa dimulai dari <b>rak</b>, <b>batch</b>, maupun material.
         </p>
+        {catalogLoading && (
+          <p className="text-xxs text-sap-muted mt-1">Menyegarkan katalog material …</p>
+        )}
       </Panel>
 
       <Panel title="Line Item" bodyClassName="p-0">
@@ -458,10 +670,11 @@ export default function ZreplPage() {
                           title={
                             l.material_code.trim()
                               ? 'Batch determination (FEFO)'
-                              : 'Isi material terlebih dahulu'
+                              : 'Cari stok — boleh mulai dari rak atau batch'
                           }
-                          disabled={!l.material_code.trim()}
-                          onClick={() => setBatchFor(l)}
+                          onClick={() =>
+                            l.material_code.trim() ? setBatchFor(l) : setQuantFor(l)
+                          }
                           className="sap-btn !px-1.5 !py-[3px] shrink-0"
                         >
                           <Search size={12} />
@@ -474,11 +687,21 @@ export default function ZreplPage() {
                       )}
                     </td>
                     <td>
-                      <Input
-                        className="uppercase !py-[3px]"
-                        value={l.source_bin}
-                        onChange={(e) => setLine(l.key, { source_bin: e.target.value })}
-                      />
+                      <div className="flex items-stretch gap-1">
+                        <Input
+                          className="uppercase !py-[3px]"
+                          value={l.source_bin}
+                          onChange={(e) => setLine(l.key, { source_bin: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          title="Cari stok — boleh mulai dari rak, batch, atau material"
+                          onClick={() => setQuantFor(l)}
+                          className="sap-btn !px-1.5 !py-[3px] shrink-0"
+                        >
+                          <PackageSearch size={12} />
+                        </button>
+                      </div>
                       {l.available > 0 && (
                         <p className="text-xxs text-sap-muted font-mono mt-0.5">
                           tersedia {l.available}
@@ -587,6 +810,26 @@ export default function ZreplPage() {
         </Panel>
       )}
 
+      <QuantPicker
+        open={!!quantFor}
+        initial={{
+          material: quantFor?.material_code ?? '',
+          batch: quantFor?.batch_number ?? '',
+          bin: quantFor?.source_bin ?? '',
+        }}
+        onPick={(q) => {
+          if (!quantFor) return;
+          applyQuant(quantFor, {
+            material_code: q.material_code,
+            batch_number: q.batch_number,
+            bin_code: q.bin_code,
+            qty: q.qty,
+            exp_date: q.exp_date,
+          });
+        }}
+        onClose={() => setQuantFor(null)}
+      />
+
       <BatchDetermination
         open={!!batchFor}
         material={batchFor?.material_code.trim().toUpperCase() ?? ''}
@@ -620,7 +863,13 @@ export default function ZreplPage() {
                   key={b.bin_code}
                   type="button"
                   onClick={() => {
-                    applyPick(binFor.line, binFor.proposal, b);
+                    applyQuant(binFor.line, {
+                      material_code: binFor.line.material_code.trim().toUpperCase(),
+                      batch_number: binFor.proposal.batch_number,
+                      bin_code: b.bin_code,
+                      qty: b.qty,
+                      exp_date: binFor.proposal.exp_date,
+                    });
                     setBinFor(null);
                   }}
                   className="w-full flex items-center justify-between gap-3 rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 hover:border-sap-blue/60"
