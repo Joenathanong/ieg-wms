@@ -412,17 +412,48 @@ model PhysInvDoc {
   /// Nilainya selalu diisi saat create (lihat api/physinv/route.ts).
   frozen_bins  String        @db.Text
   status       PhysInvStatus @default(CREATED)
+  /// Ronde penghitungan yang sedang berjalan. Dokumen LI01N biasa berhenti di 1.
+  current_round Int          @default(1)
   planned_date DateTime      @default(now())
   counted_at   DateTime?
   posted_at    DateTime?
   created_by   String
   created_at   DateTime      @default(now())
 
-  items PhysInvDocItem[]
-  bins  PhysInvBin[]
+  items  PhysInvDocItem[]
+  bins   PhysInvBin[]
+  rounds PhysInvRound[]
 
   @@index([status])
   @@map("phys_inv_docs")
+}
+
+/// Satu RONDE penghitungan dalam sebuah dokumen opname.
+///
+/// Opname besar jarang selesai sekali jalan: bila dua orang menghitung rak yang
+/// sama dan hasilnya berbeda, rak itu dihitung ulang di ronde berikutnya oleh
+/// orang lain. Angka diterima ketika dua ronde SEPAKAT — jadi hasil tiap ronde
+/// harus tersimpan berdampingan, tidak boleh saling menimpa.
+///
+/// Pengaturan blind disimpan di sini, bukan per petugas: bila dalam satu ronde
+/// sebagian orang buta dan sebagian melihat angka sistem, kedua hitungan tidak
+/// setara dan konsensus yang terbentuk lebih lemah daripada kelihatannya.
+model PhysInvRound {
+  id      String     @id @default(uuid())
+  doc_id  String
+  doc     PhysInvDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
+  round   Int
+  /// false = petugas TIDAK melihat jumlah menurut sistem saat menghitung
+  show_book_qty   Boolean @default(false)
+  /// false = petugas TIDAK melihat hasil ronde sebelumnya
+  show_prev_round Boolean @default(false)
+  opened_at DateTime  @default(now())
+  opened_by String
+  closed_at DateTime?
+
+  @@unique([doc_id, round])
+  @@index([doc_id])
+  @@map("phys_inv_rounds")
 }
 
 /// Status penghitungan PER BIN dalam satu dokumen opname.
@@ -435,12 +466,18 @@ model PhysInvBin {
   doc_id     String
   doc        PhysInvDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
   bin_code   String
+  /// ronde tempat baris ini berlaku — satu rak punya satu baris per ronde
+  round      Int        @default(1)
+  /// username petugas yang ditugaskan. null = siapa saja boleh (alur LI01N lama)
+  assigned_to String?
   /// null = belum dihitung
   counted_at DateTime?
   counted_by String?
 
-  @@unique([doc_id, bin_code])
+  @@unique([doc_id, bin_code, round])
   @@index([doc_id])
+  @@index([doc_id, round])
+  @@index([assigned_to])
   @@map("phys_inv_bins")
 }
 
@@ -450,6 +487,9 @@ model PhysInvDocItem {
   doc           PhysInvDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
   /// bin per baris — memungkinkan satu dokumen mencakup banyak bin
   bin_code      String
+  /// ronde penghitungan yang menghasilkan baris ini.
+  /// Ronde 1 juga menyimpan snapshot book_qty saat freeze.
+  round         Int        @default(1)
   material_code String
   batch_number  String?
   /// diisi untuk baris TEMUAN (barang tidak tercatat): batch baru belum punya
@@ -463,9 +503,14 @@ model PhysInvDocItem {
   /// counted_qty - book_qty
   diff_qty      Int        @default(0)
   posted        Boolean    @default(false)
+  /// true = angka inilah yang dipakai sebagai hasil akhir dan diposting.
+  /// Diisi otomatis saat dua ronde sepakat, atau dipilih supervisor bila tidak.
+  is_final      Boolean    @default(false)
+  counted_by    String?
 
   @@index([doc_id])
   @@index([bin_code])
+  @@index([doc_id, round])
   @@map("phys_inv_doc_items")
 }
 

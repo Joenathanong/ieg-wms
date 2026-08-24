@@ -33,6 +33,10 @@ interface Doc {
   status: 'CREATED' | 'FROZEN' | 'COUNTED' | 'POSTED';
   planned_date: string;
   created_by: string;
+  /** ronde penghitungan yang sedang berjalan */
+  round: number;
+  /** true = dokumen dikelola ZSO01 — raknya bertuan */
+  managed: boolean;
   items: Item[];
   bins: BinStat[];
 }
@@ -143,6 +147,20 @@ function Li11nInner() {
 
   async function saveCount() {
     if (!doc) return;
+    /**
+     * Dokumen yang raknya sudah ditugaskan tidak boleh dihitung dari sini.
+     *
+     * Bukan soal hak akses — supervisor memang berwenang. Masalahnya, hitungan
+     * yang masuk lewat layar ini tidak punya penugasan, sehingga aturan
+     * konsensus tidak bisa lagi memastikan dua ronde dikerjakan orang berbeda.
+     * Meninjau dan memantau progres tetap bisa dilakukan di layar ini.
+     */
+    if (doc.managed) {
+      return setStatus(
+        `Dokumen ${doc.doc_number} dikelola ZSO01 (ronde ${doc.round}). Penghitungan dilakukan petugas lewat PDT sesuai penugasan; layar ini hanya untuk meninjau.`,
+        'E'
+      );
+    }
     const items = [
       ...doc.items
         .filter((i) => counts[i.id] !== '' && counts[i.id] !== undefined)

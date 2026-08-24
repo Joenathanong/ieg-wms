@@ -31,6 +31,11 @@ interface Doc {
   scope_value: string;
   frozen_bins: string[];
   status: string;
+  round: number;
+  /** true = jumlah menurut sistem sengaja tidak dikirim ke layar ini */
+  blind_book: boolean;
+  /** true = dokumen dikelola ZSO01, raknya bertuan */
+  managed: boolean;
   items: Item[];
   bins: BinStat[];
 }
@@ -43,6 +48,8 @@ interface DocRow {
   bins_counted: number;
   item_count: number;
   status: string;
+  round: number;
+  managed: boolean;
 }
 
 /** baris material yang ditemukan fisik tapi tidak ada di snapshot */
@@ -64,6 +71,14 @@ interface Extra {
  *
  * Satu pallet bisa memuat lebih dari satu material, karena itu operator juga
  * bisa menambahkan material yang tidak ada di snapshot langsung dari sini.
+ *
+ * Sejak ada opname terkelola (ZSO01), layar ini hanya menampilkan rak yang
+ * DITUGASKAN ke petugas yang sedang login. Rak tanpa penugasan tetap terlihat
+ * semua orang, jadi dokumen LI01N lama tidak berubah perilakunya.
+ *
+ * Bila rondenya buta, jumlah menurut sistem tidak dikirim sama sekali dari
+ * server — bukan sekadar disembunyikan dari tampilan, karena angka yang
+ * terkirim tetap terbaca lewat panel jaringan peramban.
  */
 export default function ZrfCountPage() {
   const [list, setList] = useState<DocRow[]>([]);
@@ -79,7 +94,8 @@ export default function ZrfCountPage() {
 
   const loadList = useCallback(async () => {
     setLoading(true);
-    const r = await api<DocRow[]>('/api/physinv');
+    // ?mine=1 -> hanya dokumen yang ada jatahnya untuk user ini
+    const r = await api<DocRow[]>('/api/physinv?mine=1');
     setLoading(false);
     if (!r.ok) return setMsg({ text: r.message, type: 'E' });
     setList((r.data ?? []).filter((d) => d.status === 'FROZEN' || d.status === 'COUNTED'));
@@ -87,7 +103,7 @@ export default function ZrfCountPage() {
 
   const openDoc = useCallback(async (id: string) => {
     setLoading(true);
-    const r = await api<Doc>(`/api/physinv/${id}`);
+    const r = await api<Doc>(`/api/physinv/${id}?mine=1`);
     setLoading(false);
     if (!r.ok) return setMsg({ text: r.message, type: 'E' });
     setDoc(r.data!);
@@ -268,7 +284,11 @@ export default function ZrfCountPage() {
 
       {binCode !== '' && !inScope && (
         <PdtMessage
-          text={`Bin ${binCode} tidak termasuk dokumen ini. Barang di rak lain diproses lewat dokumen opname tersendiri (LI01N).`}
+          text={
+            doc?.managed
+              ? `Rak ${binCode} bukan jatah Anda pada ronde ${doc.round}, atau tidak termasuk dokumen ini. Minta admin menugaskan ulang di ZSO01 bila memang perlu Anda hitung.`
+              : `Bin ${binCode} tidak termasuk dokumen ini. Barang di rak lain diproses lewat dokumen opname tersendiri (LI01N).`
+          }
           type="E"
         />
       )}
@@ -284,7 +304,11 @@ export default function ZrfCountPage() {
 
           {binItems.length === 0 && extras.length === 0 && (
             <PdtMessage
-              text="Bin ini kosong menurut sistem. Kalau memang kosong, tekan Bin kosong. Kalau ada barang, tambahkan lewat Tambah temuan."
+              text={
+                doc.blind_book
+                  ? 'Tidak ada baris untuk rak ini. Kalau rak memang kosong, tekan Bin kosong. Kalau ada barang, tambahkan lewat Tambah temuan.'
+                  : 'Bin ini kosong menurut sistem. Kalau memang kosong, tekan Bin kosong. Kalau ada barang, tambahkan lewat Tambah temuan.'
+              }
               type="I"
             />
           )}
@@ -295,7 +319,8 @@ export default function ZrfCountPage() {
                 <p className="font-mono text-sm text-sap-blue">{it.material_code}</p>
                 <p className="text-2xs text-sap-text truncate">{it.description}</p>
                 <p className="text-xxs text-sap-muted font-mono">
-                  {it.batch_number || 'no batch'} · book {it.book_qty} {it.uom}
+                  {it.batch_number || 'no batch'}
+                  {doc.blind_book ? ' · buta' : ` · book ${it.book_qty} ${it.uom}`}
                   {it.counted_qty !== null ? ` · tercatat ${it.counted_qty}` : ''}
                 </p>
                 <input

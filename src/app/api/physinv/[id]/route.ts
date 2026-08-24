@@ -17,17 +17,49 @@ async function findDoc(idOrNumber: string) {
     include: {
       items: { orderBy: [{ bin_code: 'asc' }, { material_code: 'asc' }] },
       bins: { orderBy: { bin_code: 'asc' } },
+      rounds: { orderBy: { round: 'asc' } },
     },
   });
 }
 
 /** GET /api/physinv/:id — detail dokumen + seluruh baris (lintas bin) */
-export async function GET(_req: NextRequest, ctx: Ctx) {
+export async function GET(req: NextRequest, ctx: Ctx) {
   return handle(async () => {
-    await requireUser();
+    const user = await requireUser();
     const { id } = await ctx.params;
+    /** '1' = hanya rak yang ditugaskan ke pemanggil (dipakai PDT / ZRF05) */
+    const mineOnly = req.nextUrl.searchParams.get('mine') === '1';
     const doc = await findDoc(id);
     if (!doc) throw new HttpError(404, 'Physical inventory document does not exist.');
+
+    const round = doc.current_round;
+    const roundRow = doc.rounds.find((r) => r.round === round) ?? null;
+
+    // Rak pada ronde yang sedang berjalan. Ronde lama tetap tersimpan tetapi
+    // tidak ditampilkan di layar hitung — hanya dipakai layar perbandingan.
+    const binsThisRound = doc.bins.filter((b) => b.round === round);
+
+    /**
+     * Penyaringan penugasan.
+     *
+     * Rak tanpa penugasan tetap terlihat semua orang — itu perilaku LI01N yang
+     * lama dan sengaja dipertahankan. Yang disaring hanya rak yang memang sudah
+     * bertuan, supaya hitungan ronde berikutnya bisa dijamin dikerjakan orang
+     * yang berbeda.
+     */
+    const visibleBins = mineOnly
+      ? binsThisRound.filter((b) => !b.assigned_to || b.assigned_to === user.username)
+      : binsThisRound;
+    const visibleCodes = new Set(visibleBins.map((b) => b.bin_code));
+
+    /**
+     * Blind counting. Bila ronde ini buta, jumlah menurut sistem TIDAK dikirim
+     * ke layar — bukan sekadar disembunyikan lewat CSS, karena angka yang
+     * terkirim tetap bisa dilihat siapa pun yang membuka panel jaringan.
+     *
+     * ADMIN dikecualikan: mereka meninjau di desktop, bukan menghitung.
+     */
+    const hideBook = !!roundRow && !roundRow.show_book_qty && user.role !== 'ADMIN';
 
     const materials = await prisma.material.findMany({
       where: { material_code: { in: doc.items.map((i) => i.material_code) } },
@@ -44,23 +76,35 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const qKey = (m: string, b: string, batch: string | null) => `${m}|${b}|${batch ?? ''}`;
     const qMap = new Map(quants.map((q) => [qKey(q.material_code, q.bin_code, q.batch_number), q]));
 
+    const visibleItems = doc.items
+      .filter((i) => i.round === round && (!mineOnly || visibleCodes.has(i.bin_code)))
+      .map((i) => {
+        const q = qMap.get(qKey(i.material_code, i.bin_code, i.batch_number));
+        return {
+          ...i,
+          book_qty: hideBook ? 0 : i.book_qty,
+          diff_qty: hideBook ? 0 : i.diff_qty,
+          mfg_date: i.mfg_date ?? q?.mfg_date ?? null,
+          exp_date: i.exp_date ?? q?.exp_date ?? null,
+          description: mMap.get(i.material_code)?.description ?? '',
+          uom: mMap.get(i.material_code)?.uom ?? 'PC',
+        };
+      });
+
     return ok(
       {
         ...doc,
         // kolomnya teks di database, tetapi API selalu memberi array
-        frozen_bins: fromDbList(doc.frozen_bins),
-        items: doc.items.map((i) => {
-          const q = qMap.get(qKey(i.material_code, i.bin_code, i.batch_number));
-          return {
-            ...i,
-            mfg_date: i.mfg_date ?? q?.mfg_date ?? null,
-            exp_date: i.exp_date ?? q?.exp_date ?? null,
-            description: mMap.get(i.material_code)?.description ?? '',
-            uom: mMap.get(i.material_code)?.uom ?? 'PC',
-          };
-        }),
+        frozen_bins: mineOnly ? [...visibleCodes] : fromDbList(doc.frozen_bins),
+        round,
+        /** true = layar TIDAK boleh menampilkan jumlah menurut sistem */
+        blind_book: hideBook,
+        /** true = dokumen ini dikelola ZSO01 (ada penugasan) */
+        managed: binsThisRound.some((b) => !!b.assigned_to),
+        bins: visibleBins,
+        items: visibleItems,
       },
-      `Document ${doc.doc_number} displayed — ${doc.items.length} line(s) across ${fromDbList(doc.frozen_bins).length} bin(s)`
+      `Document ${doc.doc_number} displayed — ${visibleItems.length} line(s) across ${visibleBins.length} bin(s)`
     );
   });
 }
@@ -89,11 +133,37 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       async (tx) => {
         const d = await tx.physInvDoc.findFirst({
           where: { OR: [{ id: decodeURIComponent(id) }, { doc_number: decodeURIComponent(id) }] },
-          include: { items: true },
+          include: { items: true, bins: true },
         });
         if (!d) throw new HttpError(404, 'Physical inventory document does not exist.');
         if (d.status === PhysInvStatus.POSTED)
           throw new HttpError(400, `Document ${d.doc_number} is already posted.`);
+
+        const round = d.current_round;
+        const roundBins = d.bins.filter((x) => x.round === round);
+
+        /**
+         * Rak yang bertuan hanya boleh dihitung oleh pemiliknya.
+         *
+         * Ini bukan sekadar tata tertib. Aturan konsensus menyatakan sebuah
+         * angka sah ketika dua ronde sepakat — dan itu hanya bermakna bila
+         * kedua ronde dikerjakan orang berbeda. Kalau siapa pun boleh
+         * menghitung rak siapa pun, dua hitungan yang tampak independen bisa
+         * berasal dari tangan yang sama.
+         *
+         * Jalan keluar bila petugasnya berhalangan adalah MENUGASKAN ULANG di
+         * ZSO01, bukan menembus dari layar hitung — supaya perubahannya
+         * tercatat.
+         */
+        const owner = new Map(roundBins.map((x) => [x.bin_code, x.assigned_to]));
+        function assertMine(bin_code: string) {
+          const who = owner.get(bin_code);
+          if (!who || who === user.username) return;
+          throw new HttpError(
+            403,
+            `Rak ${bin_code} ditugaskan ke ${who} pada ronde ${round}. Minta admin menugaskan ulang di ZSO01 bila perlu.`
+          );
+        }
 
         for (const raw of items) {
           const counted = toInt(raw.counted_qty ?? 0, 'counted quantity');
@@ -102,6 +172,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           const material_code = cleanStr(raw.material_code).toUpperCase();
           const bin_code = cleanStr(raw.bin_code).toUpperCase();
           const batch_number = normBatch(raw.batch_number);
+
+          if (bin_code) assertMine(bin_code);
 
           const existing = raw.id
             ? d.items.find((i) => i.id === raw.id)
@@ -117,6 +189,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               where: { id: existing.id },
               data: {
                 counted_qty: counted,
+                counted_by: user.username,
                 diff_qty: counted - existing.book_qty,
                 ...(raw.mfg_date !== undefined ? { mfg_date: toDate(raw.mfg_date) } : {}),
                 ...(raw.exp_date !== undefined ? { exp_date: toDate(raw.exp_date) } : {}),
@@ -147,6 +220,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
                 book_qty: 0,
                 counted_qty: counted,
                 diff_qty: counted,
+                round,
+                counted_by: user.username,
               },
             });
           }
@@ -155,7 +230,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         // ---- tandai bin yang selesai dihitung ----
         // Sebuah bin dianggap selesai bila operator menyatakannya (tombol
         // "selesai" / "bin kosong" di ZRF05) ATAU seluruh barisnya sudah terisi.
-        const fresh = await tx.physInvDocItem.findMany({ where: { doc_id: d.id } });
+        for (const c of countedBins) assertMine(c);
+
+        const fresh = await tx.physInvDocItem.findMany({ where: { doc_id: d.id, round } });
         const byBin = new Map<string, { total: number; filled: number }>();
         for (const i of fresh) {
           const e = byBin.get(i.bin_code) ?? { total: 0, filled: 0 };
@@ -172,7 +249,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
         if (done.size > 0) {
           await tx.physInvBin.updateMany({
-            where: { doc_id: d.id, bin_code: { in: [...done] }, counted_at: null },
+            where: { doc_id: d.id, round, bin_code: { in: [...done] }, counted_at: null },
             data: { counted_at: new Date(), counted_by: user.username },
           });
         }

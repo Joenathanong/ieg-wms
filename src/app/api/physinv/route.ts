@@ -15,10 +15,17 @@ export const maxDuration = 60;
 /** GET /api/physinv?status=&bin= — daftar dokumen stock opname */
 export async function GET(req: NextRequest) {
   return handle(async () => {
-    await requireUser();
+    const user = await requireUser();
     const sp = req.nextUrl.searchParams;
     const status = cleanStr(sp.get('status')).toUpperCase();
     const bin = cleanStr(sp.get('bin')).toUpperCase();
+    /**
+     * '1' = hanya dokumen yang ada jatahnya untuk pemanggil — dipakai ZRF05.
+     *
+     * Dokumen tanpa penugasan sama sekali tetap ikut tampil: itu dokumen LI01N
+     * biasa yang memang boleh dikerjakan siapa saja.
+     */
+    const mineOnly = sp.get('mine') === '1';
 
     const docs = await prisma.physInvDoc.findMany({
       where: {
@@ -34,12 +41,29 @@ export async function GET(req: NextRequest) {
       take: 300,
     });
 
-    const rows = docs.map((d) => ({
+    const visible = mineOnly
+      ? docs.filter((d) => {
+          const roundBins = d.bins.filter((b) => b.round === d.current_round);
+          const assigned = roundBins.filter((b) => !!b.assigned_to);
+          if (assigned.length === 0) return true; // dokumen tanpa penugasan
+          return assigned.some((b) => b.assigned_to === user.username);
+        })
+      : docs;
+
+    const rows = visible.map((d) => {
+      const roundBins = d.bins.filter((b) => b.round === d.current_round);
+      const myBins = mineOnly
+        ? roundBins.filter((b) => !b.assigned_to || b.assigned_to === user.username)
+        : roundBins;
+      return {
       id: d.id,
       doc_number: d.doc_number,
       scope_type: d.scope_type,
       scope_value: d.scope_value,
-      bin_count: fromDbList(d.frozen_bins).length,
+      bin_count: mineOnly ? myBins.length : fromDbList(d.frozen_bins).length,
+      round: d.current_round,
+      /** true = dokumen dikelola ZSO01 (ada penugasan pada ronde berjalan) */
+      managed: roundBins.some((b) => !!b.assigned_to),
       status: d.status,
       planned_date: d.planned_date,
       counted_at: d.counted_at,
@@ -47,11 +71,12 @@ export async function GET(req: NextRequest) {
       created_by: d.created_by,
       created_at: d.created_at,
       item_count: d.items.length,
-      bins_counted: d.bins.filter((b) => b.counted_at !== null).length,
+      bins_counted: myBins.filter((b) => b.counted_at !== null).length,
       book_total: d.items.reduce((a, i) => a + i.book_qty, 0),
       counted_total: d.items.reduce((a, i) => a + (i.counted_qty ?? 0), 0),
       diff_total: d.items.reduce((a, i) => a + i.diff_qty, 0),
-    }));
+      };
+    });
 
     return ok(rows, `${rows.length} physical inventory document(s) selected`);
   });
@@ -66,6 +91,13 @@ export async function GET(req: NextRequest) {
  *
  * Semua bin dalam cakupan di-freeze (BLOCKED) dan snapshot stok direkam
  * sebagai baris dokumen. Satu nomor dokumen memuat banyak baris lintas bin.
+ *
+ * Bidang OPSIONAL untuk opname terkelola (ZSO01):
+ *   assignments: [{ bin_code, assigned_to }]  — petugas per rak
+ *   round_options: { show_book_qty, show_prev_round } — pengaturan blind
+ *
+ * Tanpa keduanya, dokumen berperilaku persis seperti LI01N selama ini: satu
+ * ronde, tanpa penugasan, siapa pun boleh menghitung rak mana pun.
  */
 export async function POST(req: NextRequest) {
   return handle(async () => {
@@ -142,6 +174,44 @@ export async function POST(req: NextRequest) {
           orderBy: [{ bin_code: 'asc' }, { material_code: 'asc' }],
         });
 
+        // ---- penugasan per rak (opsional) ----
+        const rawAssign: { bin_code: string; assigned_to: string }[] = Array.isArray(b.assignments)
+          ? b.assignments
+              .map((a: { bin_code?: unknown; assigned_to?: unknown }) => ({
+                bin_code: cleanStr(a?.bin_code).toUpperCase(),
+                assigned_to: cleanStr(a?.assigned_to).toUpperCase(),
+              }))
+              .filter((a: { bin_code: string; assigned_to: string }) => a.bin_code && a.assigned_to)
+          : [];
+
+        const assignOf = new Map(rawAssign.map((a) => [a.bin_code, a.assigned_to]));
+
+        for (const code of assignOf.keys()) {
+          if (!binCodes.includes(code))
+            throw new HttpError(400, `Storage bin ${code} is not part of this document.`);
+        }
+
+        if (assignOf.size > 0) {
+          // Petugas harus benar-benar ada dan aktif: penugasan ke username yang
+          // salah ketik akan menghasilkan rak yang tidak muncul di PDT siapa pun,
+          // dan itu baru ketahuan saat opname sudah berjalan.
+          const names = [...new Set(assignOf.values())];
+          const users = await tx.user.findMany({
+            where: { username: { in: names } },
+            select: { username: true, is_active: true },
+          });
+          for (const n of names) {
+            const u = users.find((x) => x.username === n);
+            if (!u) throw new HttpError(400, `User ${n} does not exist (SU01).`);
+            if (!u.is_active) throw new HttpError(400, `User ${n} is locked.`);
+          }
+        }
+
+        const roundOpts = (b.round_options ?? {}) as {
+          show_book_qty?: unknown;
+          show_prev_round?: unknown;
+        };
+
         const doc_number = await nextDocNumber(tx, 'PIDOC');
         const doc = await tx.physInvDoc.create({
           data: {
@@ -155,6 +225,7 @@ export async function POST(req: NextRequest) {
             items: {
               create: quants.map((q) => ({
                 bin_code: q.bin_code,
+                round: 1,
                 material_code: q.material_code,
                 batch_number: q.batch_number,
                 book_qty: q.qty,
@@ -165,10 +236,27 @@ export async function POST(req: NextRequest) {
             // satu baris status per bin — dipakai penghitung paralel untuk tahu
             // rak mana yang belum tersentuh, termasuk rak yang memang kosong
             bins: {
-              create: binCodes.map((bin_code) => ({ bin_code })),
+              create: binCodes.map((bin_code) => ({
+                bin_code,
+                round: 1,
+                assigned_to: assignOf.get(bin_code) ?? null,
+              })),
+            },
+            // Ronde 1 selalu dibuat, juga untuk dokumen LI01N biasa — supaya
+            // pengaturan blind punya satu tempat tetap dan layar hitung tidak
+            // perlu menangani kasus "dokumen tanpa ronde".
+            rounds: {
+              create: [
+                {
+                  round: 1,
+                  show_book_qty: roundOpts.show_book_qty === true,
+                  show_prev_round: roundOpts.show_prev_round === true,
+                  opened_by: user.username,
+                },
+              ],
             },
           },
-          include: { items: true, bins: true },
+          include: { items: true, bins: true, rounds: true },
         });
 
         // ---- freeze semua bin ----

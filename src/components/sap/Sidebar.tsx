@@ -42,6 +42,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { code: 'MIGO', label: 'Goods Movement', href: '/migo', Icon: PackagePlus },
       { code: 'LI01N', label: 'Create Phys. Inv. Doc', href: '/li01n', Icon: ScanBarcode },
       { code: 'LI11N', label: 'Enter Count / Post Diff', href: '/li11n', Icon: ClipboardList },
+      { code: 'ZSO01', label: 'Opname Terkelola', href: '/zso01', Icon: ClipboardList, adminOnly: true },
     ],
   },
   {
