@@ -35,7 +35,11 @@ type Form = {
 const emptyForm: Form = {
   zone_code: '',
   label: '',
-  zone_group: 'BESAR',
+  // Sengaja kosong: kelompok gudang menentukan zona ini ikut Gudang Besar atau
+  // Gudang Kecil, dan salah pilih baru ketahuan jauh kemudian — mis. stok Gudang
+  // Kecil ikut muncul di ZRF08. Nilai bawaan 'BESAR' membuat kesalahan itu
+  // terjadi tanpa seorang pun menyentuh pilihannya.
+  zone_group: '',
   bin_pattern: '',
   is_interim: false,
   is_pick: false,
@@ -85,6 +89,7 @@ export default function ZzonePage() {
   async function save() {
     if (!form.zone_code.trim()) return setStatus('Zone code is mandatory', 'E');
     if (!form.label.trim()) return setStatus('Zone description is mandatory', 'E');
+    if (!form.zone_group) return setStatus('Pilih kelompok gudang terlebih dahulu', 'E');
 
     setBusy(true);
     const body = {
@@ -255,12 +260,13 @@ export default function ZzonePage() {
 
             <Field
               label="Kelompok Gudang"
-              hint="Menentukan palletization yang dipakai MIGO saat put-away."
+              hint="Menentukan palletization yang dipakai MIGO saat put-away, dan menentukan zona ini ikut Gudang Besar atau Gudang Kecil pada layar yang menyaring per gudang (mis. ZRF08)."
             >
               <Select
                 value={form.zone_group}
                 onChange={(e) => setForm({ ...form, zone_group: e.target.value })}
               >
+                <option value="">(pilih kelompok gudang)</option>
                 {ZONE_GROUP_CODES.map((g) => (
                   <option key={g} value={g}>
                     {ZONE_GROUP_LABEL[g] ?? g}

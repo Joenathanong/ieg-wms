@@ -51,6 +51,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { code: 'LB12', label: 'Put-away / Picking', href: '/lb12', Icon: PackageCheck },
       { code: 'LT01', label: 'Transfer Bin (Single)', href: '/lt01', Icon: ArrowLeftRight },
       { code: 'LT10', label: 'Mass Bin Transfer', href: '/lt10', Icon: Layers3 },
+      { code: 'ZREPL', label: 'Mass Replenishment', href: '/zrepl', Icon: PackageCheck, adminOnly: true },
     ],
   },
   {

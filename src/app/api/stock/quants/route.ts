@@ -33,14 +33,35 @@ export async function GET(req: NextRequest) {
      * Batasi ke kelompok gudang tertentu (BESAR / KECIL) — dipakai ZRF08 yang
      * hanya melayani replenishment di Gudang Besar.
      *
-     * Disaring SESUDAH quant diambil, bukan sebagai kondisi query. Alasannya:
-     * stock_wm hanya menyimpan bin_code sebagai teks (tidak ada relasi ke tabel
-     * bin), sehingga menyaring di query berarti menyusun daftar IN berisi
-     * seluruh kode bin milik kelompok itu — bisa ribuan baris pada gudang
-     * sungguhan. Pemanggil endpoint ini selalu menyertakan bin atau material,
-     * jadi kumpulan hasilnya kecil dan penyaringan sesudahnya jauh lebih murah.
+     * Batasannya dipasang sebagai KONDISI QUERY, bukan penyaringan setelah data
+     * diambil. Bedanya bukan soal kecepatan melainkan kebenaran: `take` di bawah
+     * membatasi jumlah baris yang DIAMBIL, jadi menyaring sesudahnya berarti
+     * batas itu ikut memotong baris yang seharusnya tampil.
      */
     const zoneGroup = cleanStr(sp.get('zoneGroup')).toUpperCase();
+
+    /**
+     * Kode bin milik kelompok gudang yang diminta.
+     *
+     * stock_wm hanya menyimpan bin_code sebagai teks — tidak ada relasi ke tabel
+     * bin — sehingga zona harus diterjemahkan dulu menjadi daftar kode bin.
+     * Daftar kosong berarti kelompok itu memang tidak punya bin, dan `in: []`
+     * dengan benar tidak mencocokkan apa pun.
+     */
+    let zoneBinCodes: string[] | null = null;
+    if (zoneGroup) {
+      const zoneCodes = (
+        await prisma.zone.findMany({ where: { zone_group: zoneGroup }, select: { zone_code: true } })
+      ).map((z) => z.zone_code);
+
+      const zoneBins = zoneCodes.length
+        ? await prisma.storageBin.findMany({
+            where: { zone_id: { in: zoneCodes } },
+            select: { bin_code: true },
+          })
+        : [];
+      zoneBinCodes = zoneBins.map((b) => b.bin_code);
+    }
 
     let interimCodes: string[] = [];
     if (exclInterim) {
@@ -63,6 +84,7 @@ export async function GET(req: NextRequest) {
           (qFilter ?? {}) as Prisma.StockWMWhereInput,
           batch ? { batch_number: batch } : {},
           exclInterim && interimCodes.length ? { bin_code: { notIn: interimCodes } } : {},
+          zoneBinCodes ? { bin_code: { in: zoneBinCodes } } : {},
           { qty: { gt: 0 } },
         ],
       },
@@ -80,26 +102,13 @@ export async function GET(req: NextRequest) {
     });
     const zoneOfBin = new Map(binRows.map((b) => [b.bin_code, b.zone_id]));
 
-    let groupOfZone = new Map<string, string>();
-    if (zoneGroup) {
-      const zoneRows = await prisma.zone.findMany({
-        where: { zone_code: { in: [...new Set(binRows.map((b) => b.zone_id))] } },
-        select: { zone_code: true, zone_group: true },
-      });
-      groupOfZone = new Map(zoneRows.map((z) => [z.zone_code, z.zone_group]));
-    }
-
-    const visible = zoneGroup
-      ? quants.filter((q) => groupOfZone.get(zoneOfBin.get(q.bin_code) ?? '') === zoneGroup)
-      : quants;
-
     const materials = await prisma.material.findMany({
-      where: { material_code: { in: [...new Set(visible.map((q) => q.material_code))] } },
+      where: { material_code: { in: [...new Set(quants.map((q) => q.material_code))] } },
       select: { material_code: true, description: true, uom: true, is_batch_managed: true, fix_bin: true },
     });
     const mMap = new Map(materials.map((m) => [m.material_code, m]));
 
-    const rows = visible.map((q) => ({
+    const rows = quants.map((q) => ({
       id: q.id,
       material_code: q.material_code,
       description: mMap.get(q.material_code)?.description ?? '',

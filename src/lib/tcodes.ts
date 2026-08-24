@@ -28,6 +28,7 @@ export const TCODES: TCodeEntry[] = [
   { code: 'LB12', title: 'Process Transfer Requirement (Put-away / Pick)', path: '/lb12', group: 'WAREHOUSE' },
   { code: 'LT01', title: 'Create Transfer Order — Single Bin', path: '/lt01', group: 'WAREHOUSE' },
   { code: 'LT10', title: 'Mass Bin Transfer', path: '/lt10', group: 'WAREHOUSE' },
+  { code: 'ZREPL', title: 'Mass Replenishment (Fix Bin)', path: '/zrepl', group: 'WAREHOUSE', adminOnly: true, aliases: ['ZLT08', 'REPL'] },
 
   // ---------------- REPORTS ----------------
   { code: 'MB52', title: 'Display Warehouse Stock (Global / IM)', path: '/mb52', group: 'REPORT' },

@@ -73,12 +73,40 @@ export function proposeBatches(quants: Quant[]): BatchProposal[] {
   return out;
 }
 
+/** Kunci pengecualian: satu batch di satu bin. */
+export function quantKey(batch_number: string, bin_code: string): string {
+  return `${batch_number || '(tanpa batch)'}|${bin_code}`;
+}
+
+/**
+ * Buang bin yang sudah dipakai di line lain, lalu buang batch yang jadi kosong.
+ *
+ * Pengecualian dilakukan per batch DI SATU BIN, bukan per batch. Satu batch
+ * bisa tersebar di beberapa rak, dan setiap transfer selalu berasal dari satu
+ * rak saja — jadi batch yang sudah diambil dari rak A masih sah diambil dari
+ * rak B untuk melengkapi kekurangan.
+ */
+function applyExclude(rows: BatchProposal[], exclude: string[]): BatchProposal[] {
+  if (exclude.length === 0) return rows;
+  const skip = new Set(exclude);
+  return rows
+    .map((b) => {
+      const bins = b.bins.filter((x) => !skip.has(quantKey(b.batch_number, x.bin_code)));
+      return { ...b, bins, total_qty: bins.reduce((a, x) => a + x.qty, 0) };
+    })
+    .filter((b) => b.bins.length > 0);
+}
+
 export function BatchDetermination({
   open,
   material,
   description,
   /** true = ikut menampilkan stok di bin interim (transit) */
   includeInterim = false,
+  /** batasi ke kelompok gudang tertentu, mis. 'BESAR' */
+  zoneGroup,
+  /** daftar kunci batch|bin yang sudah dipakai line lain — lihat quantKey() */
+  exclude,
   onPick,
   onClose,
 }: {
@@ -86,6 +114,8 @@ export function BatchDetermination({
   material: string;
   description?: string;
   includeInterim?: boolean;
+  zoneGroup?: string;
+  exclude?: string[];
   onPick: (b: BatchProposal) => void;
   onClose: () => void;
 }) {
@@ -93,12 +123,17 @@ export function BatchDetermination({
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
+  // Array baru setiap render akan memicu useCallback terus-menerus; dijadikan
+  // string dulu supaya identitas dependensinya stabil.
+  const excludeKey = (exclude ?? []).join(',');
+
   const load = useCallback(async () => {
     if (!material) return;
     setLoading(true);
     setMsg('');
     const r = await api<Quant[]>(
-      '/api/stock/quants' + qs({ material, exclInterim: includeInterim ? '' : 1 })
+      '/api/stock/quants' +
+        qs({ material, exclInterim: includeInterim ? '' : 1, zoneGroup: zoneGroup ?? '' })
     );
     setLoading(false);
     if (!r.ok) {
@@ -106,10 +141,16 @@ export function BatchDetermination({
       setMsg(r.message);
       return;
     }
-    const proposals = proposeBatches(r.data ?? []);
+    const proposals = applyExclude(proposeBatches(r.data ?? []), exclude ?? []);
     setRows(proposals);
-    if (proposals.length === 0) setMsg(`Tidak ada stok untuk material ${material}.`);
-  }, [material, includeInterim]);
+    if (proposals.length === 0) {
+      setMsg(
+        (exclude?.length ?? 0) > 0
+          ? `Tidak ada sisa batch lain untuk material ${material} — seluruh stok yang tersedia sudah dipakai di line lain.`
+          : `Tidak ada stok untuk material ${material}.`
+      );
+    }
+  }, [material, includeInterim, zoneGroup, excludeKey]);
 
   useEffect(() => {
     if (open) load();

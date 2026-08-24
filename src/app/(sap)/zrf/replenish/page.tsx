@@ -14,6 +14,13 @@ import { parseScan, resolveScan } from '@/lib/barcode';
  */
 const ZONE_GROUP = 'BESAR';
 
+/*
+ * Catatan bila stok gudang lain masih ikut muncul: penyaringan ini memakai
+ * KELOMPOK GUDANG pada master zona (ZZONE), bukan nama zonanya. Zona bernama
+ * "GUDANG-KECIL" tetap dianggap Gudang Besar bila kolom Kelompok Gudang-nya
+ * berisi BESAR. Periksa kolom itu di ZZONE, bukan kode zonanya.
+ */
+
 interface Quant {
   id: string;
   material_code: string;
