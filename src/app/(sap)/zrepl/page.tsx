@@ -18,7 +18,8 @@
  * untuk semua line, sehingga tidak mungkin separuh dokumen masuk.
  */
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Layers3,
   Plus,
@@ -75,11 +76,18 @@ interface CheckResult {
 /**
  * Kotak cari material dengan saran.
  *
- * Tidak memakai <datalist> bawaan browser: penyaringannya berbeda antar
- * browser — sebagian hanya mencocokkan `value` (kode material) dan mengabaikan
- * deskripsi, sehingga mengetik "sabun" tidak memunculkan apa-apa di sana.
- * Pencocokan di sini dilakukan sendiri terhadap kode MAUPUN deskripsi, jadi
- * perilakunya sama di semua browser.
+ * Dua hal yang membuatnya tidak sesederhana <input list="...">:
+ *
+ * 1. <datalist> bawaan browser menyaring berbeda-beda — sebagian hanya
+ *    mencocokkan `value` (kode material) dan mengabaikan deskripsi, sehingga
+ *    mengetik "sabun" tidak memunculkan apa pun. Pencocokan di sini dikerjakan
+ *    sendiri terhadap kode MAUPUN deskripsi.
+ *
+ * 2. Daftar sarannya dirender lewat PORTAL dengan posisi fixed, bukan sebagai
+ *    elemen absolute di dalam sel tabel. Tabel line item dibungkus
+ *    `overflow-x-auto`, dan wadah dengan overflow memotong apa pun yang keluar
+ *    dari batasnya — daftar saran tetap muncul tetapi terpangkas setinggi satu
+ *    baris tabel, sehingga tampak seolah tidak ada saran sama sekali.
  */
 function MaterialPicker({
   value,
@@ -90,10 +98,11 @@ function MaterialPicker({
   materials: { material_code: string; description: string; uom: string }[];
   onPick: (code: string) => void;
 }) {
+  const boxRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const term = value.trim().toUpperCase();
-  const exact = materials.some((m) => m.material_code === term);
   const hits = useMemo(() => {
     if (!term) return [];
     return materials
@@ -105,10 +114,32 @@ function MaterialPicker({
       .slice(0, 8);
   }, [materials, term]);
 
-  const show = open && term.length > 0 && hits.length > 0 && !(exact && hits.length === 1);
+  // Satu-satunya kecocokan yang sudah persis sama tidak perlu ditawarkan lagi.
+  const settled = hits.length === 1 && hits[0].material_code.toUpperCase() === term;
+  const show = open && hits.length > 0 && !settled;
+
+  const place = useCallback(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRect({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 260) });
+  }, []);
+
+  useEffect(() => {
+    if (!show) return;
+    place();
+    // Posisi ikut menyesuaikan saat halaman digulir atau jendela diubah,
+    // karena posisi fixed tidak ikut bergerak sendiri bersama tabelnya.
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [show, place]);
 
   return (
-    <div className="relative">
+    <div ref={boxRef} className="relative">
       <Input
         className="uppercase !py-[3px]"
         placeholder="kode / nama barang"
@@ -120,29 +151,35 @@ function MaterialPicker({
         onFocus={() => setOpen(true)}
         // Ditunda sesaat supaya klik pada daftar saran sempat terproses
         // sebelum daftarnya ditutup oleh blur.
-        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
-      {show && (
-        <div className="absolute z-[60] left-0 right-0 mt-0.5 max-h-[220px] overflow-auto sap-panel shadow-sap">
-          {hits.map((m) => (
-            <button
-              key={m.material_code}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onPick(m.material_code);
-                setOpen(false);
-              }}
-              className="w-full text-left px-2.5 py-1.5 hover:bg-sap-hover border-b border-sap-border/50 last:border-0"
-            >
-              <p className="font-mono text-2xs text-sap-blue">{m.material_code}</p>
-              <p className="text-xxs text-sap-muted truncate">
-                {m.description} · {m.uom}
-              </p>
-            </button>
-          ))}
-        </div>
-      )}
+      {show &&
+        rect &&
+        createPortal(
+          <div
+            style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width }}
+            className="z-[95] max-h-[240px] overflow-auto sap-panel shadow-sap"
+          >
+            {hits.map((m) => (
+              <button
+                key={m.material_code}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onPick(m.material_code);
+                  setOpen(false);
+                }}
+                className="w-full text-left px-2.5 py-1.5 hover:bg-sap-hover border-b border-sap-border/50 last:border-0"
+              >
+                <p className="font-mono text-2xs text-sap-blue">{m.material_code}</p>
+                <p className="text-xxs text-sap-muted truncate">
+                  {m.description} · {m.uom}
+                </p>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
