@@ -290,6 +290,17 @@ export default function ZreplPage() {
 
   const filled = lines.filter((l) => l.material_code.trim() && Number(l.qty) > 0);
 
+  /**
+   * Nomor line pada hasil simulasi dihitung dari daftar yang DIKIRIM ke server
+   * (hanya line terisi), bukan dari posisi baris di layar. Tanpa pemetaan ini,
+   * satu line kosong di tengah membuat seluruh penandaan error bergeser ke
+   * baris yang salah.
+   */
+  const checkLineOf = useMemo(
+    () => new Map(filled.map((l, i) => [l.key, i + 1])),
+    [filled]
+  );
+
   function payload() {
     return filled.map((l) => ({
       material_code: l.material_code.trim().toUpperCase(),
@@ -374,7 +385,7 @@ export default function ZreplPage() {
             <tbody>
               {lines.map((l, i) => {
                 const mat = matMap.get(l.material_code.trim().toUpperCase());
-                const check = checks.find((c) => c.line === i + 1);
+                const check = checks.find((c) => c.line === checkLineOf.get(l.key));
                 return (
                   <tr key={l.key} className={check?.status === 'ERROR' ? 'bg-sap-errbg/40' : ''}>
                     <td className="text-center font-mono text-sap-muted/60">{i + 1}</td>
@@ -590,7 +601,12 @@ export default function ZreplPage() {
         open={confirmOpen}
         title="Posting replenishment"
         question={`${filled.length} line akan diposting sebagai transfer 301.`}
-        details="Stok diperiksa ulang tepat sebelum posting. Seluruh line masuk dalam satu transaksi — tidak mungkin separuh dokumen tersimpan."
+        details={[
+          { label: 'Jumlah line', value: filled.length },
+          { label: 'Total qty', value: filled.reduce((a, l) => a + (Number(l.qty) || 0), 0) },
+          { label: 'Pemeriksaan', value: 'Stok dicek ulang tepat sebelum posting' },
+          { label: 'Sifat posting', value: 'Satu transaksi — tidak mungkin separuh dokumen masuk' },
+        ]}
         busy={busy}
         confirmLabel="Posting"
         onConfirm={submit}
