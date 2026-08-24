@@ -193,6 +193,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
                 diff_qty: counted - existing.book_qty,
                 ...(raw.mfg_date !== undefined ? { mfg_date: toDate(raw.mfg_date) } : {}),
                 ...(raw.exp_date !== undefined ? { exp_date: toDate(raw.exp_date) } : {}),
+                ...(raw.swap_group !== undefined
+                  ? { swap_group: cleanStr(raw.swap_group).slice(0, 64) || null }
+                  : {}),
               },
             });
           } else {
@@ -222,6 +225,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
                 diff_qty: counted,
                 round,
                 counted_by: user.username,
+                swap_group: cleanStr(raw.swap_group).slice(0, 64) || null,
               },
             });
           }

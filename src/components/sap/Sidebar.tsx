@@ -43,6 +43,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { code: 'LI01N', label: 'Create Phys. Inv. Doc', href: '/li01n', Icon: ScanBarcode },
       { code: 'LI11N', label: 'Enter Count / Post Diff', href: '/li11n', Icon: ClipboardList },
       { code: 'ZSO01', label: 'Opname Terkelola', href: '/zso01', Icon: ClipboardList, adminOnly: true },
+      { code: 'ZSO02', label: 'Opname — Monitor Ronde', href: '/zso02', Icon: ClipboardList, adminOnly: true },
     ],
   },
   {

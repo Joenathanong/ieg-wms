@@ -23,6 +23,7 @@ export const TCODES: TCodeEntry[] = [
   { code: 'LI01N', title: 'Create Physical Inventory Doc (Freeze Bin)', path: '/li01n', group: 'TRANSACTION' },
   { code: 'LI11N', title: 'Enter Physical Inventory Count', path: '/li11n', group: 'TRANSACTION' },
   { code: 'ZSO01', title: 'Opname Terkelola — Pilih Rak & Tugaskan Petugas', path: '/zso01', group: 'TRANSACTION', adminOnly: true, aliases: ['ZOPNAME', 'ZSO'] },
+  { code: 'ZSO02', title: 'Opname — Monitor, Bandingkan Ronde & Tugaskan Ulang', path: '/zso02', group: 'TRANSACTION', adminOnly: true, aliases: ['ZSOMON'] },
 
   // ---------------- WAREHOUSE (level WM / bin) ----------------
   { code: 'LB10', title: 'Transfer Requirement List (Work Queue)', path: '/lb10', group: 'WAREHOUSE' },

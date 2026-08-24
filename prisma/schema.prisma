@@ -503,6 +503,12 @@ model PhysInvDocItem {
   /// counted_qty - book_qty
   diff_qty      Int        @default(0)
   posted        Boolean    @default(false)
+  /// Penanda pasangan koreksi batch: baris batch lama (dihitung 0) dan baris
+  /// batch pengganti berbagi nilai yang sama. Dipakai laporan untuk memisahkan
+  /// "tertukar batch" dari "selisih stok" — tanpa ini, satu kekeliruan batch
+  /// terhitung dua kali sebagai temuan dan akurasi opname terlihat jauh lebih
+  /// buruk daripada kenyataannya.
+  swap_group    String?    @db.VarChar(64)
   /// true = angka inilah yang dipakai sebagai hasil akhir dan diposting.
   /// Diisi otomatis saat dua ronde sepakat, atau dipilih supervisor bila tidak.
   is_final      Boolean    @default(false)

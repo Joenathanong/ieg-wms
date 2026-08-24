@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ClipboardList, Save, RefreshCw, ChevronRight, Plus, Trash2, PackageX, ListChecks } from 'lucide-react';
+import { ClipboardList, Save, RefreshCw, ChevronRight, Plus, Trash2, PackageX, ListChecks, Replace } from 'lucide-react';
 import { PdtScreen, PdtInput, PdtButton, PdtRow, PdtMessage } from '@/components/pdt/ui';
 import { api, patch, fmtDateTime } from '@/lib/client';
 import { resolveScan } from '@/lib/barcode';
@@ -60,6 +60,14 @@ interface Extra {
   mfg_date: string;
   exp_date: string;
   qty: string;
+  /**
+   * Penanda pasangan koreksi batch. Baris batch lama (dihitung 0) dan baris
+   * batch pengganti berbagi nilai ini, sehingga laporan bisa mengenalinya
+   * sebagai SATU kekeliruan batch, bukan dua temuan terpisah.
+   */
+  swap_group?: string;
+  /** batch lama yang digantikan — hanya untuk ditampilkan di layar */
+  swap_from?: string;
 }
 
 /**
@@ -86,6 +94,8 @@ export default function ZrfCountPage() {
   const [bin, setBin] = useState('');
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [extras, setExtras] = useState<Extra[]>([]);
+  /** id baris snapshot -> penanda pasangan koreksi batch */
+  const [swapMark, setSwapMark] = useState<Record<string, string>>({});
   const [showOutstanding, setShowOutstanding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -137,6 +147,7 @@ export default function ZrfCountPage() {
         material_code: i.material_code,
         batch_number: i.batch_number,
         counted_qty: markEmpty ? 0 : Number(counts[i.id]),
+        ...(swapMark[i.id] ? { swap_group: swapMark[i.id] } : {}),
       }));
 
     if (!markEmpty) {
@@ -153,6 +164,7 @@ export default function ZrfCountPage() {
           mfg_date: e.mfg_date || null,
           exp_date: e.exp_date || null,
           counted_qty: n,
+          ...(e.swap_group ? { swap_group: e.swap_group } : {}),
         });
       }
     }
@@ -168,6 +180,37 @@ export default function ZrfCountPage() {
       await openDoc(doc.id);
       binRef.current?.focus();
     }
+  }
+
+  /**
+   * Ganti batch — barangnya ada, batasnya yang salah catat.
+   *
+   * Sekali tekan mengerjakan dua hal sekaligus: batch lama dinolkan dan baris
+   * batch pengganti dibuat. Dikerjakan berpasangan karena mengerjakan
+   * setengahnya justru merusak stok — kalau hanya batch penggantinya yang
+   * ditambahkan tanpa menolkan yang lama, stok material itu jadi berganda.
+   */
+  function swapBatch(it: Item) {
+    const group = `SW${Date.now().toString(36).toUpperCase()}`;
+    setCounts((c) => ({ ...c, [it.id]: '0' }));
+    setExtras((s) => [
+      ...s,
+      {
+        key: `x${Date.now()}`,
+        material_code: it.material_code,
+        batch_number: '',
+        mfg_date: '',
+        exp_date: '',
+        qty: '',
+        swap_group: group,
+        swap_from: it.batch_number || '(tanpa batch)',
+      },
+    ]);
+    setSwapMark((m) => ({ ...m, [it.id]: group }));
+    setMsg({
+      text: `Batch ${it.batch_number || '(tanpa batch)'} dinolkan. Isi batch penggantinya di baris temuan di bawah.`,
+      type: 'I',
+    });
   }
 
   /** Scan barcode material pada baris temuan -> resolve ke kode material. */
@@ -318,11 +361,28 @@ export default function ZrfCountPage() {
               <div key={it.id} className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5">
                 <p className="font-mono text-sm text-sap-blue">{it.material_code}</p>
                 <p className="text-2xs text-sap-text truncate">{it.description}</p>
-                <p className="text-xxs text-sap-muted font-mono">
-                  {it.batch_number || 'no batch'}
-                  {doc.blind_book ? ' · buta' : ` · book ${it.book_qty} ${it.uom}`}
-                  {it.counted_qty !== null ? ` · tercatat ${it.counted_qty}` : ''}
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xxs text-sap-muted font-mono min-w-0 truncate">
+                    {it.batch_number || 'no batch'}
+                    {doc.blind_book ? ' · buta' : ` · book ${it.book_qty} ${it.uom}`}
+                    {it.counted_qty !== null ? ` · tercatat ${it.counted_qty}` : ''}
+                  </p>
+                  {!it.posted && !swapMark[it.id] && (
+                    <button
+                      type="button"
+                      onClick={() => swapBatch(it)}
+                      title="Barangnya ada, tapi batch-nya berbeda dari catatan"
+                      className="sap-btn !py-[3px] !px-2 text-xxs shrink-0"
+                    >
+                      <Replace size={12} /> Ganti batch
+                    </button>
+                  )}
+                  {swapMark[it.id] && (
+                    <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext shrink-0">
+                      diganti
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   inputMode="numeric"
@@ -343,10 +403,24 @@ export default function ZrfCountPage() {
                 className="rounded-[3px] border-2 border-sap-warnborder bg-sap-warnbg/40 px-3 py-2 space-y-1.5"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xxs uppercase tracking-wide text-sap-warntext">Temuan</span>
+                  <span className="text-xxs uppercase tracking-wide text-sap-warntext">
+                    {e.swap_from ? `Pengganti batch ${e.swap_from}` : 'Temuan'}
+                  </span>
                   <button
                     type="button"
-                    onClick={() => setExtras((s) => s.filter((x) => x.key !== e.key))}
+                    onClick={() => {
+                      setExtras((s) => s.filter((x) => x.key !== e.key));
+                      // Membatalkan baris pengganti harus ikut melepas penanda
+                      // di baris asalnya, kalau tidak batch lama tetap ternol
+                      // tanpa ada penggantinya — dan stok jadi berkurang diam-diam.
+                      if (e.swap_group) {
+                        setSwapMark((m) => {
+                          const n = { ...m };
+                          for (const k of Object.keys(n)) if (n[k] === e.swap_group) delete n[k];
+                          return n;
+                        });
+                      }
+                    }}
                     className="text-sap-muted p-1"
                     aria-label="Hapus baris temuan"
                   >
