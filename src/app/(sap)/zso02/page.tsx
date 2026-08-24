@@ -20,6 +20,8 @@ import {
   Gavel,
   Save,
   BarChart3,
+  Maximize2,
+  X,
   AlertTriangle,
   EyeOff,
   Eye,
@@ -28,6 +30,7 @@ import { Panel, Input, Button, Toolbar, ActionField, Select } from '@/components
 import { useStatus } from '@/components/sap/StatusBar';
 import { ConfirmDialog } from '@/components/sap/Confirm';
 import { api, post, patch, qs, fmtDateTime } from '@/lib/client';
+import { Bar, Composition, DailyChart, Histogram } from '@/components/sap/OpnameCharts';
 import type { LineStatus } from '@/lib/consensus';
 
 interface DocRow {
@@ -98,7 +101,18 @@ interface Dash {
     new_found: number;
     lines_total: number;
     lines_unresolved: number;
+    lines_done: number;
+    lines_not_counted: number;
+    buckets: { label: string; n: number }[];
   };
+}
+
+interface Monitor {
+  docs: { doc_number: string; round: number; status: string; assigned: number; counted: number }[];
+  counters: { username: string; assigned: number; counted: number; pct: number }[];
+  zones: { zone: string; assigned: number; counted: number; pct: number }[];
+  daily: { day: string; counted: number }[];
+  totals: { assigned: number; counted: number };
 }
 
 interface UserRow {
@@ -106,53 +120,6 @@ interface UserRow {
   username: string;
   full_name: string;
   is_active: boolean;
-}
-
-/**
- * Bar progres. Digambar dengan div biasa, bukan pustaka chart.
- *
- * Yang dibutuhkan layar ini hanya perbandingan panjang — menambah ~100 KB
- * pustaka grafik untuk itu tidak sepadan, dan hasilnya justru sulit disamakan
- * dengan gaya SAP di seluruh aplikasi. Warna diambil dari token tema sehingga
- * ikut berubah saat tema terang/gelap diganti.
- */
-function Bar({
-  value,
-  max,
-  label,
-  right,
-  tone = 'blue',
-}: {
-  value: number;
-  max: number;
-  label: string;
-  right?: string;
-  tone?: 'blue' | 'ok' | 'warn' | 'err';
-}) {
-  const pct = max <= 0 ? 0 : Math.min(100, Math.round((value / max) * 100));
-  const fill =
-    tone === 'ok'
-      ? 'bg-sap-oktext'
-      : tone === 'warn'
-        ? 'bg-sap-warntext'
-        : tone === 'err'
-          ? 'bg-sap-errtext'
-          : 'bg-sap-blue';
-  return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2 text-2xs">
-        <span className="truncate">{label}</span>
-        <span className="font-mono text-sap-muted shrink-0">{right ?? `${pct}%`}</span>
-      </div>
-      <div
-        className="h-[10px] rounded-[2px] bg-sap-neutralbg border border-sap-border overflow-hidden"
-        role="img"
-        aria-label={`${label}: ${pct}%`}
-      >
-        <div className={`h-full ${fill}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
 }
 
 const STATUS_LABEL: Record<LineStatus, { text: string; cls: string }> = {
@@ -183,6 +150,9 @@ export default function Zso02Page() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [who, setWho] = useState('');
+  const [mon, setMon] = useState<Monitor | null>(null);
+  const [wall, setWall] = useState(false);
+  const [monAt, setMonAt] = useState('');
 
   const loadDocs = useCallback(async () => {
     const r = await api<DocRow[]>('/api/physinv');
@@ -210,6 +180,37 @@ export default function Zso02Page() {
   useEffect(() => {
     loadDash();
   }, [loadDash]);
+
+  const loadMon = useCallback(async () => {
+    const r = await api<Monitor>('/api/physinv/monitor' + qs({ user: who || '' }));
+    if (r.ok) {
+      setMon(r.data ?? null);
+      setMonAt(new Date().toLocaleTimeString('id-ID', { hour12: false }));
+    }
+  }, [who]);
+
+  useEffect(() => {
+    loadMon();
+  }, [loadMon]);
+
+  /**
+   * Penyegaran otomatis layar pantau.
+   *
+   * Hanya berjalan saat layar penuh dibuka DAN tabnya sedang terlihat. Memantau
+   * layar yang tidak dilihat siapa pun hanya membakar kuota database tanpa ada
+   * yang membacanya — dan layar pantau biasanya ditinggal menyala berjam-jam.
+   *
+   * Yang disegarkan cuma endpoint ringan (tabel rak, ratusan baris). Angka
+   * temuan tetap dari endpoint berat dan tidak ikut irama satu menit ini.
+   */
+  useEffect(() => {
+    if (!wall) return;
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      void loadMon();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [wall, loadMon]);
 
   const openDoc = useCallback(
     async (id: string) => {
@@ -345,9 +346,19 @@ export default function Zso02Page() {
         title="Dashboard Opname"
         icon={<BarChart3 size={13} className="text-sap-blue" />}
         actions={
-          <Button onClick={loadDash}>
-            <RefreshCw size={13} /> Segarkan
-          </Button>
+          <>
+            <Button onClick={() => setWall(true)}>
+              <Maximize2 size={13} /> Layar pantau
+            </Button>
+            <Button
+              onClick={() => {
+                loadDash();
+                loadMon();
+              }}
+            >
+              <RefreshCw size={13} /> Segarkan
+            </Button>
+          </>
         }
       >
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
@@ -436,6 +447,50 @@ export default function Zso02Page() {
                   </>
                 );
               })()}
+            </div>
+          </div>
+        )}
+
+        {dash && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-sap-border">
+            <div className="space-y-2">
+              <p className="text-2xs font-semibold">Komposisi status baris</p>
+              <Composition
+                done={dash.findings.lines_done}
+                unresolved={dash.findings.lines_unresolved}
+                notCounted={dash.findings.lines_not_counted}
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-2xs font-semibold">Rak selesai per hari</p>
+              <DailyChart data={mon?.daily ?? []} />
+            </div>
+            <div className="space-y-2">
+              <p className="text-2xs font-semibold">Sebaran besaran selisih (unit)</p>
+              <Histogram data={dash.findings.buckets} />
+              <p className="text-xxs text-sap-muted leading-relaxed">
+                Banyak selisih kecil menunjuk ke ketelitian menghitung; sedikit selisih besar lebih
+                sering berarti barang benar-benar berpindah atau hilang. Dua penyebab berbeda,
+                penanganannya juga berbeda.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {mon && mon.zones.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-sap-border space-y-2">
+            <p className="text-2xs font-semibold">Progres per zona — yang paling tertinggal di atas</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+              {mon.zones.map((z) => (
+                <Bar
+                  key={z.zone}
+                  label={z.zone}
+                  value={z.counted}
+                  max={z.assigned}
+                  right={`${z.counted}/${z.assigned} rak · ${z.pct}%`}
+                  tone={z.pct >= 100 ? 'ok' : z.pct < 40 ? 'warn' : 'blue'}
+                />
+              ))}
             </div>
           </div>
         )}
@@ -826,6 +881,113 @@ export default function Zso02Page() {
         onConfirm={openRound}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      {wall && mon && (
+        <div className="fixed inset-0 z-[95] bg-sap-bg overflow-auto">
+          <div className="sticky top-0 flex items-center gap-3 px-4 py-2.5 bg-sap-titlebar border-b border-sap-border">
+            <BarChart3 size={16} className="text-sap-blue" />
+            <span className="text-2xs font-semibold uppercase tracking-wide">
+              Layar Pantau Opname
+            </span>
+            <span className="text-xxs text-sap-muted font-mono">
+              diperbarui {monAt} · otomatis tiap 1 menit
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button onClick={loadMon}>
+                <RefreshCw size={13} /> Segarkan
+              </Button>
+              <Button onClick={() => setWall(false)}>
+                <X size={13} /> Tutup
+              </Button>
+            </div>
+          </div>
+
+          <div className="p-5 space-y-6 max-w-[1400px] mx-auto">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Rak ditugaskan', value: mon.totals.assigned },
+                { label: 'Rak selesai', value: mon.totals.counted },
+                {
+                  label: 'Progres',
+                  value: `${mon.totals.assigned === 0 ? 0 : Math.round((mon.totals.counted / mon.totals.assigned) * 100)}%`,
+                },
+                { label: 'Opname berjalan', value: mon.docs.length },
+              ].map((k) => (
+                <div key={k.label} className="sap-panel p-4">
+                  <p className="text-xxs text-sap-muted uppercase tracking-wide">{k.label}</p>
+                  <p className="text-2xl font-mono text-sap-text mt-1">{k.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="sap-panel p-4 space-y-3">
+                <p className="text-2xs font-semibold">Progres per petugas</p>
+                {mon.counters.length === 0 ? (
+                  <p className="text-xxs text-sap-muted">Belum ada rak yang ditugaskan.</p>
+                ) : (
+                  mon.counters.map((c) => (
+                    <Bar
+                      key={c.username}
+                      label={c.username}
+                      value={c.counted}
+                      max={c.assigned}
+                      right={`${c.counted}/${c.assigned} · ${c.pct}%`}
+                      tone={c.pct >= 100 ? 'ok' : 'blue'}
+                    />
+                  ))
+                )}
+              </div>
+
+              <div className="sap-panel p-4 space-y-3">
+                <p className="text-2xs font-semibold">Progres per zona</p>
+                {mon.zones.map((z) => (
+                  <Bar
+                    key={z.zone}
+                    label={z.zone}
+                    value={z.counted}
+                    max={z.assigned}
+                    right={`${z.counted}/${z.assigned} · ${z.pct}%`}
+                    tone={z.pct >= 100 ? 'ok' : z.pct < 40 ? 'warn' : 'blue'}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="sap-panel p-4 space-y-2">
+              <p className="text-2xs font-semibold">Rak selesai per hari</p>
+              <DailyChart data={mon.daily} />
+            </div>
+
+            <div className="sap-panel p-0">
+              <table className="sap-grid">
+                <thead>
+                  <tr>
+                    <th>Dokumen</th>
+                    <th className="w-[90px] text-center">Ronde</th>
+                    <th className="w-[110px] text-right">Rak</th>
+                    <th className="w-[110px] text-right">Selesai</th>
+                    <th className="w-[100px] text-right">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mon.docs.map((d) => (
+                    <tr key={d.doc_number}>
+                      <td className="font-mono text-sap-blue">{d.doc_number}</td>
+                      <td className="text-center font-mono">{d.round}</td>
+                      <td className="text-right font-mono tabular-nums">{d.assigned}</td>
+                      <td className="text-right font-mono tabular-nums">{d.counted}</td>
+                      <td className="text-right font-mono tabular-nums">
+                        {d.assigned === 0 ? 0 : Math.round((d.counted / d.assigned) * 100)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={postOpen}

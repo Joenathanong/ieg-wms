@@ -86,6 +86,16 @@ export async function GET(req: NextRequest) {
     let newFound = 0;
     let linesUnresolved = 0;
     let linesTotal = 0;
+    let linesDone = 0;
+    let linesNotCounted = 0;
+    /** sebaran besaran selisih — membedakan banyak keliru kecil dari sedikit yang besar */
+    const buckets = [
+      { label: '1–5', min: 1, max: 5, n: 0 },
+      { label: '6–20', min: 6, max: 20, n: 0 },
+      { label: '21–50', min: 21, max: 50, n: 0 },
+      { label: '51–200', min: 51, max: 200, n: 0 },
+      { label: '>200', min: 201, max: Infinity, n: 0 },
+    ];
 
     for (const d of docs) {
       interface G {
@@ -119,9 +129,15 @@ export async function GET(req: NextRequest) {
         linesTotal++;
         const v = judgeLine(g.book_qty, g.rounds, g.manual);
         if (v.status === 'UNRESOLVED') linesUnresolved++;
+        else if (v.status === 'NOT_COUNTED') linesNotCounted++;
+        else linesDone++;
         if (v.final_qty === null) continue;
         const diff = v.final_qty - g.book_qty;
         if (diff === 0) continue;
+
+        const mag = Math.abs(diff);
+        const bucket = buckets.find((x) => mag >= x.min && mag <= x.max);
+        if (bucket) bucket.n++;
 
         if (g.swap) {
           // Bagian yang saling menutup dianggap tertukar batch; ini menghitung
@@ -160,6 +176,9 @@ export async function GET(req: NextRequest) {
           new_found: newFound,
           lines_total: linesTotal,
           lines_unresolved: linesUnresolved,
+          lines_done: linesDone,
+          lines_not_counted: linesNotCounted,
+          buckets: buckets.map((b) => ({ label: b.label, n: b.n })),
         },
       },
       `${docs.length} dokumen opname dalam rentang ini`
