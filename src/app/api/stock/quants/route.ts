@@ -29,6 +29,18 @@ export async function GET(req: NextRequest) {
     const qFilter = await materialCodeFilter('material_code', q);
     /** '1' = kecualikan bin interim (TRANSIT-IN/OUT) — dipakai ZRF08 replenishment */
     const exclInterim = cleanStr(sp.get('exclInterim')) === '1';
+    /**
+     * Batasi ke kelompok gudang tertentu (BESAR / KECIL) — dipakai ZRF08 yang
+     * hanya melayani replenishment di Gudang Besar.
+     *
+     * Disaring SESUDAH quant diambil, bukan sebagai kondisi query. Alasannya:
+     * stock_wm hanya menyimpan bin_code sebagai teks (tidak ada relasi ke tabel
+     * bin), sehingga menyaring di query berarti menyusun daftar IN berisi
+     * seluruh kode bin milik kelompok itu — bisa ribuan baris pada gudang
+     * sungguhan. Pemanggil endpoint ini selalu menyertakan bin atau material,
+     * jadi kumpulan hasilnya kecil dan penyaringan sesudahnya jauh lebih murah.
+     */
+    const zoneGroup = cleanStr(sp.get('zoneGroup')).toUpperCase();
 
     let interimCodes: string[] = [];
     if (exclInterim) {
@@ -60,13 +72,34 @@ export async function GET(req: NextRequest) {
       take: 500,
     });
 
+    // Zona setiap bin — dipakai untuk penyaringan kelompok gudang sekaligus
+    // ditampilkan di layar supaya operator tahu asal stoknya.
+    const binRows = await prisma.storageBin.findMany({
+      where: { bin_code: { in: [...new Set(quants.map((q) => q.bin_code))] } },
+      select: { bin_code: true, zone_id: true },
+    });
+    const zoneOfBin = new Map(binRows.map((b) => [b.bin_code, b.zone_id]));
+
+    let groupOfZone = new Map<string, string>();
+    if (zoneGroup) {
+      const zoneRows = await prisma.zone.findMany({
+        where: { zone_code: { in: [...new Set(binRows.map((b) => b.zone_id))] } },
+        select: { zone_code: true, zone_group: true },
+      });
+      groupOfZone = new Map(zoneRows.map((z) => [z.zone_code, z.zone_group]));
+    }
+
+    const visible = zoneGroup
+      ? quants.filter((q) => groupOfZone.get(zoneOfBin.get(q.bin_code) ?? '') === zoneGroup)
+      : quants;
+
     const materials = await prisma.material.findMany({
-      where: { material_code: { in: [...new Set(quants.map((q) => q.material_code))] } },
+      where: { material_code: { in: [...new Set(visible.map((q) => q.material_code))] } },
       select: { material_code: true, description: true, uom: true, is_batch_managed: true, fix_bin: true },
     });
     const mMap = new Map(materials.map((m) => [m.material_code, m]));
 
-    const rows = quants.map((q) => ({
+    const rows = visible.map((q) => ({
       id: q.id,
       material_code: q.material_code,
       description: mMap.get(q.material_code)?.description ?? '',
@@ -75,6 +108,7 @@ export async function GET(req: NextRequest) {
       /** fix bin material — saran tujuan replenishment (ZRF08) */
       fix_bin: mMap.get(q.material_code)?.fix_bin ?? null,
       bin_code: q.bin_code,
+      zone_id: zoneOfBin.get(q.bin_code) ?? '',
       batch_number: q.batch_number ?? '',
       mfg_date: q.mfg_date,
       exp_date: q.exp_date,

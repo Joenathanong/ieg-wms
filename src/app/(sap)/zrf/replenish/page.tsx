@@ -4,7 +4,15 @@ import { useRef, useState } from 'react';
 import { Layers, Search, ArrowLeftRight, MapPin } from 'lucide-react';
 import { PdtScreen, PdtInput, PdtButton, PdtRow, PdtMessage } from '@/components/pdt/ui';
 import { api, post, qs, fmtDate } from '@/lib/client';
-import { resolveScan } from '@/lib/barcode';
+import { parseScan, resolveScan } from '@/lib/barcode';
+
+/**
+ * ZRF08 hanya melayani replenishment di Gudang Besar: stok berpindah dari
+ * Heavy Duty Racking ke pick bin, keduanya berada di kelompok gudang BESAR.
+ * Menampilkan stok Gudang Kecil di sini hanya menambah baris yang tidak akan
+ * pernah dipilih operator.
+ */
+const ZONE_GROUP = 'BESAR';
 
 interface Quant {
   id: string;
@@ -12,6 +20,7 @@ interface Quant {
   description: string;
   uom: string;
   batch_number: string;
+  zone_id: string;
   mfg_date: string | null;
   exp_date: string | null;
   gr_date: string | null;
@@ -46,20 +55,44 @@ export default function ZrfReplenishPage() {
     setLoading(true);
     setSel(null);
 
-    // material bisa berupa barcode (compound ';' / EAN) — resolve dulu ke kode material
-    let matQ = '';
+    /**
+     * Dua perlakuan berbeda, ditentukan dari bentuk isiannya:
+     *
+     *  - HASIL SCAN (compound ';' atau EAN) -> dicocokkan PERSIS lewat
+     *    parameter `material`. Barcode sudah menunjuk satu material tertentu,
+     *    jadi pencocokan longgar justru berbahaya di PDT: kode lain yang
+     *    kebetulan mengandung potongan yang sama ikut muncul.
+     *
+     *  - DIKETIK MANUAL -> dicari bebas lewat parameter `q`, yang mencocokkan
+     *    ke kode MAUPUN nama barang dan mendukung wildcard '*'. Ini yang
+     *    membuat "sabun" atau "*glacier*" bisa dipakai, sama seperti ZRF06.
+     */
+    let exactMat = '';
+    let freeText = '';
     if (rawMat) {
-      const rs = await resolveScan(rawMat);
-      if (!rs.ok) {
-        setLoading(false);
-        return setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
+      const kind = parseScan(rawMat).kind;
+      if (kind === 'PLAIN') {
+        freeText = rawMat;
+      } else {
+        const rs = await resolveScan(rawMat);
+        if (!rs.ok) {
+          setLoading(false);
+          return setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
+        }
+        exactMat = rs.material_code;
+        if (exactMat !== rawMat.toUpperCase()) setMatScan(exactMat);
       }
-      matQ = rs.material_code;
-      if (matQ !== rawMat.toUpperCase()) setMatScan(matQ);
     }
 
     const r = await api<Quant[]>(
-      '/api/stock/quants' + qs({ bin: binQ, material: matQ, exclInterim: 1 })
+      '/api/stock/quants' +
+        qs({
+          bin: binQ,
+          material: exactMat,
+          q: freeText,
+          exclInterim: 1,
+          zoneGroup: ZONE_GROUP,
+        })
     );
     setLoading(false);
     if (!r.ok) return setMsg({ text: r.message, type: 'E' });
@@ -79,8 +112,8 @@ export default function ZrfReplenishPage() {
     setMsg({
       text:
         rows.length > 0
-          ? `${rows.length} stok ditemukan — urut FEFO (ED sama: qty terkecil dulu)`
-          : 'Tidak ada stok untuk kriteria ini',
+          ? `${rows.length} stok Gudang Besar ditemukan — urut FEFO (ED sama: qty terkecil dulu)`
+          : 'Tidak ada stok Gudang Besar untuk kriteria ini',
       type: rows.length > 0 ? 'S' : 'W',
     });
   }
@@ -133,9 +166,9 @@ export default function ZrfReplenishPage() {
       code="ZRF08"
       footer={
         <p className="text-xxs text-sap-muted">
-          List urut <b>FEFO</b> — expired date terdekat paling atas; bila ED sama, <b>qty terkecil</b>{' '}
-          didahulukan agar sisa kecil cepat habis. S-Bin tujuan disarankan dari <b>Fix Bin</b> material
-          (MM01), tetap boleh diganti.
+          Hanya menampilkan stok <b>Gudang Besar</b>. List urut <b>FEFO</b> — expired date terdekat
+          paling atas; bila ED sama, <b>qty terkecil</b> didahulukan agar sisa kecil cepat habis.
+          S-Bin tujuan disarankan dari <b>Fix Bin</b> material (MM01), tetap boleh diganti.
         </p>
       }
     >
@@ -149,11 +182,11 @@ export default function ZrfReplenishPage() {
         onKeyDown={(e) => e.key === 'Enter' && run()}
       />
       <PdtInput
-        label="atau scan material / barcode"
+        label="atau scan / ketik material"
         value={matScan}
         onChange={(e) => setMatScan(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && run()}
-        hint="mendukung barcode ; (material;batch;...) dan EAN B-POM / produk"
+        hint="scan barcode, atau ketik kode / nama barang — mis. sabun, *glacier*"
       />
       <PdtButton variant="primary" onClick={run} loading={loading}>
         <Search size={16} /> Tampilkan list (FEFO)
@@ -185,7 +218,7 @@ export default function ZrfReplenishPage() {
               </div>
               <p className="text-2xs text-sap-text truncate">{q.description}</p>
               <p className="text-xxs text-sap-muted font-mono">
-                {q.bin_code} · {q.batch_number || 'no batch'} · {q.qty} {q.uom}
+                {q.bin_code} · {q.zone_id} · {q.batch_number || 'no batch'} · {q.qty} {q.uom}
                 {q.exp_date ? ` · ED ${fmtDate(q.exp_date)}` : ''}
               </p>
             </button>
@@ -242,7 +275,7 @@ export default function ZrfReplenishPage() {
 
       {quants.length === 0 && !loading && !sel && (
         <p className="text-2xs text-sap-muted text-center py-2 flex items-center justify-center gap-1.5">
-          <Layers size={14} /> Scan bin asal atau material untuk menampilkan stok.
+          <Layers size={14} /> Scan bin asal, atau ketik kode / nama barang.
         </p>
       )}
     </PdtScreen>

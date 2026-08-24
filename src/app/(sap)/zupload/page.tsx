@@ -15,6 +15,7 @@ import {
   PackagePlus,
   Package,
   ShieldAlert,
+  Trash2,
 } from 'lucide-react';
 import { Panel, Field, ActionField, Select, Button, Toolbar, Separator } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
@@ -25,7 +26,13 @@ import { post } from '@/lib/client';
 /* Definisi 3 tipe upload                                              */
 /* ------------------------------------------------------------------ */
 
-type UploadKind = 'materials' | 'packaging' | 'bins' | 'initial-stock' | 'safety-stock';
+type UploadKind =
+  | 'materials'
+  | 'packaging'
+  | 'bins'
+  | 'initial-stock'
+  | 'safety-stock'
+  | 'delete-materials';
 
 interface KindDef {
   id: UploadKind;
@@ -36,6 +43,8 @@ interface KindDef {
   columns: string[];
   sample: Record<string, string | number>[];
   note: string;
+  /** menghapus data — ditandai merah dan tombol eksekusinya bergaya danger */
+  destructive?: boolean;
 }
 
 const KINDS: Record<UploadKind, KindDef> = {
@@ -109,6 +118,24 @@ const KINDS: Record<UploadKind, KindDef> = {
       { material_code: 'SP-1001', min_safety_stock: 250 },
     ],
     note: 'REPLACE nilai safety stock untuk material yang tercantum di file. Material yang tidak ada di file tidak diubah. Bisa dipakai untuk mengubah banyak baris sekaligus.',
+  },
+  'delete-materials': {
+    id: 'delete-materials',
+    title: '6. Hapus Master Material (pembersih salah unggah)',
+    endpoint: '/api/upload/delete-materials',
+    file: 'delete_materials.xlsx',
+    Icon: Trash2,
+    columns: ['material_code'],
+    sample: [
+      { material_code: 'FG-9001' },
+      { material_code: 'FG-9002' },
+      { material_code: 'SP-9001' },
+    ],
+    note:
+      'HANYA ADMIN. Menghapus material yang tercantum di file beserta master palletization-nya — tidak bisa dibatalkan. ' +
+      'Baris ditolak bila material masih punya stok, masih punya dokumen di MB51, atau masih dipakai transfer requirement. ' +
+      'Penolakan berlaku per baris: material lain di file yang sama tetap terhapus. Unduh dulu daftar material dari MM01 untuk memastikan kode yang akan dihapus.',
+    destructive: true,
   },
 };
 
@@ -230,7 +257,7 @@ export default function ZuploadPage() {
     <div className="space-y-3">
       {/* PILIH TIPE */}
       <Panel title="ZUPLOAD — Master Data & Initial Stock Upload Center" icon={<Upload size={13} className="text-sap-blue" />}>
-        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
           {(Object.keys(KINDS) as UploadKind[]).map((k) => {
             const d = KINDS[k];
             const active = k === kind;
@@ -246,9 +273,24 @@ export default function ZuploadPage() {
                   if (fileRef.current) fileRef.current.value = '';
                 }}
                 className={`flex items-start gap-2.5 p-3 rounded-[3px] border text-left transition-colors
-                  ${active ? 'border-sap-blue bg-sap-blue/12' : 'border-sap-border bg-sap-panelalt hover:border-sap-blue/50'}`}
+                  ${
+                    // Menu penghapus diberi warna merah supaya tidak pernah
+                    // terpilih hanya karena posisinya bersebelahan.
+                    d.destructive
+                      ? active
+                        ? 'border-sap-errborder bg-sap-errbg'
+                        : 'border-sap-errborder/60 bg-sap-panelalt hover:border-sap-errborder'
+                      : active
+                        ? 'border-sap-blue bg-sap-blue/12'
+                        : 'border-sap-border bg-sap-panelalt hover:border-sap-blue/50'
+                  }`}
               >
-                <d.Icon size={17} className={active ? 'text-sap-blue' : 'text-sap-muted'} />
+                <d.Icon
+                  size={17}
+                  className={
+                    d.destructive ? 'text-sap-errtext' : active ? 'text-sap-blue' : 'text-sap-muted'
+                  }
+                />
                 <div className="min-w-0">
                   <p className="text-2xs font-semibold">{d.title}</p>
                   <p className="text-xxs text-sap-muted font-mono truncate">{d.file}</p>
@@ -322,9 +364,21 @@ export default function ZuploadPage() {
               </Field>
             )}
 
-            <ActionField>
-              <Button variant="primary" onClick={execute} loading={running} disabled={rows.length === 0}>
-                <Play size={13} /> Execute Upload
+            <ActionField
+              hint={
+                def.destructive
+                  ? 'Penghapusan tidak bisa dibatalkan. Pastikan daftar kodenya sudah benar.'
+                  : undefined
+              }
+            >
+              <Button
+                variant={def.destructive ? 'danger' : 'primary'}
+                onClick={execute}
+                loading={running}
+                disabled={rows.length === 0}
+              >
+                {def.destructive ? <Trash2 size={13} /> : <Play size={13} />}
+                {def.destructive ? `Hapus ${rows.length} material` : 'Execute Upload'}
               </Button>
             </ActionField>
           </div>
