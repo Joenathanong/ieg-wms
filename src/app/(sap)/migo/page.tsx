@@ -81,6 +81,40 @@ interface Line {
   remarks: string;
 }
 
+/** Kolom yang bisa diisi lewat tempel dari spreadsheet, berurutan kiri ke kanan. */
+type PasteCol = 'material_code' | 'qty' | 'batch_number' | 'mfg_date' | 'exp_date' | 'pack_code' | 'bin' | 'remarks';
+
+/**
+ * Ubah tanggal dari spreadsheet menjadi format input HTML (YYYY-MM-DD).
+ *
+ * Excel Indonesia menyalin tanggal sebagai dd/mm/yyyy atau dd.mm.yyyy,
+ * sedangkan input tanggal HTML hanya menerima yyyy-mm-dd. Tanpa penerjemahan
+ * ini, kolom tanggal hasil tempel akan diam-diam kosong — dan pada penerimaan
+ * barang, expired date yang hilang jauh lebih berbahaya daripada tempelan yang
+ * gagal terang-terangan.
+ *
+ * Urutan hari-bulan mengikuti kebiasaan Indonesia: 03/04/2026 dibaca 3 April,
+ * bukan 4 Maret.
+ */
+function pasteDate(raw: string): string {
+  const v = raw.trim();
+  if (!v) return '';
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(v);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  return '';
+}
+
+/** Rapikan satu sel tempelan sesuai kolom tujuannya. */
+function pasteCell(col: PasteCol, raw: string): string {
+  const v = raw.trim();
+  if (col === 'qty') return v.replace(/[^\d-]/g, '');
+  if (col === 'mfg_date' || col === 'exp_date') return pasteDate(v);
+  if (col === 'remarks') return v;
+  return v.toUpperCase();
+}
+
 const emptyLine = (): Line => ({
   key: Math.random().toString(36).slice(2),
   material_code: '',
@@ -174,6 +208,77 @@ export default function MigoPage() {
   }
 
   const matMap = useMemo(() => new Map(materials.map((m) => [m.material_code, m])), [materials]);
+
+  /**
+   * Kolom tempel yang berlaku untuk mode saat ini, urut seperti tampilan tabel.
+   *
+   * Harus mengikuti kolom yang BENAR-BENAR tampil: menempel lima kolom dari
+   * Excel ke layar yang hanya menampilkan tiga akan meleset satu kolom untuk
+   * seterusnya, dan salahnya baru terlihat setelah posting.
+   */
+  const pasteCols = useMemo<PasteCol[]>(() => {
+    const cols: PasteCol[] = ['material_code', 'qty', 'batch_number'];
+    if (isInbound) cols.push('mfg_date', 'exp_date');
+    if (isGiIssue) cols.push('pack_code');
+    if (!isTwoStep) cols.push('bin');
+    cols.push('remarks');
+    return cols;
+  }, [isInbound, isGiIssue, isTwoStep]);
+
+  /**
+   * Tempel banyak baris dari spreadsheet.
+   *
+   * Excel menyalin sebagai teks bertabulasi: baris dipisah baris-baru, kolom
+   * dipisah tab. Tempelan dimulai dari sel tempat kursor berada — sama seperti
+   * di Excel sendiri — lalu mengisi ke bawah dan ke kanan.
+   *
+   * Baris yang kurang ditambahkan otomatis, jadi menempel 5 baris ke layar yang
+   * baru punya 1 line menghasilkan 5 line. Baris yang sudah ada TIDAK dihapus:
+   * menempel di tengah dokumen hanya menimpa sebanyak baris yang ditempel.
+   *
+   * Tempelan satu sel dibiarkan berperilaku bawaan — supaya menyalin satu kode
+   * material dari mana pun tetap terasa biasa.
+   */
+  function handlePaste(e: React.ClipboardEvent, rowIndex: number, col: PasteCol) {
+    const text = e.clipboardData.getData('text/plain');
+    if (!text) return;
+
+    const grid = text
+      .replace(/\r\n?/g, '\n')
+      .replace(/\n+$/, '')
+      .split('\n')
+      .map((r) => r.split('\t'));
+
+    if (grid.length === 1 && grid[0].length === 1) return; // satu sel: biarkan biasa
+    e.preventDefault();
+
+    const startCol = pasteCols.indexOf(col);
+    if (startCol < 0) return;
+
+    const added = Math.max(0, rowIndex + grid.length - lines.length);
+
+    setLines((ls) => {
+      const next = [...ls];
+      while (next.length < rowIndex + grid.length) next.push(emptyLine());
+
+      grid.forEach((cells, r) => {
+        const target = next[rowIndex + r];
+        const patch: Partial<Line> = {};
+        cells.forEach((cell, c) => {
+          const key = pasteCols[startCol + c];
+          if (!key) return; // kolom melewati ujung tabel — diabaikan
+          patch[key] = pasteCell(key, cell);
+        });
+        next[rowIndex + r] = { ...target, ...patch };
+      });
+      return next;
+    });
+
+    setStatus(
+      `${grid.length} baris ditempel${added > 0 ? `, ${added} line baru ditambahkan` : ''}. Periksa kembali sebelum posting.`,
+      'I'
+    );
+  }
 
   function setLine(key: string, patch: Partial<Line>) {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -615,9 +720,14 @@ export default function MigoPage() {
         icon={<ClipboardCheck size={13} className="text-sap-blue" />}
         bodyClassName="p-0"
         actions={
-          <Button onClick={() => setLines((l) => [...l, emptyLine()])}>
-            <Plus size={12} /> New Item
-          </Button>
+          <>
+            <span className="hidden lg:inline text-xxs text-sap-muted mr-2">
+              Bisa tempel langsung dari Excel — beberapa baris sekaligus
+            </span>
+            <Button onClick={() => setLines((l) => [...l, emptyLine()])}>
+              <Plus size={12} /> New Item
+            </Button>
+          </>
         }
       >
         <div className="overflow-x-auto">
@@ -654,6 +764,7 @@ export default function MigoPage() {
                         className="uppercase !py-[3px]"
                         value={l.material_code}
                         onChange={(e) => setLine(l.key, { material_code: e.target.value })}
+                        onPaste={(e) => handlePaste(e, i, 'material_code')}
                       />
                     </td>
                     <td className="text-sap-muted truncate max-w-[210px]">{mat?.description ?? '—'}</td>
@@ -664,6 +775,7 @@ export default function MigoPage() {
                         className="text-right !py-[3px]"
                         value={l.qty}
                         onChange={(e) => setLine(l.key, { qty: e.target.value })}
+                        onPaste={(e) => handlePaste(e, i, 'qty')}
                       />
                     </td>
                     <td className="font-mono text-sap-muted">{mat?.uom ?? '—'}</td>
@@ -680,6 +792,7 @@ export default function MigoPage() {
                           }
                           value={l.batch_number}
                           onChange={(e) => setLine(l.key, { batch_number: e.target.value })}
+                          onPaste={(e) => handlePaste(e, i, 'batch_number')}
                           onBlur={() => {
                             if (isInbound) void loadBatchDates(l);
                           }}
@@ -711,6 +824,7 @@ export default function MigoPage() {
                           title={`Terisi otomatis dari nomor batch, atau dari expired date dikurangi ${DEFAULT_SHELF_LIFE_YEARS} tahun — boleh diubah`}
                           value={l.mfg_date}
                           onChange={(e) => setLine(l.key, { mfg_date: e.target.value })}
+                          onPaste={(e) => handlePaste(e, i, 'mfg_date')}
                         />
                       </td>
                     )}
@@ -726,6 +840,7 @@ export default function MigoPage() {
                               mfg_date: fillMfg(e.target.value, l.mfg_date),
                             })
                           }
+                          onPaste={(e) => handlePaste(e, i, 'exp_date')}
                         />
                       </td>
                     )}
@@ -736,6 +851,7 @@ export default function MigoPage() {
                           placeholder="TR00000102"
                           value={l.pack_code}
                           onChange={(e) => setLine(l.key, { pack_code: e.target.value })}
+                          onPaste={(e) => handlePaste(e, i, 'pack_code')}
                         />
                       </td>
                     )}
@@ -774,6 +890,7 @@ export default function MigoPage() {
                           list="dl-bins"
                           className="uppercase !py-[3px]"
                           value={l.bin}
+                          onPaste={(e) => handlePaste(e, i, 'bin')}
                           onChange={(e) => setLine(l.key, { bin: e.target.value })}
                         />
                       </td>
@@ -782,6 +899,7 @@ export default function MigoPage() {
                       <Input
                         className="!py-[3px]"
                         value={l.remarks}
+                        onPaste={(e) => handlePaste(e, i, 'remarks')}
                         onChange={(e) => setLine(l.key, { remarks: e.target.value })}
                       />
                     </td>
