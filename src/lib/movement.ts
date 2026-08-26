@@ -5,6 +5,8 @@ export const MOVEMENT_LABEL: Record<MovementType, string> = {
   GR_101: '101 — Goods Receipt',
   GI_201: '201 — Goods Issue (Cost Center)',
   GI_601_SALES: '601 — Goods Issue (Penjualan)',
+  GR_501_OTHER: '501 — Goods Receipt Lain-lain',
+  GR_502_CANC: '502 — Cancel GR Lain-lain',
   TR_301_BIN: '301 — Transfer Posting (Bin to Bin)',
   ADJ_551_MIN: '551 — Scrapping / Adjustment (-)',
   INIT_561: '561 — Initial Stock Entry',
@@ -24,6 +26,8 @@ export const MOVEMENT_DESC: Record<MovementType, string> = {
   GR_101: 'Goods Receipt',
   GI_201: 'Goods Issue to Cost Center',
   GI_601_SALES: 'Goods Issue — Penjualan',
+  GR_501_OTHER: 'Goods Receipt — Retur & penerimaan lain',
+  GR_502_CANC: 'Pembatalan GR Lain-lain',
   TR_301_BIN: 'Transfer Posting (Bin to Bin)',
   ADJ_551_MIN: 'Scrapping / Adjustment (-)',
   INIT_561: 'Initial Stock Entry',
@@ -43,6 +47,8 @@ export const MOVEMENT_CODE: Record<MovementType, string> = {
   GR_101: '101',
   GI_201: '201',
   GI_601_SALES: '601',
+  GR_501_OTHER: '501',
+  GR_502_CANC: '502',
   TR_301_BIN: '301',
   ADJ_551_MIN: '551',
   INIT_561: '561',
@@ -62,6 +68,8 @@ export const MOVEMENT_SIGN: Record<MovementType, 1 | -1 | 0> = {
   GR_101: 1,
   GI_201: -1,
   GI_601_SALES: -1,
+  GR_501_OTHER: 1,
+  GR_502_CANC: -1,
   TR_301_BIN: 0,
   ADJ_551_MIN: -1,
   INIT_561: 1,
@@ -86,6 +94,7 @@ export const CANCEL_OF: Partial<Record<MovementType, MovementType>> = {
   PI_711_CANC: MovementType.ADJ_701_PLUS,
   PI_712_CANC: MovementType.ADJ_702_MIN,
   GI_602_CANC: MovementType.GI_601_SALES,
+  GR_502_CANC: MovementType.GR_501_OTHER,
 };
 
 /** Movement asal -> movement pembatalannya (kebalikan CANCEL_OF). */
@@ -97,11 +106,13 @@ export const CANCELLED_BY: Partial<Record<MovementType, MovementType>> = {
   [MovementType.ADJ_701_PLUS]: MovementType.PI_711_CANC,
   [MovementType.ADJ_702_MIN]: MovementType.PI_712_CANC,
   [MovementType.GI_601_SALES]: MovementType.GI_602_CANC,
+  [MovementType.GR_501_OTHER]: MovementType.GR_502_CANC,
 };
 
 /** Movement yang boleh dipilih di layar MIGO. */
 export const MIGO_MOVEMENTS: MovementType[] = [
   MovementType.GR_101,
+  MovementType.GR_501_OTHER,
   MovementType.GI_201,
   MovementType.GI_601_SALES,
   MovementType.ADJ_551_MIN,
@@ -114,7 +125,27 @@ export const MIGO_MOVEMENTS: MovementType[] = [
  * 101 -> stok masuk GR-ZONE + TR PUTAWAY
  * 201 -> hanya membuat TR PICK, goods issue diposting saat TR selesai
  */
-export const TWO_STEP_MOVEMENTS: MovementType[] = [MovementType.GR_101, MovementType.GI_201];
+export const TWO_STEP_MOVEMENTS: MovementType[] = [
+  MovementType.GR_101,
+  MovementType.GR_501_OTHER,
+  MovementType.GI_201,
+];
+
+/**
+ * Penerimaan barang — masuk ke bin transit lalu menunggu put-away.
+ *
+ * Dikelompokkan supaya penambahan jenis penerimaan berikutnya tidak perlu
+ * menyebar `if` baru ke seluruh kode: yang membedakan 501 dari 101 hanyalah
+ * asal barangnya, bukan cara memprosesnya.
+ */
+export const GOODS_RECEIPT_MOVEMENTS: MovementType[] = [
+  MovementType.GR_101,
+  MovementType.GR_501_OTHER,
+];
+
+export function isGoodsReceipt(m: MovementType): boolean {
+  return GOODS_RECEIPT_MOVEMENTS.includes(m);
+}
 
 /** Movement koreksi yang tetap menunjuk bin secara langsung. */
 export const DIRECT_BIN_MOVEMENTS: MovementType[] = [

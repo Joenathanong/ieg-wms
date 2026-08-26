@@ -32,10 +32,14 @@ interface Row {
 
 const MOVES = [
   { v: '', l: 'Semua movement IM' },
-  { v: '101', l: '101 — Goods Receipt' },
+  { v: '101', l: '101 — Goods Receipt (Pembelian)' },
   { v: '102', l: '102 — Cancel Goods Receipt' },
+  { v: '501', l: '501 — Goods Receipt Lain-lain' },
+  { v: '502', l: '502 — Cancel GR Lain-lain' },
   { v: '201', l: '201 — Goods Issue' },
   { v: '202', l: '202 — Cancel Goods Issue' },
+  { v: '601', l: '601 — Goods Issue (Penjualan)' },
+  { v: '602', l: '602 — Cancel GI Penjualan' },
   { v: '551', l: '551 — Scrapping' },
   { v: '552', l: '552 — Cancel Scrapping' },
   { v: '561', l: '561 — Initial Stock' },
@@ -46,9 +50,17 @@ const MOVES = [
   { v: '712', l: '712 — Cancel Phys. Inv. (−)' },
 ];
 
+/**
+ * Arah pergerakan tiap movement, untuk menampilkan tanda + / − di laporan.
+ *
+ * Wajib memuat SETIAP movement yang bisa muncul di MigoLog. Kode yang
+ * tertinggal di sini tidak menghasilkan galat — angkanya hanya tampil tanpa
+ * tanda, dan itu jauh lebih berbahaya daripada gagal terang-terangan: laporan
+ * terlihat wajar sementara arah stoknya salah baca.
+ */
 const SIGN: Record<string, number> = {
-  '101': 1, '561': 1, '701': 1, '202': 1, '552': 1, '712': 1,
-  '201': -1, '551': -1, '702': -1, '102': -1, '562': -1, '711': -1,
+  '101': 1, '501': 1, '561': 1, '701': 1, '202': 1, '552': 1, '712': 1, '602': 1,
+  '201': -1, '601': -1, '551': -1, '702': -1, '102': -1, '502': -1, '562': -1, '711': -1,
   '301': 0,
 };
 

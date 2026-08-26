@@ -38,6 +38,10 @@ enum MovementType {
   GI_201       @map("201_GI")
   /// Goods issue penjualan — dipakai SO Penjualan di pick bin
   GI_601_SALES @map("601_GI_SALES")
+  /// Goods receipt tanpa referensi pembelian — retur pelanggan, temuan, hibah,
+  /// dan penerimaan lain di luar pembelian. Alurnya sama dengan 101: barang
+  /// masuk ke bin transit lebih dulu, lalu di-put-away lewat LB12/ZRF02.
+  GR_501_OTHER @map("501_GR_OTHER")
   TR_301_BIN   @map("301_TR_BIN")
   ADJ_551_MIN  @map("551_ADJ_MIN")
   INIT_561     @map("561_INIT_STOCK")
@@ -51,6 +55,7 @@ enum MovementType {
   PI_711_CANC  @map("711_PI_CANCEL_MIN")
   PI_712_CANC  @map("712_PI_CANCEL_PLUS")
   GI_602_CANC  @map("602_GI_SALES_CANCEL")
+  GR_502_CANC  @map("502_GR_OTHER_CANCEL")
 }
 
 enum UserRole {

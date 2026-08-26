@@ -1,7 +1,7 @@
 import { Prisma, BinStatus, MovementType, TrStatus, TrType, type PrismaClient } from '@prisma/client';
 import { HttpError } from './auth';
 import { nextDocNumber } from './docnum';
-import { MOVEMENT_SIGN, MOVEMENT_CODE, CANCELLED_BY } from './movement';
+import { MOVEMENT_SIGN, MOVEMENT_CODE, CANCELLED_BY, isGoodsReceipt } from './movement';
 import { getSetting, isTrue } from './settings';
 
 /* =====================================================================
@@ -475,6 +475,16 @@ export async function postGoodsReceipt(
     doc_date?: Date | null;
     user_id: string;
     via_pdt?: boolean;
+    /**
+     * Jenis penerimaan. Bawaannya 101 (pembelian); 501 dipakai untuk retur dan
+     * penerimaan lain di luar pembelian.
+     *
+     * Hanya penandanya yang berbeda — alurnya identik: barang masuk ke bin
+     * transit, Transfer Requirement put-away dibuat, dan raknya ditentukan
+     * belakangan lewat LB12/ZRF02. Menyalin seluruh fungsi ini demi satu kode
+     * yang berbeda hanya akan melahirkan dua jalur yang lambat laun menyimpang.
+     */
+    movement_type?: MovementType;
   }
 ) {
   const qty = Math.trunc(args.qty);
@@ -522,7 +532,7 @@ export async function postGoodsReceipt(
   await tx.migoLog.create({
     data: {
       document_number,
-      movement_type: MovementType.GR_101,
+      movement_type: args.movement_type ?? MovementType.GR_101,
       material_code: material.material_code,
       target_bin: grBin.bin_code,
       batch_number: batch,
@@ -876,7 +886,10 @@ export async function postCancellation(
   // Khusus cancel GR (102): Transfer Requirement put-away terkait harus belum
   // dikonfirmasi sama sekali — bila barang sudah dipindah ke rak, stok di bin
   // interim memang sudah tidak utuh dan pembatalan harus ditolak.
-  if (prev.movement_type === MovementType.GR_101 && prev.tr_number) {
+  // Berlaku untuk SEMUA jenis penerimaan (101 maupun 501): keduanya menaruh
+  // barang di bin transit dan membuat TR put-away, jadi syarat pembatalannya
+  // sama persis.
+  if (isGoodsReceipt(prev.movement_type) && prev.tr_number) {
     const tr = await tx.transferReq.findUnique({
       where: { tr_number: prev.tr_number },
       include: { items: true },

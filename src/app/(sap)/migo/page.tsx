@@ -38,13 +38,14 @@ interface BatchInfo {
 }
 
 const MOVEMENTS = [
-  { code: '101', label: '101 — Goods Receipt (GR)', mode: 'TR_IN' },
+  { code: '101', label: '101 — Goods Receipt (GR Pembelian)', mode: 'TR_IN' },
+  { code: '501', label: '501 — Goods Receipt Lain-lain (Retur, dll)', mode: 'TR_IN' },
   { code: '201', label: '201 — Goods Issue (Cost Center)', mode: 'TR_OUT' },
   { code: '601', label: '601 — Goods Issue (Penjualan)', mode: 'DIRECT_MIN' },
   { code: '551', label: '551 — Scrapping / Adjustment (-)', mode: 'DIRECT_MIN' },
   { code: '701', label: '701 — Phys. Inv. Difference (+)', mode: 'DIRECT_PLUS' },
   { code: '702', label: '702 — Phys. Inv. Difference (-)', mode: 'DIRECT_MIN' },
-  { code: 'CANCEL', label: 'Cancellation — 102 / 202 / 552 / 562 / 602 / 711 / 712', mode: 'CANCEL' },
+  { code: 'CANCEL', label: 'Cancellation — 102 / 202 / 502 / 552 / 562 / 602 / 711 / 712', mode: 'CANCEL' },
 ] as const;
 
 type Mode = (typeof MOVEMENTS)[number]['mode'];

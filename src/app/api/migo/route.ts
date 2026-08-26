@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt, toDate, normBatch } from '@/lib/api';
-import { parseMovement, needsCostCenter } from '@/lib/movement';
+import { parseMovement, needsCostCenter, isGoodsReceipt } from '@/lib/movement';
 import { postGoodsMovement, postGoodsReceipt, createPickRequest, postGoodsIssue } from '@/lib/wms';
 import { MovementType } from '@prisma/client';
 
@@ -74,8 +74,9 @@ export async function POST(req: NextRequest) {
           if (!material_code) throw new HttpError(400, `Line ${i + 1}: material number is missing.`);
           const qty = toInt(it.qty, `line ${i + 1} quantity`);
 
-          if (mt === MovementType.GR_101) {
+          if (isGoodsReceipt(mt)) {
             const r = await postGoodsReceipt(tx, {
+              movement_type: mt,
               material_code,
               qty,
               batch_number: normBatch(it.batch_number),
@@ -188,7 +189,7 @@ export async function POST(req: NextRequest) {
     );
 
     let msg: string;
-    if (mt === MovementType.GR_101) {
+    if (isGoodsReceipt(mt)) {
       const trs = result.map((d) => d.tr_number).filter(Boolean);
       const lines = result.reduce((a, d) => a + d.tr_lines, 0);
       msg =
