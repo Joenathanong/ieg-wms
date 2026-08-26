@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireUser, HttpError } from '@/lib/auth';
 import { handle, ok } from '@/lib/api';
 import { judgeLine, lineKey, type RoundValue } from '@/lib/consensus';
+import { fromDbList } from '@/lib/dblist';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -34,6 +35,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         items: { orderBy: [{ bin_code: 'asc' }, { material_code: 'asc' }, { round: 'asc' }] },
         bins: true,
         rounds: { orderBy: { round: 'asc' } },
+        assigns: true,
       },
     });
     if (!doc) throw new HttpError(404, 'Physical inventory document does not exist.');
@@ -97,10 +99,21 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     // ---- rak mana yang perlu ronde berikutnya ----
     const binNeeds = new Map<string, number>();
+    const matNeeds = new Map<string, number>();
     for (const l of lines) {
       if (!l.needs_recount) continue;
       binNeeds.set(l.bin_code, (binNeeds.get(l.bin_code) ?? 0) + 1);
+      matNeeds.set(l.material_code, (matNeeds.get(l.material_code) ?? 0) + 1);
     }
+
+    /**
+     * Untuk dokumen bercakupan material, satuan pemilihan ronde berikutnya
+     * adalah MATERIAL, bukan rak — karena satu material wajib dikerjakan satu
+     * orang di seluruh rak tempat ia berada. Memilih per rak di sini akan
+     * membuka jalan bagi material yang sama dipegang dua orang.
+     */
+    const scopeMaterials = fromDbList(doc.scope_materials);
+    const assignsNow = doc.assigns.filter((a) => a.round === doc.current_round);
 
     const roundInfo = doc.rounds.map((r) => ({
       round: r.round,
@@ -121,6 +134,16 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         current_round: doc.current_round,
         rounds: roundInfo,
         lines,
+        scope_materials: scopeMaterials,
+        by_material: assignsNow.length > 0 || scopeMaterials.length > 0,
+        /** penugasan material pada ronde berjalan — dipakai layar sebagai isian awal */
+        assigns: assignsNow.map((a) => ({
+          material_code: a.material_code,
+          assigned_to: a.assigned_to,
+        })),
+        materials_need_recount: [...matNeeds.entries()]
+          .map(([material_code, open_lines]) => ({ material_code, open_lines }))
+          .sort((a, b) => b.open_lines - a.open_lines),
         bins_need_recount: [...binNeeds.entries()]
           .map(([bin_code, open_lines]) => ({ bin_code, open_lines }))
           .sort((a, b) => a.bin_code.localeCompare(b.bin_code, 'id', { numeric: true })),

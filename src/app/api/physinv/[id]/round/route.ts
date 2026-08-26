@@ -15,9 +15,14 @@ type Ctx = { params: Promise<{ id: string }> };
  *
  * Body: {
  *   bins: [{ bin_code, assigned_to? }],
+ *   material_assignments?: [{ material_code, assigned_to }],
  *   show_book_qty?: boolean,
  *   show_prev_round?: boolean
  * }
+ *
+ * Dokumen bercakupan material memakai `material_assignments`; satu material
+ * tetap dikerjakan satu orang, dan penugasannya bisa berpindah tiap ronde —
+ * memang itu tujuannya, supaya hitungan berikutnya dikerjakan orang lain.
  *
  * Hanya ADMIN: membuka ronde berarti menentukan siapa menghitung apa, dan
  * itulah yang membuat aturan konsensus bisa dipercaya.
@@ -47,7 +52,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         const key = decodeURIComponent(id);
         const doc = await tx.physInvDoc.findFirst({
           where: { OR: [{ id: key }, { doc_number: key }] },
-          include: { items: true, bins: true },
+          include: { items: true, bins: true, assigns: true },
         });
         if (!doc) throw new HttpError(404, 'Physical inventory document does not exist.');
         if (doc.status === PhysInvStatus.POSTED)
@@ -85,12 +90,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         if (names.length > 0) {
           const users = await tx.user.findMany({
             where: { username: { in: names } },
-            select: { username: true, is_active: true },
+            select: { username: true, is_active: true, so_enabled: true },
           });
           for (const n of names) {
             const u = users.find((x) => x.username === n);
             if (!u) throw new HttpError(400, `User ${n} tidak ada (SU01).`);
             if (!u.is_active) throw new HttpError(400, `User ${n} sedang dikunci.`);
+            if (!u.so_enabled)
+              throw new HttpError(400, `User ${n} tidak diizinkan menerima tugas opname (SU01).`);
           }
         }
 
@@ -103,6 +110,47 @@ export async function POST(req: NextRequest, ctx: Ctx) {
             opened_by: admin.username,
           },
         });
+
+        // ---- penugasan per material untuk ronde baru ----
+        const scope = fromDbList(doc.scope_materials);
+        const matAssign = new Map<string, string>();
+        for (const a of Array.isArray(b.material_assignments) ? b.material_assignments : []) {
+          const code = cleanStr(a?.material_code).toUpperCase();
+          const who = cleanStr(a?.assigned_to).toUpperCase();
+          if (!code || !who) continue;
+          if (scope.length > 0 && !scope.includes(code))
+            throw new HttpError(400, `Material ${code} bukan bagian cakupan dokumen ini.`);
+          const prev = matAssign.get(code);
+          if (prev && prev !== who)
+            throw new HttpError(
+              400,
+              `Material ${code} tidak boleh dibagi ke dua petugas (${prev} dan ${who}).`
+            );
+          matAssign.set(code, who);
+        }
+
+        if (matAssign.size > 0) {
+          const matNames = [...new Set(matAssign.values())];
+          const mu = await tx.user.findMany({
+            where: { username: { in: matNames } },
+            select: { username: true, is_active: true, so_enabled: true },
+          });
+          for (const n of matNames) {
+            const u = mu.find((x) => x.username === n);
+            if (!u) throw new HttpError(400, `User ${n} tidak ada (SU01).`);
+            if (!u.is_active) throw new HttpError(400, `User ${n} sedang dikunci.`);
+            if (!u.so_enabled)
+              throw new HttpError(400, `User ${n} tidak diizinkan menerima tugas opname (SU01).`);
+          }
+          await tx.physInvAssign.createMany({
+            data: [...matAssign.entries()].map(([material_code, assigned_to]) => ({
+              doc_id: doc.id,
+              round: nextRound,
+              material_code,
+              assigned_to,
+            })),
+          });
+        }
 
         await tx.physInvBin.createMany({
           data: wanted.map((w) => ({
@@ -147,6 +195,20 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           where: { id: doc.id },
           data: { current_round: nextRound, status: PhysInvStatus.FROZEN },
         });
+
+        /**
+         * Peringatan penghitung berulang pada satuan MATERIAL.
+         *
+         * Aturan sepakat menghitung ORANG yang berbeda, bukan jumlah hitungan —
+         * jadi menugaskan kembali orang yang sama untuk material yang sama tidak
+         * menambah bukti apa pun, dan ronde itu terbuang percuma.
+         */
+        for (const [code, who] of matAssign) {
+          const before = doc.items.find(
+            (i) => i.material_code === code && i.counted_by === who && i.round > 0
+          );
+          if (before) repeats.push(`${code} (${who}, ronde ${before.round})`);
+        }
 
         return { doc: updated, round: nextRound, bins: wanted.length, lines: rows.length, repeats, prevBins: prevBins.length };
       },

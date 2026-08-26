@@ -1,25 +1,35 @@
 /**
  * Aturan konsensus hasil opname.
  *
- * Sebuah angka diterima ketika DUA hitungan independen sepakat — itu cara
- * opname dikerjakan di praktik nyata, dan jauh lebih dapat dipertanggung-
- * jawabkan daripada memilih ronde terakhir begitu saja.
+ * Sebuah angka diterima ketika TIGA hitungan independen menghasilkan angka yang
+ * sama. Ronde boleh berjalan lebih dari tiga kali: begitu ada satu angka yang
+ * muncul tiga kali, angka itulah yang dianggap benar — bukan ronde terakhir,
+ * dan bukan pula suara terbanyak dari angka yang belum mencapai tiga.
  *
  * "Independen" di sini berarti dihitung ORANG YANG BERBEDA. Syarat ini bukan
  * formalitas: penugasan ulang boleh menempatkan orang yang sama dua kali (mis.
- * petugas terbatas di shift malam), dan bila ia mengulang kekeliruan yang sama
- * dua kali, kesepakatan yang terbentuk justru mengunci angka yang salah.
+ * petugas terbatas di shift malam), dan bila ia mengulang kekeliruan yang sama,
+ * pengulangan itu tidak menambah bukti apa pun. Karena itu yang dihitung adalah
+ * jumlah ORANG yang sepakat, bukan jumlah hitungan.
  *
  * File ini sengaja murni — tanpa Prisma, tanpa React — supaya server dan layar
  * memakai perhitungan yang sama persis dan tidak bisa menyimpang.
  */
+
+/**
+ * Berapa penghitung berbeda yang harus menghasilkan angka sama.
+ *
+ * Dijadikan konstanta bernama supaya ambangnya bisa diubah di satu tempat bila
+ * kebijakan gudang berubah — bukan tersebar sebagai angka 3 di dalam logika.
+ */
+export const AGREEMENT_REQUIRED = 3;
 
 export type LineStatus =
   /** belum ada ronde yang menghitung baris ini */
   | 'NOT_COUNTED'
   /** dihitung sekali dan cocok dengan catatan sistem — tidak ada yang perlu disesuaikan */
   | 'SETTLED_NO_DIFF'
-  /** dua ronde oleh orang berbeda sepakat */
+  /** cukup banyak penghitung berbeda menghasilkan angka yang sama */
   | 'CONSENSUS'
   /** sudah dihitung, belum ada dua ronde yang sepakat */
   | 'UNRESOLVED'
@@ -64,20 +74,31 @@ export function judgeLine(
     return { status: 'NOT_COUNTED', final_round: null, final_qty: null, needs_recount: true };
   }
 
-  // Cari dua ronde yang angkanya sama DAN penghitungnya berbeda.
-  for (let i = 0; i < counted.length; i++) {
-    for (let j = i + 1; j < counted.length; j++) {
-      const a = counted[i];
-      const b = counted[j];
-      if (a.counted_qty !== b.counted_qty) continue;
-      // Penghitung yang tidak tercatat tidak bisa dibuktikan berbeda, jadi
-      // tidak dianggap sebagai hitungan independen kedua.
-      if (!a.counted_by || !b.counted_by) continue;
-      if (a.counted_by === b.counted_by) continue;
+  /**
+   * Telusuri ronde dari yang paling awal, catat siapa saja yang menghasilkan
+   * tiap angka. Begitu satu angka mencapai jumlah penghitung berbeda yang
+   * disyaratkan, ronde itulah yang menutup perkara.
+   *
+   * Penghitung yang sama tidak dihitung dua kali untuk angka yang sama:
+   * mengulang hitungan sendiri bukan bukti tambahan.
+   */
+  const voters = new Map<number, Set<string>>();
+  for (const r of counted) {
+    if (r.counted_qty === null) continue;
+    // Penghitung yang tidak tercatat tidak bisa dibuktikan berbeda dari yang
+    // lain, jadi tidak bisa ikut menyumbang bukti.
+    if (!r.counted_by) continue;
+    let set = voters.get(r.counted_qty);
+    if (!set) {
+      set = new Set<string>();
+      voters.set(r.counted_qty, set);
+    }
+    set.add(r.counted_by);
+    if (set.size >= AGREEMENT_REQUIRED) {
       return {
         status: 'CONSENSUS',
-        final_round: b.round,
-        final_qty: b.counted_qty,
+        final_round: r.round,
+        final_qty: r.counted_qty,
         needs_recount: false,
       };
     }
@@ -100,6 +121,26 @@ export function judgeLine(
   }
 
   return { status: 'UNRESOLVED', final_round: null, final_qty: null, needs_recount: true };
+}
+
+/**
+ * Ringkasan dukungan tiap angka — dipakai layar untuk menampilkan
+ * "8 sudah 2 dari 3 orang" tanpa menghitung ulang aturannya sendiri.
+ */
+export function tally(rounds: readonly RoundValue[]): { qty: number; voters: string[] }[] {
+  const m = new Map<number, Set<string>>();
+  for (const r of rounds) {
+    if (r.counted_qty === null || !r.counted_by) continue;
+    let set = m.get(r.counted_qty);
+    if (!set) {
+      set = new Set<string>();
+      m.set(r.counted_qty, set);
+    }
+    set.add(r.counted_by);
+  }
+  return [...m.entries()]
+    .map(([qty, set]) => ({ qty, voters: [...set] }))
+    .sort((a, b) => b.voters.length - a.voters.length || a.qty - b.qty);
 }
 
 /** Kunci baris opname: satu rak + satu material + satu batch. */

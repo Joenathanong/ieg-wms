@@ -20,6 +20,7 @@ export async function GET() {
         role: true,
         is_active: true,
         pdt_enabled: true,
+        so_enabled: true,
         auth_role_id: true,
         auth_role: { select: { role_name: true, tcodes: true } },
         last_login: true,
@@ -75,9 +76,10 @@ export async function POST(req: NextRequest) {
         role,
         is_active: b.is_active === false ? false : true,
         pdt_enabled: b.pdt_enabled === true,
+        so_enabled: b.so_enabled !== false,
         auth_role_id,
       },
-      select: { id: true, username: true, full_name: true, role: true, is_active: true, pdt_enabled: true, auth_role_id: true },
+      select: { id: true, username: true, full_name: true, role: true, is_active: true, pdt_enabled: true, so_enabled: true, auth_role_id: true },
     });
 
     return ok(user, `User ${username} created by ${admin.username}`);

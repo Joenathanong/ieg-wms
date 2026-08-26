@@ -411,6 +411,15 @@ model PhysInvDoc {
   /// Tanpa @default: MySQL/TiDB melarang DEFAULT pada kolom TEXT.
   /// Nilainya selalu diisi saat create (lihat api/physinv/route.ts).
   frozen_bins  String        @db.Text
+  /// Daftar material yang menjadi CAKUPAN dokumen, dipisah koma.
+  ///
+  /// null = seluruh isi rak dihitung (perilaku LI01N). Berisi daftar = opname
+  /// terfokus: hanya material inilah yang di-snapshot, dihitung, dan masuk
+  /// jurnal. Material lain yang kebetulan ada di rak yang sama sengaja TIDAK
+  /// ikut tercatat sejak awal — bukan disaring belakangan — supaya tidak ada
+  /// jalan bagi mereka bocor ke penyesuaian stok sebagai selisih minus hanya
+  /// karena tidak ada yang menghitungnya.
+  scope_materials String?     @db.Text
   status       PhysInvStatus @default(CREATED)
   /// Ronde penghitungan yang sedang berjalan. Dokumen LI01N biasa berhenti di 1.
   current_round Int          @default(1)
@@ -420,9 +429,10 @@ model PhysInvDoc {
   created_by   String
   created_at   DateTime      @default(now())
 
-  items  PhysInvDocItem[]
-  bins   PhysInvBin[]
-  rounds PhysInvRound[]
+  items   PhysInvDocItem[]
+  bins    PhysInvBin[]
+  rounds  PhysInvRound[]
+  assigns PhysInvAssign[]
 
   @@index([status])
   @@map("phys_inv_docs")
@@ -454,6 +464,37 @@ model PhysInvRound {
   @@unique([doc_id, round])
   @@index([doc_id])
   @@map("phys_inv_rounds")
+}
+
+/// Penugasan penghitungan PER MATERIAL dalam satu ronde.
+///
+/// Dipakai oleh opname terfokus (ZSO01 dengan daftar material). Aturannya:
+/// satu material dikerjakan tepat satu orang, tetapi satu orang boleh memegang
+/// banyak material. `@@unique([doc_id, round, material_code])` menegakkan sisi
+/// pertama di tingkat database — bukan sekadar di layar — sehingga tidak ada
+/// jalan membagi satu material ke dua penghitung, baik lewat layar maupun lewat
+/// pemanggilan API langsung.
+///
+/// Alasannya bukan kerapian: bila material yang sama dihitung dua orang di rak
+/// berbeda, tidak ada satu pun angka yang utuh untuk dibandingkan, dan selisih
+/// yang muncul berasal dari pembagian kerja, bukan dari kenyataan di gudang.
+///
+/// Opname bercakupan ZONA atau SELURUH GUDANG tidak memakai tabel ini; di sana
+/// penugasan tetap melekat pada rak (PhysInvBin.assigned_to), karena tidak ada
+/// daftar material yang bisa dijadikan satuan pembagian.
+model PhysInvAssign {
+  id            String     @id @default(uuid())
+  doc_id        String
+  doc           PhysInvDoc @relation(fields: [doc_id], references: [id], onDelete: Cascade)
+  round         Int
+  material_code String
+  assigned_to   String
+  created_at    DateTime   @default(now())
+
+  @@unique([doc_id, round, material_code])
+  @@index([doc_id, round])
+  @@index([assigned_to])
+  @@map("phys_inv_assigns")
 }
 
 /// Status penghitungan PER BIN dalam satu dokumen opname.
@@ -551,6 +592,16 @@ model User {
   is_active     Boolean   @default(true)
   /// izin membuka T-Code terminal PDT (ZRF*) — diatur admin di SU01
   pdt_enabled   Boolean   @default(false)
+  /// Boleh DITUGASKAN pekerjaan stock opname (ZSO01/ZSO02).
+  ///
+  /// Dipisahkan dari `pdt_enabled` dengan sengaja. Bisa membuka ZRF05 tidak
+  /// sama dengan layak diberi jatah opname: supervisor sering punya akses PDT
+  /// untuk memeriksa, tetapi tidak ikut menghitung. Menugaskan rak kepada orang
+  /// yang tidak menghitung membuat opname menggantung tanpa ada yang sadar.
+  ///
+  /// Bawaannya true agar pemasangan yang sudah berjalan tidak mendadak kehilangan
+  /// seluruh daftar petugasnya; admin tinggal mematikan yang tidak perlu.
+  so_enabled    Boolean   @default(true)
   /// role otorisasi T-Code (PFCG). null = tidak dibatasi (full sesuai role dasar)
   auth_role_id  String?
   auth_role     AuthRole? @relation(fields: [auth_role_id], references: [id], onDelete: SetNull)

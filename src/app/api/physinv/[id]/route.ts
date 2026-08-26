@@ -18,6 +18,7 @@ async function findDoc(idOrNumber: string) {
       items: { orderBy: [{ bin_code: 'asc' }, { material_code: 'asc' }] },
       bins: { orderBy: { bin_code: 'asc' } },
       rounds: { orderBy: { round: 'asc' } },
+      assigns: true,
     },
   });
 }
@@ -47,8 +48,34 @@ export async function GET(req: NextRequest, ctx: Ctx) {
      * bertuan, supaya hitungan ronde berikutnya bisa dijamin dikerjakan orang
      * yang berbeda.
      */
+    const scopeMaterials = fromDbList(doc.scope_materials);
+    const assignsThisRound = doc.assigns.filter((a) => a.round === round);
+    /** material -> petugas. Kosong berarti dokumen memakai penugasan per rak. */
+    const ownerOfMaterial = new Map(assignsThisRound.map((a) => [a.material_code, a.assigned_to]));
+    const byMaterial = ownerOfMaterial.size > 0;
+
+    /**
+     * Material yang jadi jatah pemanggil.
+     *
+     * Material tanpa penugasan tetap boleh dihitung siapa saja — sama seperti
+     * rak tanpa penugasan pada alur lama.
+     */
+    const mineMaterial = (code: string) => {
+      const who = ownerOfMaterial.get(code);
+      return !who || who === user.username;
+    };
+
     const visibleBins = mineOnly
-      ? binsThisRound.filter((b) => !b.assigned_to || b.assigned_to === user.username)
+      ? byMaterial
+        ? // Penugasan per material: rak ikut tampil bila memuat SETIDAKNYA satu
+          // material jatah pemanggil. Rak yang sama bisa muncul untuk dua orang
+          // sekaligus, masing-masing dengan baris yang berbeda.
+          binsThisRound.filter((b) =>
+            doc.items.some(
+              (i) => i.round === round && i.bin_code === b.bin_code && mineMaterial(i.material_code)
+            )
+          )
+        : binsThisRound.filter((b) => !b.assigned_to || b.assigned_to === user.username)
       : binsThisRound;
     const visibleCodes = new Set(visibleBins.map((b) => b.bin_code));
 
@@ -76,8 +103,48 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const qKey = (m: string, b: string, batch: string | null) => `${m}|${b}|${batch ?? ''}`;
     const qMap = new Map(quants.map((q) => [qKey(q.material_code, q.bin_code, q.batch_number), q]));
 
+    /**
+     * Berapa material lain yang sebenarnya ADA di rak ini tetapi berada di luar
+     * cakupan opname.
+     *
+     * Datanya tidak ikut di-snapshot — justru itu maksudnya — tetapi jumlahnya
+     * tetap perlu diberitahukan. Tanpa keterangan ini, petugas melihat rak
+     * berisi lima jenis barang sementara layarnya hanya menampilkan dua, lalu
+     * menyimpulkan sistemnya rusak atau — lebih berbahaya — menambahkan sisanya
+     * sebagai temuan, persis hal yang ingin dicegah dengan membatasi cakupan.
+     *
+     * Hanya jumlahnya yang dikirim, bukan kode atau qty-nya: itu cukup untuk
+     * menghilangkan kebingungan tanpa mengalihkan perhatian dari jatahnya.
+     */
+    const outOfScope: { bin_code: string; materials: number }[] = [];
+    if (scopeMaterials.length > 0) {
+      const others = await prisma.stockWM.findMany({
+        where: {
+          bin_code: { in: [...visibleCodes] },
+          material_code: { notIn: scopeMaterials },
+          qty: { gt: 0 },
+        },
+        select: { bin_code: true, material_code: true },
+      });
+      const m = new Map<string, Set<string>>();
+      for (const o of others) {
+        let set = m.get(o.bin_code);
+        if (!set) {
+          set = new Set();
+          m.set(o.bin_code, set);
+        }
+        set.add(o.material_code);
+      }
+      for (const [bin_code, set] of m) outOfScope.push({ bin_code, materials: set.size });
+    }
+
     const visibleItems = doc.items
-      .filter((i) => i.round === round && (!mineOnly || visibleCodes.has(i.bin_code)))
+      .filter(
+        (i) =>
+          i.round === round &&
+          (!mineOnly || visibleCodes.has(i.bin_code)) &&
+          (!mineOnly || !byMaterial || mineMaterial(i.material_code))
+      )
       .map((i) => {
         const q = qMap.get(qKey(i.material_code, i.bin_code, i.batch_number));
         return {
@@ -100,7 +167,12 @@ export async function GET(req: NextRequest, ctx: Ctx) {
         /** true = layar TIDAK boleh menampilkan jumlah menurut sistem */
         blind_book: hideBook,
         /** true = dokumen ini dikelola ZSO01 (ada penugasan) */
-        managed: binsThisRound.some((b) => !!b.assigned_to),
+        managed: binsThisRound.some((b) => !!b.assigned_to) || byMaterial,
+        /** daftar material yang jadi cakupan; kosong = seluruh isi rak */
+        scope_materials: scopeMaterials,
+        /** true = penugasan memakai satuan material, bukan rak */
+        by_material: byMaterial,
+        out_of_scope: outOfScope,
         bins: visibleBins,
         items: visibleItems,
       },
@@ -133,7 +205,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       async (tx) => {
         const d = await tx.physInvDoc.findFirst({
           where: { OR: [{ id: decodeURIComponent(id) }, { doc_number: decodeURIComponent(id) }] },
-          include: { items: true, bins: true },
+          include: { items: true, bins: true, assigns: true },
         });
         if (!d) throw new HttpError(404, 'Physical inventory document does not exist.');
         if (d.status === PhysInvStatus.POSTED)
@@ -156,12 +228,48 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
          * tercatat.
          */
         const owner = new Map(roundBins.map((x) => [x.bin_code, x.assigned_to]));
+        const matOwner = new Map(
+          d.assigns.filter((a) => a.round === round).map((a) => [a.material_code, a.assigned_to])
+        );
+        const byMaterial = matOwner.size > 0;
+        const scope = fromDbList(d.scope_materials);
+        // Diikat ke konstanta lokal: di dalam deklarasi fungsi di bawah,
+        // TypeScript tidak lagi memegang jaminan bahwa `d` bukan null —
+        // fungsinya bisa saja dipanggil setelah `d` berubah.
+        const docNumber = d.doc_number;
+
         function assertMine(bin_code: string) {
+          // Pada dokumen berpenugasan MATERIAL, rak bukan lagi satuan
+          // kepemilikan: satu rak bisa dikerjakan dua orang untuk material
+          // berbeda. Yang dijaga di situ adalah materialnya, bukan raknya.
+          if (byMaterial) return;
           const who = owner.get(bin_code);
           if (!who || who === user.username) return;
           throw new HttpError(
             403,
             `Rak ${bin_code} ditugaskan ke ${who} pada ronde ${round}. Minta admin menugaskan ulang di ZSO01 bila perlu.`
+          );
+        }
+
+        function assertMaterial(material_code: string) {
+          /**
+           * Material di luar cakupan ditolak mentah-mentah — termasuk lewat
+           * baris temuan. Cakupan sengaja dibatasi supaya barang yang tidak
+           * dihitung tidak berubah menjadi selisih minus; membiarkannya masuk
+           * lewat pintu belakang meniadakan seluruh gunanya.
+           */
+          if (scope.length > 0 && !scope.includes(material_code)) {
+            throw new HttpError(
+              400,
+              `Material ${material_code} di luar cakupan opname ${docNumber}. Cakupan dokumen ini hanya ${scope.slice(0, 5).join(', ')}${scope.length > 5 ? ' …' : ''}.`
+            );
+          }
+          if (!byMaterial) return;
+          const who = matOwner.get(material_code);
+          if (!who || who === user.username) return;
+          throw new HttpError(
+            403,
+            `Material ${material_code} ditugaskan ke ${who} pada ronde ${round}. Satu material dikerjakan satu orang.`
           );
         }
 
@@ -174,6 +282,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           const batch_number = normBatch(raw.batch_number);
 
           if (bin_code) assertMine(bin_code);
+          if (material_code) assertMaterial(material_code);
 
           const existing = raw.id
             ? d.items.find((i) => i.id === raw.id)
@@ -185,6 +294,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               );
 
           if (existing) {
+            assertMaterial(existing.material_code);
             await tx.physInvDocItem.update({
               where: { id: existing.id },
               data: {
@@ -246,7 +356,15 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         }
 
         const frozen = fromDbList(d.frozen_bins);
-        const done = new Set(countedBins.filter((c) => frozen.includes(c)));
+        /**
+         * Pada dokumen berpenugasan MATERIAL, pernyataan "rak ini selesai" dari
+         * satu petugas tidak boleh menutup raknya: Joni bisa selesai dengan
+         * materialnya sementara material Budi di rak yang sama belum tersentuh.
+         * Di situ rak baru dianggap selesai bila SELURUH barisnya terisi.
+         */
+        const done = byMaterial
+          ? new Set<string>()
+          : new Set(countedBins.filter((c) => frozen.includes(c)));
         for (const [bin, e] of byBin) {
           if (e.total > 0 && e.total === e.filled) done.add(bin);
         }

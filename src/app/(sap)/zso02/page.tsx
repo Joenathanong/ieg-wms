@@ -22,16 +22,17 @@ import {
   BarChart3,
   Maximize2,
   X,
+  Download,
   AlertTriangle,
   EyeOff,
   Eye,
 } from 'lucide-react';
-import { Panel, Input, Button, Toolbar, ActionField, Select } from '@/components/sap/ui';
+import { Panel, Input, Button, Toolbar, ActionField, Select, exportCsv } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { ConfirmDialog } from '@/components/sap/Confirm';
 import { api, post, patch, qs, fmtDateTime } from '@/lib/client';
 import { Bar, Composition, DailyChart, Histogram } from '@/components/sap/OpnameCharts';
-import type { LineStatus } from '@/lib/consensus';
+import { AGREEMENT_REQUIRED, tally, type LineStatus } from '@/lib/consensus';
 
 interface DocRow {
   id: string;
@@ -76,6 +77,10 @@ interface Compare {
   current_round: number;
   rounds: RoundInfo[];
   lines: Line[];
+  scope_materials: string[];
+  by_material: boolean;
+  assigns: { material_code: string; assigned_to: string }[];
+  materials_need_recount: { material_code: string; open_lines: number }[];
   bins_need_recount: { bin_code: string; open_lines: number }[];
   summary: {
     total: number;
@@ -120,6 +125,7 @@ interface UserRow {
   username: string;
   full_name: string;
   is_active: boolean;
+  so_enabled: boolean;
 }
 
 const STATUS_LABEL: Record<LineStatus, { text: string; cls: string }> = {
@@ -138,6 +144,9 @@ export default function Zso02Page() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [pick, setPick] = useState<Set<string>>(new Set());
   const [assign, setAssign] = useState<Record<string, string>>({});
+  /** untuk dokumen bercakupan material: material terpilih & petugasnya */
+  const [pickMat, setPickMat] = useState<Set<string>>(new Set());
+  const [matAssign, setMatAssign] = useState<Record<string, string>>({});
   const [showBookQty, setShowBookQty] = useState(false);
   const [showPrevRound, setShowPrevRound] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -161,7 +170,10 @@ export default function Zso02Page() {
 
   const loadUsers = useCallback(async () => {
     const r = await api<UserRow[]>('/api/users');
-    if (r.ok) setUsers((r.data ?? []).filter((u) => u.is_active));
+    // Hanya user yang aktif DAN diizinkan opname yang boleh muncul sebagai
+    // calon petugas. Menugaskan orang yang tidak boleh mengerjakan membuat rak
+    // menggantung, dan itu baru ketahuan saat opname sudah berjalan.
+    if (r.ok) setUsers((r.data ?? []).filter((u) => u.is_active && u.so_enabled));
   }, []);
 
   const loadDash = useCallback(async () => {
@@ -222,7 +234,14 @@ export default function Zso02Page() {
       setCmp(r.data ?? null);
       // Rak yang selisih dicentang otomatis; supervisor masih bisa menambah.
       setPick(new Set((r.data?.bins_need_recount ?? []).map((b) => b.bin_code)));
+      // Material yang masih berselisih dicentang otomatis, sama seperti rak.
+      setPickMat(new Set((r.data?.materials_need_recount ?? []).map((m) => m.material_code)));
       setAssign({});
+      // Penugasan ronde berjalan dipakai sebagai isian awal — supervisor tinggal
+      // memindahkan yang perlu diganti, bukan mengisi ulang semuanya.
+      setMatAssign(
+        Object.fromEntries((r.data?.assigns ?? []).map((a) => [a.material_code, a.assigned_to]))
+      );
       setDecide({});
       setStatus(r.message, 'S');
     },
@@ -234,6 +253,33 @@ export default function Zso02Page() {
     const set = new Set(cmp.lines.map((l) => l.bin_code));
     return [...set].sort((a, b) => a.localeCompare(b, 'id', { numeric: true }));
   }, [cmp]);
+
+  const allMaterials = useMemo(() => {
+    if (!cmp) return [];
+    const set = new Set(cmp.lines.map((l) => l.material_code));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [cmp]);
+
+  const descOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of cmp?.lines ?? []) if (!m.has(l.material_code)) m.set(l.material_code, l.description);
+    return m;
+  }, [cmp]);
+
+  /** Petugas yang pernah menghitung material ini di ronde mana pun. */
+  function pastCountersOfMaterial(code: string): string[] {
+    const names = new Set<string>();
+    for (const l of cmp?.lines ?? []) {
+      if (l.material_code !== code) continue;
+      for (const r of l.rounds) if (r.counted_by) names.add(r.counted_by);
+    }
+    return [...names];
+  }
+
+  const matNeedSet = useMemo(
+    () => new Set((cmp?.materials_need_recount ?? []).map((m) => m.material_code)),
+    [cmp]
+  );
 
   const needSet = useMemo(
     () => new Set((cmp?.bins_need_recount ?? []).map((b) => b.bin_code)),
@@ -251,6 +297,18 @@ export default function Zso02Page() {
 
   function distribute(names: string[]) {
     if (names.length === 0) return;
+    if (cmp?.by_material) {
+      // Satuan pembagiannya material, bukan rak — satu material utuh ke satu
+      // orang, di seluruh rak tempat ia berada.
+      const list = [...pickMat].sort((a, b) => a.localeCompare(b));
+      const next: Record<string, string> = {};
+      list.forEach((code, i) => {
+        next[code] = names[i % names.length];
+      });
+      setMatAssign(next);
+      setStatus(`${list.length} material dibagi ke ${names.length} petugas`, 'S');
+      return;
+    }
     const list = [...pick].sort((a, b) => a.localeCompare(b, 'id', { numeric: true }));
     const next: Record<string, string> = {};
     list.forEach((bin, i) => {
@@ -275,8 +333,25 @@ export default function Zso02Page() {
     setConfirmOpen(false);
     if (!cmp || !sel) return;
     setBusy(true);
+    // Untuk dokumen bercakupan material, rak yang ikut ronde berikutnya
+    // diturunkan dari material terpilih — bukan dipilih terpisah, supaya tidak
+    // mungkin ada material terpilih yang raknya tertinggal.
+    const binsForRound = cmp.by_material
+      ? [...new Set(cmp.lines.filter((l) => pickMat.has(l.material_code)).map((l) => l.bin_code))]
+      : [...pick];
+
     const r = await post(`/api/physinv/${sel}/round`, {
-      bins: [...pick].map((b) => ({ bin_code: b, assigned_to: assign[b] ?? '' })),
+      bins: binsForRound.map((b) => ({
+        bin_code: b,
+        assigned_to: cmp.by_material ? '' : assign[b] ?? '',
+      })),
+      ...(cmp.by_material
+        ? {
+            material_assignments: [...pickMat]
+              .filter((c) => matAssign[c])
+              .map((c) => ({ material_code: c, assigned_to: matAssign[c] })),
+          }
+        : {}),
       show_book_qty: showBookQty,
       show_prev_round: showPrevRound,
     });
@@ -322,6 +397,45 @@ export default function Zso02Page() {
     if (r.ok) await openDoc(sel);
   }
 
+  /**
+   * Export hasil perbandingan ke CSV.
+   *
+   * Kolom rondenya dibangun dinamis mengikuti jumlah ronde yang benar-benar ada
+   * pada dokumen ini — dokumen dua ronde tidak menghasilkan kolom ronde tiga
+   * yang kosong. Nama penghitung ikut dibawa: tanpa itu, angka-angka di
+   * spreadsheet kehilangan konteks siapa yang melaporkannya.
+   */
+  function exportCompare() {
+    if (!cmp) return;
+    const cols = [
+      { key: 'bin_code', header: 'Rak', exportValue: (l: Line) => l.bin_code },
+      { key: 'material_code', header: 'Material', exportValue: (l: Line) => l.material_code },
+      { key: 'description', header: 'Deskripsi', exportValue: (l: Line) => l.description },
+      { key: 'batch_number', header: 'Batch', exportValue: (l: Line) => l.batch_number },
+      { key: 'uom', header: 'UoM', exportValue: (l: Line) => l.uom },
+      { key: 'book_qty', header: 'Jumlah Sistem', exportValue: (l: Line) => l.book_qty },
+      ...cmp.rounds.flatMap((r) => [
+        {
+          key: `r${r.round}`,
+          header: `Ronde ${r.round}`,
+          exportValue: (l: Line) => l.rounds.find((x) => x.round === r.round)?.counted_qty ?? '',
+        },
+        {
+          key: `r${r.round}by`,
+          header: `Ronde ${r.round} — Petugas`,
+          exportValue: (l: Line) => l.rounds.find((x) => x.round === r.round)?.counted_by ?? '',
+        },
+      ]),
+      { key: 'status', header: 'Status', exportValue: (l: Line) => STATUS_LABEL[l.status].text },
+      { key: 'final_round', header: 'Ronde Final', exportValue: (l: Line) => l.final_round ?? '' },
+      { key: 'final_qty', header: 'Jumlah Final', exportValue: (l: Line) => l.final_qty ?? '' },
+      { key: 'diff_qty', header: 'Selisih', exportValue: (l: Line) => l.diff_qty ?? '' },
+    ];
+    const stamp = new Date().toISOString().slice(0, 10);
+    exportCsv(`opname_${cmp.doc_number}_${stamp}.csv`, cols, cmp.lines);
+    setStatus(`${cmp.lines.length} baris diexport.`, 'S');
+  }
+
   async function postDoc() {
     setPostOpen(false);
     if (!sel) return;
@@ -336,9 +450,11 @@ export default function Zso02Page() {
     }
   }
 
-  const repeatWarnings = [...pick].filter(
-    (b) => assign[b] && pastCounters(b).includes(assign[b])
-  );
+  const repeatWarnings = cmp?.by_material
+    ? [...pickMat].filter((c) => matAssign[c] && pastCountersOfMaterial(c).includes(matAssign[c]))
+    : [...pick].filter((b) => assign[b] && pastCounters(b).includes(assign[b]));
+
+  const roundPickCount = cmp?.by_material ? pickMat.size : pick.size;
 
   return (
     <div className="space-y-3">
@@ -567,7 +683,15 @@ export default function Zso02Page() {
             )}
           </Panel>
 
-          <Panel title={`Perbandingan hasil — ${cmp.lines.length} baris`} bodyClassName="p-0">
+          <Panel
+            title={`Perbandingan hasil — ${cmp.lines.length} baris`}
+            bodyClassName="p-0"
+            actions={
+              <Button onClick={exportCompare}>
+                <Download size={13} /> Export Excel
+              </Button>
+            }
+          >
             <div className="overflow-auto max-h-[52dvh]">
               <table className="sap-grid">
                 <thead>
@@ -644,16 +768,101 @@ export default function Zso02Page() {
           </Panel>
 
           <Panel
-            title={`Buka ronde ${cmp.current_round + 1} — ${pick.size} rak dipilih`}
+            title={
+              cmp.by_material
+                ? `Buka ronde ${cmp.current_round + 1} — ${pickMat.size} material dipilih`
+                : `Buka ronde ${cmp.current_round + 1} — ${pick.size} rak dipilih`
+            }
             icon={<PlayCircle size={13} className="text-sap-blue" />}
           >
             <div className="space-y-3">
               <p className="text-xxs text-sap-muted leading-relaxed">
-                Rak yang masih ada baris belum sepakat sudah dicentang otomatis. Anda tetap bisa
-                menambah rak lain yang ingin diperiksa ulang.
+                {cmp.by_material
+                  ? 'Material yang masih ada baris belum sepakat sudah dicentang otomatis, dan penugasan ronde berjalan dipakai sebagai isian awal. Satu material tetap dikerjakan satu orang — pindahkan yang perlu diganti supaya hitungan berikutnya datang dari orang lain.'
+                  : 'Rak yang masih ada baris belum sepakat sudah dicentang otomatis. Anda tetap bisa menambah rak lain yang ingin diperiksa ulang.'}
               </p>
 
               <div className="max-h-[26dvh] overflow-auto border border-sap-border rounded-[3px]">
+                {cmp.by_material ? (
+                  <table className="sap-grid">
+                    <thead>
+                      <tr>
+                        <th className="w-[44px] text-center">Pilih</th>
+                        <th className="w-[150px]">Material</th>
+                        <th className="w-[190px]">Deskripsi</th>
+                        <th className="w-[110px] text-right">Baris terbuka</th>
+                        <th className="w-[170px]">Pernah dihitung</th>
+                        <th className="w-[190px]">Ditugaskan ke</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allMaterials.map((code) => {
+                        const on = pickMat.has(code);
+                        const open = cmp.materials_need_recount.find(
+                          (x) => x.material_code === code
+                        );
+                        const past = pastCountersOfMaterial(code);
+                        const clash = on && matAssign[code] && past.includes(matAssign[code]);
+                        return (
+                          <tr
+                            key={code}
+                            className={clash ? 'bg-sap-warnbg/40' : on ? 'bg-sap-blue/10' : ''}
+                          >
+                            <td className="text-center">
+                              <input
+                                type="checkbox"
+                                className="accent-sap-blue w-4 h-4"
+                                checked={on}
+                                onChange={() =>
+                                  setPickMat((s2) => {
+                                    const n = new Set(s2);
+                                    if (n.has(code)) n.delete(code);
+                                    else n.add(code);
+                                    return n;
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="font-mono text-sap-blue">
+                              {code}
+                              {matNeedSet.has(code) && (
+                                <span className="ml-1.5 sap-badge border-sap-warnborder bg-sap-warnbg text-sap-warntext">
+                                  selisih
+                                </span>
+                              )}
+                            </td>
+                            <td className="text-sap-muted truncate max-w-[190px]">
+                              {descOf.get(code) ?? ''}
+                            </td>
+                            <td className="text-right font-mono tabular-nums">
+                              {open?.open_lines ?? 0}
+                            </td>
+                            <td className="font-mono text-xxs text-sap-muted">
+                              {past.length > 0 ? past.join(', ') : '—'}
+                            </td>
+                            <td>
+                              <Select
+                                className="!py-[3px]"
+                                disabled={!on}
+                                value={matAssign[code] ?? ''}
+                                onChange={(e) =>
+                                  setMatAssign((a) => ({ ...a, [code]: e.target.value }))
+                                }
+                              >
+                                <option value="">(belum ditugaskan)</option>
+                                {users.map((u) => (
+                                  <option key={u.id} value={u.username}>
+                                    {u.username} — {u.full_name}
+                                  </option>
+                                ))}
+                              </Select>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
                 <table className="sap-grid">
                   <thead>
                     <tr>
@@ -712,6 +921,7 @@ export default function Zso02Page() {
                     })}
                   </tbody>
                 </table>
+                )}
               </div>
 
               <ActionField label="Bagi rata otomatis">
@@ -744,9 +954,10 @@ export default function Zso02Page() {
                     <AlertTriangle size={12} /> Penghitung berulang
                   </p>
                   <p className="mt-1 leading-relaxed">
-                    {repeatWarnings.join(', ')} akan dihitung orang yang sudah pernah menghitungnya.
-                    Tetap boleh, tetapi kalau hasilnya sama, itu <b>tidak dianggap konsensus</b> —
-                    orang yang sama bisa mengulang kekeliruan yang sama.
+                    {repeatWarnings.join(', ')} akan dihitung orang yang sudah pernah
+                    menghitungnya. Tetap boleh, tetapi hitungannya <b>tidak menambah bukti</b> —
+                    aturan sepakat menghitung jumlah ORANG yang berbeda, jadi ronde itu terbuang
+                    tanpa mendekatkan baris mana pun ke ambang {AGREEMENT_REQUIRED} orang.
                   </p>
                 </div>
               )}
@@ -808,21 +1019,32 @@ export default function Zso02Page() {
                         <td className="font-mono">{l.batch_number || '—'}</td>
                         <td className="text-right font-mono tabular-nums">{l.book_qty}</td>
                         <td className="text-xxs font-mono text-sap-muted">
-                          {l.rounds
-                            .filter((r) => r.counted_qty !== null)
-                            .map((r) => (
-                              <button
-                                key={r.round}
-                                type="button"
-                                onClick={() =>
-                                  setDecide((d) => ({ ...d, [k]: String(r.counted_qty) }))
-                                }
-                                title="Pakai angka ronde ini"
-                                className="sap-btn !py-[2px] !px-1.5 mr-1 text-xxs"
-                              >
-                                R{r.round}: {r.counted_qty} ({r.counted_by ?? '-'})
-                              </button>
+                          <div className="flex flex-wrap gap-1">
+                            {l.rounds
+                              .filter((r) => r.counted_qty !== null)
+                              .map((r) => (
+                                <button
+                                  key={r.round}
+                                  type="button"
+                                  onClick={() =>
+                                    setDecide((d) => ({ ...d, [k]: String(r.counted_qty) }))
+                                  }
+                                  title="Pakai angka ronde ini"
+                                  className="sap-btn !py-[2px] !px-1.5 text-xxs"
+                                >
+                                  R{r.round}: {r.counted_qty} ({r.counted_by ?? '-'})
+                                </button>
+                              ))}
+                          </div>
+                          {/* Seberapa dekat tiap angka ke ambang kesepakatan —
+                              supaya supervisor tahu satu ronde lagi mungkin cukup. */}
+                          <div className="mt-1 text-xxs text-sap-muted/80">
+                            {tally(l.rounds).map((t) => (
+                              <span key={t.qty} className="mr-2">
+                                {t.qty} → {t.voters.length}/{AGREEMENT_REQUIRED} orang
+                              </span>
                             ))}
+                          </div>
                         </td>
                         <td>
                           <Input
@@ -847,8 +1069,8 @@ export default function Zso02Page() {
           )}
 
           <Toolbar>
-            <Button variant="primary" disabled={pick.size === 0} onClick={() => setConfirmOpen(true)}>
-              <PlayCircle size={13} /> Buka ronde {cmp.current_round + 1}
+            <Button variant="primary" disabled={roundPickCount === 0} onClick={() => setConfirmOpen(true)}>
+              <PlayCircle size={13} /> Buka ronde {cmp.current_round + 1} ({roundPickCount})
             </Button>
             <Button
               variant={readyToPost ? 'primary' : 'default'}
@@ -869,9 +1091,16 @@ export default function Zso02Page() {
       <ConfirmDialog
         open={confirmOpen}
         title={`Buka ronde ${(cmp?.current_round ?? 0) + 1}`}
-        question={`${pick.size} rak akan dihitung ulang pada ronde ${(cmp?.current_round ?? 0) + 1}.`}
+        question={
+          cmp?.by_material
+            ? `${pickMat.size} material akan dihitung ulang pada ronde ${(cmp?.current_round ?? 0) + 1}.`
+            : `${pick.size} rak akan dihitung ulang pada ronde ${(cmp?.current_round ?? 0) + 1}.`
+        }
         details={[
-          { label: 'Rak dipilih', value: pick.size },
+          {
+            label: cmp?.by_material ? 'Material dipilih' : 'Rak dipilih',
+            value: roundPickCount,
+          },
           { label: 'Penghitung berulang', value: repeatWarnings.length },
           { label: 'Jumlah sistem', value: showBookQty ? 'Terlihat petugas' : 'Disembunyikan' },
           { label: 'Hasil ronde lalu', value: showPrevRound ? 'Terlihat petugas' : 'Disembunyikan' },

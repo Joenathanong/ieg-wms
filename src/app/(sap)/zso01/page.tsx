@@ -17,7 +17,8 @@
  * dikerjakan orang yang berbeda.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ClipboardList,
   Search,
@@ -27,12 +28,155 @@ import {
   Eye,
   Trash2,
   RotateCcw,
+  X,
+  Boxes,
 } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, ActionField } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useZones } from '@/components/sap/hooks';
 import { ConfirmDialog } from '@/components/sap/Confirm';
 import { api, post, qs } from '@/lib/client';
+import { useMaterialCatalog } from '@/lib/catalog';
+
+/**
+ * Pemilih banyak material sekaligus.
+ *
+ * Ketik kode atau nama, pilih dari saran, lalu ketik lagi untuk material
+ * berikutnya. Yang sudah terpilih menjadi chip dan tidak ditawarkan lagi.
+ *
+ * Sarannya dirender lewat portal dengan posisi fixed, sama seperti di ZREPL:
+ * daftar yang muncul di dalam panel ber-overflow akan terpotong setinggi satu
+ * baris dan tampak seperti tidak ada saran sama sekali.
+ */
+function MultiMaterialPicker({
+  picked,
+  onAdd,
+  onRemove,
+}: {
+  picked: string[];
+  onAdd: (code: string) => void;
+  onRemove: (code: string) => void;
+}) {
+  const { materials } = useMaterialCatalog();
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [term, setTerm] = useState('');
+  const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const descOf = useMemo(
+    () => new Map(materials.map((m) => [m.material_code, m.description])),
+    [materials]
+  );
+
+  const hits = useMemo(() => {
+    const t = term.trim().toUpperCase();
+    if (!t) return [];
+    return materials
+      .filter((m) => !picked.includes(m.material_code))
+      .filter(
+        (m) =>
+          m.material_code.toUpperCase().includes(t) || m.description.toUpperCase().includes(t)
+      )
+      .slice(0, 8);
+  }, [materials, term, picked]);
+
+  const place = useCallback(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRect({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 280) });
+  }, []);
+
+  useEffect(() => {
+    if (!open || hits.length === 0) return;
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open, hits.length, place]);
+
+  function add(code: string) {
+    onAdd(code);
+    setTerm('');
+    setOpen(false);
+  }
+
+  return (
+    <div className="space-y-2">
+      <div ref={boxRef} className="relative">
+        <Input
+          className="uppercase"
+          placeholder="ketik kode / nama barang, lalu pilih"
+          value={term}
+          onChange={(e) => {
+            setTerm(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={(e) => {
+            // Enter mengambil saran teratas — supaya bisa mengetik beberapa SKU
+            // berturut-turut tanpa memindahkan tangan ke tetikus.
+            if (e.key === 'Enter' && hits.length > 0) {
+              e.preventDefault();
+              add(hits[0].material_code);
+            }
+          }}
+        />
+        {open &&
+          hits.length > 0 &&
+          rect &&
+          createPortal(
+            <div
+              style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width }}
+              className="z-[95] max-h-[240px] overflow-auto sap-panel shadow-sap"
+            >
+              {hits.map((m) => (
+                <button
+                  key={m.material_code}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => add(m.material_code)}
+                  className="w-full text-left px-2.5 py-1.5 hover:bg-sap-hover border-b border-sap-border/50 last:border-0"
+                >
+                  <p className="font-mono text-2xs text-sap-blue">{m.material_code}</p>
+                  <p className="text-xxs text-sap-muted truncate">
+                    {m.description} · {m.uom}
+                  </p>
+                </button>
+              ))}
+            </div>,
+            document.body
+          )}
+      </div>
+
+      {picked.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {picked.map((code) => (
+            <span
+              key={code}
+              className="sap-badge border-sap-blue/50 bg-sap-blue/10 text-sap-text flex items-center gap-1.5"
+              title={descOf.get(code) ?? ''}
+            >
+              <span className="font-mono">{code}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(code)}
+                aria-label={`Hapus ${code}`}
+                className="text-sap-muted hover:text-sap-errtext"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Quant {
   id: string;
@@ -57,6 +201,7 @@ interface UserRow {
   username: string;
   full_name: string;
   is_active: boolean;
+  so_enabled: boolean;
   role: string;
 }
 
@@ -74,7 +219,10 @@ export default function Zso01Page() {
   const { zones } = useZones();
 
   const [mode, setMode] = useState<'MATERIAL' | 'ZONE'>('MATERIAL');
-  const [material, setMaterial] = useState('');
+  /** daftar SKU yang menjadi cakupan opname — bisa lebih dari satu */
+  const [skus, setSkus] = useState<string[]>([]);
+  /** material -> petugas. Satu material tepat satu orang. */
+  const [matAssign, setMatAssign] = useState<Record<string, string>>({});
   const [zone, setZone] = useState('');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -88,7 +236,10 @@ export default function Zso01Page() {
 
   const loadUsers = useCallback(async () => {
     const r = await api<UserRow[]>('/api/users');
-    if (r.ok) setUsers((r.data ?? []).filter((u) => u.is_active));
+    // Hanya user yang aktif DAN diizinkan opname yang boleh muncul sebagai
+    // calon petugas. Menugaskan orang yang tidak boleh mengerjakan membuat rak
+    // menggantung, dan itu baru ketahuan saat opname sudah berjalan.
+    if (r.ok) setUsers((r.data ?? []).filter((u) => u.is_active && u.so_enabled));
   }, []);
 
   useEffect(() => {
@@ -103,14 +254,24 @@ export default function Zso01Page() {
     setAssign({});
 
     if (mode === 'MATERIAL') {
-      const term = material.trim();
-      if (!term) {
+      if (skus.length === 0) {
         setLoading(false);
-        return setStatus('Isi kode atau nama material terlebih dahulu', 'E');
+        return setStatus('Pilih minimal satu material terlebih dahulu', 'E');
       }
-      const r = await api<Quant[]>('/api/stock/quants' + qs({ q: term, exclInterim: 1 }));
+      // Satu permintaan per SKU: parameter `material` mencocokkan PERSIS,
+      // sedangkan pencarian bebas bisa ikut menyeret SKU lain yang kodenya
+      // mengandung potongan yang sama — dan itu justru merusak fokus opname.
+      const all: Quant[] = [];
+      for (const code of skus) {
+        const r = await api<Quant[]>('/api/stock/quants' + qs({ material: code, exclInterim: 1 }));
+        if (!r.ok) {
+          setLoading(false);
+          return setStatus(r.message, 'E');
+        }
+        all.push(...(r.data ?? []));
+      }
       setLoading(false);
-      if (!r.ok) return setStatus(r.message, 'E');
+      const r = { ok: true, data: all } as { ok: boolean; data: Quant[] };
 
       // Stok dikelompokkan per rak: satu rak dihitung sekali walaupun memuat
       // beberapa batch atau beberapa material sekaligus.
@@ -135,7 +296,9 @@ export default function Zso01Page() {
       );
       setCandidates(rows);
       setStatus(
-        rows.length > 0 ? `${rows.length} rak memuat material ini` : 'Tidak ada rak yang memuatnya',
+        rows.length > 0
+          ? `${rows.length} rak memuat ${skus.length} material terpilih`
+          : 'Tidak ada rak yang memuat material terpilih',
         rows.length > 0 ? 'S' : 'W'
       );
       return;
@@ -220,9 +383,20 @@ export default function Zso01Page() {
     const r = await post('/api/physinv', {
       scope_type: 'BIN_LIST',
       bins: pickedList,
-      assignments: pickedList
-        .filter((b) => assign[b])
-        .map((b) => ({ bin_code: b, assigned_to: assign[b] })),
+      // Cakupan material hanya dikirim pada mode MATERIAL. Pada mode ZONA
+      // seluruh isi rak memang dihitung, jadi tidak ada daftar yang membatasi.
+      ...(mode === 'MATERIAL'
+        ? {
+            materials: skus,
+            material_assignments: skus
+              .filter((c) => matAssign[c])
+              .map((c) => ({ material_code: c, assigned_to: matAssign[c] })),
+          }
+        : {
+            assignments: pickedList
+              .filter((b) => assign[b])
+              .map((b) => ({ bin_code: b, assigned_to: assign[b] })),
+          }),
       round_options: { show_book_qty: showBookQty, show_prev_round: showPrevRound },
     });
     setBusy(false);
@@ -231,6 +405,8 @@ export default function Zso01Page() {
       setCandidates([]);
       setPicked(new Set());
       setAssign({});
+      setMatAssign({});
+      setSkus([]);
     }
   }
 
@@ -249,12 +425,22 @@ export default function Zso01Page() {
           </Field>
 
           {mode === 'MATERIAL' ? (
-            <Field label="Material" hint="kode atau nama barang, mendukung * ">
-              <Input
-                className="uppercase"
-                value={material}
-                onChange={(e) => setMaterial(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && search()}
+            <Field
+              label="Material"
+              hint="ketik lalu pilih; ulangi untuk menambah SKU berikutnya"
+              className="md:col-span-2"
+            >
+              <MultiMaterialPicker
+                picked={skus}
+                onAdd={(c) => setSkus((s) => (s.includes(c) ? s : [...s, c]))}
+                onRemove={(c) => {
+                  setSkus((s) => s.filter((x) => x !== c));
+                  setMatAssign((a) => {
+                    const n = { ...a };
+                    delete n[c];
+                    return n;
+                  });
+                }}
               />
             </Field>
           ) : (
@@ -348,7 +534,104 @@ export default function Zso01Page() {
         </Panel>
       )}
 
-      {picked.size > 0 && (
+      {picked.size > 0 && mode === 'MATERIAL' && (
+        <Panel
+          title="Pembagian tugas per material"
+          icon={<Boxes size={13} className="text-sap-blue" />}
+        >
+          <div className="space-y-3">
+            {users.length === 0 && (
+              <div className="rounded-[3px] border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
+                Belum ada user yang diizinkan menerima tugas opname. Aktifkan{' '}
+                <b>Boleh ditugaskan stock opname</b> pada user yang bersangkutan di <b>SU01</b>.
+              </div>
+            )}
+
+            <p className="text-xxs text-sap-muted leading-relaxed">
+              Satu material dikerjakan <b>satu orang</b>, tetapi satu orang boleh memegang beberapa
+              material. Aturan ini ditegakkan sampai ke database — bukan hanya di layar ini.
+              Alasannya: bila material yang sama dihitung dua orang di rak berbeda, tidak ada satu
+              pun angka yang utuh untuk dibandingkan, dan selisih yang muncul berasal dari
+              pembagian kerja, bukan dari kenyataan di gudang.
+            </p>
+
+            <table className="sap-grid">
+              <thead>
+                <tr>
+                  <th className="w-[180px]">Material</th>
+                  <th>Rak yang memuatnya</th>
+                  <th className="w-[220px]">Ditugaskan ke</th>
+                </tr>
+              </thead>
+              <tbody>
+                {skus.map((code) => {
+                  const bins = candidates.filter(
+                    (c) => picked.has(c.bin_code) && c.sample.startsWith(code)
+                  ).length;
+                  return (
+                    <tr key={code}>
+                      <td className="font-mono text-sap-blue">{code}</td>
+                      <td className="text-sap-muted font-mono text-xxs">
+                        {bins > 0 ? `${bins} rak terpilih` : '—'}
+                      </td>
+                      <td>
+                        <Select
+                          className="!py-[3px]"
+                          value={matAssign[code] ?? ''}
+                          onChange={(e) =>
+                            setMatAssign((a) => ({ ...a, [code]: e.target.value }))
+                          }
+                        >
+                          <option value="">(belum ditugaskan)</option>
+                          {users.map((u) => (
+                            <option key={u.id} value={u.username}>
+                              {u.username} — {u.full_name}
+                            </option>
+                          ))}
+                        </Select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {(() => {
+              const per = new Map<string, number>();
+              for (const c of skus) {
+                const u = matAssign[c];
+                if (!u) continue;
+                per.set(u, (per.get(u) ?? 0) + 1);
+              }
+              const belum = skus.filter((c) => !matAssign[c]).length;
+              return (
+                <>
+                  {per.size > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {[...per.entries()].map(([u, n]) => (
+                        <span
+                          key={u}
+                          className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext"
+                        >
+                          {u} · {n} material
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {belum > 0 && (
+                    <p className="text-2xs text-sap-warntext">
+                      {belum} material belum ditugaskan — material tanpa petugas boleh dihitung
+                      siapa saja.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </Panel>
+      )}
+
+      {picked.size > 0 && mode === 'ZONE' && (
         <Panel title="Pembagian tugas" icon={<Users size={13} className="text-sap-blue" />}>
           <div className="space-y-3">
             <ActionField

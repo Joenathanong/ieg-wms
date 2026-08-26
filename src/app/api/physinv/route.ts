@@ -93,8 +93,15 @@ export async function GET(req: NextRequest) {
  * sebagai baris dokumen. Satu nomor dokumen memuat banyak baris lintas bin.
  *
  * Bidang OPSIONAL untuk opname terkelola (ZSO01):
- *   assignments: [{ bin_code, assigned_to }]  — petugas per rak
+ *   materials: ['FG-0001', ...]                       — cakupan material
+ *   material_assignments: [{ material_code, assigned_to }]
+ *   assignments: [{ bin_code, assigned_to }]          — petugas per rak
  *   round_options: { show_book_qty, show_prev_round } — pengaturan blind
+ *
+ * Bila `materials` diisi, hanya material itulah yang di-snapshot. Material lain
+ * yang kebetulan berada di rak yang sama tidak pernah masuk dokumen — sehingga
+ * mustahil muncul sebagai selisih minus hanya karena tidak ada yang
+ * menghitungnya.
  *
  * Tanpa keduanya, dokumen berperilaku persis seperti LI01N selama ini: satu
  * ronde, tanpa penugasan, siapa pun boleh menghitung rak mana pun.
@@ -168,9 +175,31 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // ---- cakupan material ----
+        const materials: string[] = [
+          ...new Set(
+            (Array.isArray(b.materials) ? b.materials : [])
+              .map((x: unknown) => cleanStr(x).toUpperCase())
+              .filter(Boolean) as string[]
+          ),
+        ];
+
+        if (materials.length > 0) {
+          const found = await tx.material.findMany({
+            where: { material_code: { in: materials } },
+            select: { material_code: true },
+          });
+          const missing = materials.filter((m) => !found.some((f) => f.material_code === m));
+          if (missing.length > 0)
+            throw new HttpError(400, `Material ${missing.join(', ')} tidak ada di master data.`);
+        }
+
         // ---- snapshot stok ----
         const quants = await tx.stockWM.findMany({
-          where: { bin_code: { in: binCodes } },
+          where: {
+            bin_code: { in: binCodes },
+            ...(materials.length > 0 ? { material_code: { in: materials } } : {}),
+          },
           orderBy: [{ bin_code: 'asc' }, { material_code: 'asc' }],
         });
 
@@ -191,19 +220,46 @@ export async function POST(req: NextRequest) {
             throw new HttpError(400, `Storage bin ${code} is not part of this document.`);
         }
 
-        if (assignOf.size > 0) {
-          // Petugas harus benar-benar ada dan aktif: penugasan ke username yang
-          // salah ketik akan menghasilkan rak yang tidak muncul di PDT siapa pun,
-          // dan itu baru ketahuan saat opname sudah berjalan.
-          const names = [...new Set(assignOf.values())];
+        /**
+         * Penugasan per material: satu material tepat satu orang.
+         *
+         * Diperiksa di sini juga, bukan hanya mengandalkan unique constraint,
+         * supaya pesan salahnya menyebut materialnya — bukan galat database
+         * mentah yang tidak bisa ditindaklanjuti operator.
+         */
+        const matAssign = new Map<string, string>();
+        for (const a of Array.isArray(b.material_assignments) ? b.material_assignments : []) {
+          const code = cleanStr(a?.material_code).toUpperCase();
+          const who = cleanStr(a?.assigned_to).toUpperCase();
+          if (!code || !who) continue;
+          if (materials.length > 0 && !materials.includes(code))
+            throw new HttpError(400, `Material ${code} bukan bagian cakupan dokumen ini.`);
+          const prev = matAssign.get(code);
+          if (prev && prev !== who)
+            throw new HttpError(
+              400,
+              `Material ${code} tidak boleh dibagi ke dua petugas (${prev} dan ${who}). Satu material dikerjakan satu orang.`
+            );
+          matAssign.set(code, who);
+        }
+
+        const allNames = [...new Set([...assignOf.values(), ...matAssign.values()])];
+        if (allNames.length > 0) {
           const users = await tx.user.findMany({
-            where: { username: { in: names } },
-            select: { username: true, is_active: true },
+            where: { username: { in: allNames } },
+            select: { username: true, is_active: true, so_enabled: true },
           });
-          for (const n of names) {
+          for (const n of allNames) {
             const u = users.find((x) => x.username === n);
             if (!u) throw new HttpError(400, `User ${n} does not exist (SU01).`);
             if (!u.is_active) throw new HttpError(400, `User ${n} is locked.`);
+            // Ditolak di server, bukan hanya disembunyikan dari dropdown:
+            // penugasan lewat pemanggilan API langsung pun harus tunduk.
+            if (!u.so_enabled)
+              throw new HttpError(
+                400,
+                `User ${n} tidak diizinkan menerima tugas opname. Aktifkan di SU01 bila memang perlu.`
+              );
           }
         }
 
@@ -219,6 +275,7 @@ export async function POST(req: NextRequest) {
             scope_type,
             scope_value: scope_value.slice(0, 500),
             frozen_bins: toDbList(binCodes),
+            scope_materials: materials.length > 0 ? toDbList(materials) : null,
             status: PhysInvStatus.FROZEN,
             planned_date: toDate(b.planned_date) ?? new Date(),
             created_by: user.username,
@@ -245,6 +302,13 @@ export async function POST(req: NextRequest) {
             // Ronde 1 selalu dibuat, juga untuk dokumen LI01N biasa — supaya
             // pengaturan blind punya satu tempat tetap dan layar hitung tidak
             // perlu menangani kasus "dokumen tanpa ronde".
+            assigns: {
+              create: [...matAssign.entries()].map(([material_code, assigned_to]) => ({
+                round: 1,
+                material_code,
+                assigned_to,
+              })),
+            },
             rounds: {
               create: [
                 {
@@ -256,7 +320,7 @@ export async function POST(req: NextRequest) {
               ],
             },
           },
-          include: { items: true, bins: true, rounds: true },
+          include: { items: true, bins: true, rounds: true, assigns: true },
         });
 
         // ---- freeze semua bin ----

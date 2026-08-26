@@ -36,6 +36,12 @@ interface Doc {
   blind_book: boolean;
   /** true = dokumen dikelola ZSO01, raknya bertuan */
   managed: boolean;
+  /** true = penugasan memakai satuan material, bukan rak */
+  by_material: boolean;
+  /** material yang jadi cakupan; kosong = seluruh isi rak */
+  scope_materials: string[];
+  /** jumlah material lain yang ada di rak tetapi di luar cakupan */
+  out_of_scope: { bin_code: string; materials: number }[];
   items: Item[];
   bins: BinStat[];
 }
@@ -132,6 +138,8 @@ export default function ZrfCountPage() {
   const binStat = doc?.bins.find((b) => b.bin_code === binCode) ?? null;
   const inScope = !!doc && doc.frozen_bins.includes(binCode);
 
+  const outOfScopeHere = doc?.out_of_scope.find((o) => o.bin_code === binCode)?.materials ?? 0;
+
   const outstanding = doc ? doc.bins.filter((b) => b.counted_at === null) : [];
   const doneCount = doc ? doc.bins.length - outstanding.length : 0;
 
@@ -154,6 +162,14 @@ export default function ZrfCountPage() {
       for (const e of extras) {
         const code = e.material_code.trim().toUpperCase();
         if (!code) return setMsg({ text: 'Material temuan belum diisi', type: 'E' });
+        // Ditahan di layar juga, bukan hanya di server: pesan di sini muncul
+        // sebelum petugas mengetik qty dan tanggal, jadi tidak ada usaha yang
+        // terbuang.
+        if (doc.scope_materials.length > 0 && !doc.scope_materials.includes(code))
+          return setMsg({
+            text: `Material ${code} di luar cakupan opname ini — tidak perlu dihitung.`,
+            type: 'E',
+          });
         const n = Number(e.qty);
         if (!e.qty || !Number.isFinite(n) || n < 0)
           return setMsg({ text: `Qty temuan ${code} tidak valid`, type: 'E' });
@@ -328,9 +344,11 @@ export default function ZrfCountPage() {
       {binCode !== '' && !inScope && (
         <PdtMessage
           text={
-            doc?.managed
-              ? `Rak ${binCode} bukan jatah Anda pada ronde ${doc.round}, atau tidak termasuk dokumen ini. Minta admin menugaskan ulang di ZSO01 bila memang perlu Anda hitung.`
-              : `Bin ${binCode} tidak termasuk dokumen ini. Barang di rak lain diproses lewat dokumen opname tersendiri (LI01N).`
+            doc?.by_material
+              ? `Rak ${binCode} tidak memuat material yang menjadi jatah Anda pada ronde ${doc.round}. Material lain di rak ini dikerjakan petugas lain.`
+              : doc?.managed
+                ? `Rak ${binCode} bukan jatah Anda pada ronde ${doc.round}, atau tidak termasuk dokumen ini. Minta admin menugaskan ulang di ZSO01 bila memang perlu Anda hitung.`
+                : `Bin ${binCode} tidak termasuk dokumen ini. Barang di rak lain diproses lewat dokumen opname tersendiri (LI01N).`
           }
           type="E"
         />
@@ -342,6 +360,13 @@ export default function ZrfCountPage() {
             <PdtMessage
               text={`Bin ini sudah dihitung ${fmtDateTime(binStat.counted_at)} oleh ${binStat.counted_by ?? '-'}. Menyimpan lagi akan menimpa hasilnya.`}
               type="W"
+            />
+          )}
+
+          {outOfScopeHere > 0 && (
+            <PdtMessage
+              text={`${outOfScopeHere} SKU lain ada di rak ini tetapi DI LUAR cakupan opname — jangan dihitung, jangan ditambahkan sebagai temuan.`}
+              type="I"
             />
           )}
 

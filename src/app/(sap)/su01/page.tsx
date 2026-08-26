@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Users, Save, Plus, Trash2, RefreshCw, KeyRound, Lock, Unlock, Smartphone, ShieldCheck } from 'lucide-react';
+import { Users, Save, Plus, Trash2, RefreshCw, KeyRound, Lock, Unlock, Smartphone, ShieldCheck, ClipboardCheck } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, Badge, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { api, post, patch, del, fmtDateTime } from '@/lib/client';
@@ -20,6 +20,7 @@ interface Row {
   role: 'ADMIN' | 'OPERATOR' | 'VIEWER';
   is_active: boolean;
   pdt_enabled: boolean;
+  so_enabled: boolean;
   auth_role_id: string | null;
   auth_role: { role_name: string; tcodes: string[] } | null;
   last_login: string | null;
@@ -34,6 +35,7 @@ const emptyForm = {
   role: 'OPERATOR' as Row['role'],
   is_active: true,
   pdt_enabled: false,
+  so_enabled: true,
   auth_role_id: '',
 };
 
@@ -76,6 +78,7 @@ export default function Su01Page() {
             role: form.role,
             is_active: form.is_active,
             pdt_enabled: form.pdt_enabled,
+            so_enabled: form.so_enabled,
             auth_role_id: form.auth_role_id || null,
             ...(form.password ? { password: form.password } : {}),
           });
@@ -147,6 +150,22 @@ export default function Su01Page() {
         r.pdt_enabled ? (
           <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext gap-1">
             <Smartphone size={10} /> ON
+          </span>
+        ) : (
+          <span className="text-sap-muted">—</span>
+        ),
+    },
+    {
+      key: 'so_enabled',
+      header: 'Opname',
+      align: 'center',
+      width: '90px',
+      value: (r) => (r.so_enabled ? 'ON' : ''),
+      exportValue: (r) => (r.so_enabled ? 'ON' : ''),
+      render: (r) =>
+        r.so_enabled ? (
+          <span className="sap-badge border-sap-okborder bg-sap-okbg text-sap-oktext gap-1">
+            <ClipboardCheck size={10} /> ON
           </span>
         ) : (
           <span className="text-sap-muted">—</span>
@@ -287,6 +306,25 @@ export default function Su01Page() {
             Akses terminal PDT (T-Code ZRF)
           </label>
 
+          <label className="flex items-center gap-2 text-2xs text-sap-muted cursor-pointer">
+            <input
+              type="checkbox"
+              className="accent-sap-blue"
+              checked={form.so_enabled}
+              onChange={(e) => setForm({ ...form, so_enabled: e.target.checked })}
+            />
+            <ClipboardCheck size={12} className="text-sap-oktext" />
+            Boleh ditugaskan stock opname (ZSO01)
+          </label>
+
+          {form.so_enabled && !form.pdt_enabled && (
+            <p className="text-xxs text-sap-warntext leading-relaxed pl-6">
+              User ini boleh ditugaskan opname tetapi belum punya akses PDT, sehingga tidak bisa
+              membuka ZRF05 untuk menghitung. Aktifkan akses PDT juga, atau matikan penugasan
+              opname — kalau tidak, raknya akan menggantung tanpa ada yang bisa mengerjakan.
+            </p>
+          )}
+
           <div className="flex gap-1.5 pt-1">
             <Button variant="primary" onClick={save} loading={busy}>
               <Save size={13} /> {mode === 'CREATE' ? 'Create User' : 'Save'}
@@ -336,6 +374,7 @@ export default function Su01Page() {
               role: r.role,
               is_active: r.is_active,
               pdt_enabled: r.pdt_enabled,
+              so_enabled: r.so_enabled,
               auth_role_id: r.auth_role_id ?? '',
             });
             setMode('CHANGE');

@@ -16,11 +16,14 @@ export const dynamic = 'force-dynamic';
  * dan menariknya tiap menit sepanjang hari adalah pemborosan yang nyata pada
  * database yang ditagih per baris terbaca.
  *
- * Yang dibaca di sini hanya tabel rak: jumlahnya ratusan, bukan ribuan, dan
- * hanya untuk dokumen yang belum diposting. Progres — satu-satunya angka yang
- * benar-benar berubah dari menit ke menit — seluruhnya bisa dihitung dari situ.
- * Angka temuan berubah lambat dan tetap diambil dari endpoint yang berat, pada
- * irama yang jauh lebih jarang.
+ * Yang dibaca di sini hanya tabel rak dan penugasan: ratusan baris, bukan
+ * ribuan, dan hanya untuk dokumen yang belum diposting.
+ *
+ * SATUAN PROGRES. Untuk opname bercakupan material, satu rak bisa dikerjakan
+ * dua orang untuk material berbeda — "rak selesai" jadi tidak bermakna sebagai
+ * ukuran kerja seseorang. Di dokumen seperti itu progres dihitung dari BARIS
+ * (rak x material), bukan dari rak. Dokumen bercakupan zona tetap memakai rak,
+ * karena di sana satu rak memang milik satu orang.
  */
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -29,7 +32,13 @@ export async function GET(req: NextRequest) {
 
     const docs = await prisma.physInvDoc.findMany({
       where: { status: { not: PhysInvStatus.POSTED } },
-      select: { id: true, doc_number: true, current_round: true, status: true },
+      select: {
+        id: true,
+        doc_number: true,
+        current_round: true,
+        status: true,
+        scope_materials: true,
+      },
       orderBy: { created_at: 'desc' },
       take: 30,
     });
@@ -57,6 +66,32 @@ export async function GET(req: NextRequest) {
     // Hanya ronde yang sedang berjalan pada tiap dokumen.
     const live = bins.filter((b) => b.round === roundOf.get(b.doc_id));
 
+    // ---- dokumen bercakupan material: progres dihitung per baris ----
+    const matDocIds = docs.filter((d) => !!d.scope_materials).map((d) => d.id);
+    const assigns = matDocIds.length
+      ? await prisma.physInvAssign.findMany({
+          where: { doc_id: { in: matDocIds } },
+          select: { doc_id: true, round: true, material_code: true, assigned_to: true },
+        })
+      : [];
+    const matItems = matDocIds.length
+      ? await prisma.physInvDocItem.findMany({
+          where: { doc_id: { in: matDocIds } },
+          select: {
+            doc_id: true,
+            round: true,
+            bin_code: true,
+            material_code: true,
+            counted_qty: true,
+          },
+        })
+      : [];
+
+    const ownerKey = (doc_id: string, round: number, code: string) => `${doc_id}|${round}|${code}`;
+    const matOwner = new Map(
+      assigns.map((a) => [ownerKey(a.doc_id, a.round, a.material_code), a.assigned_to])
+    );
+
     const zoneRows = await prisma.storageBin.findMany({
       where: { bin_code: { in: [...new Set(live.map((b) => b.bin_code))] } },
       select: { bin_code: true, zone_id: true },
@@ -65,6 +100,8 @@ export async function GET(req: NextRequest) {
 
     // ---------------- per petugas ----------------
     const byUser = new Map<string, { assigned: number; counted: number }>();
+
+    // Dokumen bercakupan zona: satuannya rak.
     for (const b of live) {
       if (!b.assigned_to) continue;
       if (userFilter && b.assigned_to !== userFilter) continue;
@@ -72,6 +109,19 @@ export async function GET(req: NextRequest) {
       e.assigned++;
       if (b.counted_at) e.counted++;
       byUser.set(b.assigned_to, e);
+    }
+
+    // Dokumen bercakupan material: satuannya baris (rak x material).
+    for (const i of matItems) {
+      const r = roundOf.get(i.doc_id);
+      if (i.round !== r) continue;
+      const who = matOwner.get(ownerKey(i.doc_id, i.round, i.material_code));
+      if (!who) continue;
+      if (userFilter && who !== userFilter) continue;
+      const e = byUser.get(who) ?? { assigned: 0, counted: 0 };
+      e.assigned++;
+      if (i.counted_qty !== null) e.counted++;
+      byUser.set(who, e);
     }
 
     // ---------------- per zona ----------------
