@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok } from '@/lib/api';
 import { suggestPickBins, suggestPutawayBins } from '@/lib/wms';
-import { TrStatus, TrType } from '@prisma/client';
+import { BinStatus, TrStatus, TrType } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,12 +36,42 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const putawaySuggestions =
       doc.tr_type === TrType.PUTAWAY ? await suggestPutawayBins(prisma, 25) : [];
 
+    /**
+     * Rak yang disarankan sistem per baris (Fix Bin material, diisi saat MIGO
+     * retur 501). Statusnya dibaca ULANG di sini, bukan dipercayai apa adanya:
+     * antara MIGO dan put-away, rak itu bisa saja sudah diblokir.
+     */
+    const suggestedCodes = [
+      ...new Set(doc.items.map((i) => i.suggested_bin).filter((b): b is string => !!b)),
+    ];
+    const suggestedBins = suggestedCodes.length
+      ? await prisma.storageBin.findMany({
+          where: { bin_code: { in: suggestedCodes }, status: { not: BinStatus.BLOCKED } },
+          select: { bin_code: true, zone_id: true, status: true },
+        })
+      : [];
+    const suggestedMap = new Map(suggestedBins.map((b) => [b.bin_code, b]));
+
     const items = [];
     for (const it of doc.items) {
       const pick =
         doc.tr_type === TrType.PICK
           ? await suggestPickBins(prisma, it.material_code, it.batch_number, it.target_bin ?? undefined)
           : [];
+
+      /**
+       * Fix Bin material ditaruh PALING ATAS.
+       *
+       * LB12 dan ZRF02 sama-sama mengisi kolom bin dari saran teratas, jadi
+       * urutan inilah yang membuat tiap SKU retur langsung mengarah ke raknya
+       * sendiri — tanpa satu pun perubahan di kedua layar itu. Bin kosong biasa
+       * tetap menyusul di bawahnya sebagai cadangan.
+       */
+      const own = it.suggested_bin ? suggestedMap.get(it.suggested_bin) : undefined;
+      const putaway = own
+        ? [own, ...putawaySuggestions.filter((b) => b.bin_code !== own.bin_code)]
+        : putawaySuggestions;
+
       items.push({
         ...it,
         description: mMap.get(it.material_code)?.description ?? '',
@@ -49,7 +79,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         // Baris yang dibatalkan tidak menyisakan pekerjaan: LB12 memakai
         // qty_open untuk menentukan baris mana yang masih bisa dikonfirmasi.
         qty_open: it.status === TrStatus.CANCELLED ? 0 : it.qty - it.qty_confirmed,
-        suggestions: doc.tr_type === TrType.PICK ? pick : putawaySuggestions,
+        /** true bila saran teratas berasal dari Fix Bin material, bukan bin kosong acak */
+        fix_bin_suggested: Boolean(own),
+        suggestions: doc.tr_type === TrType.PICK ? pick : putaway,
       });
     }
 

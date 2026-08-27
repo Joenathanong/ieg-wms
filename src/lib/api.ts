@@ -63,7 +63,19 @@ export function handle(fn: () => Promise<NextResponse>): Promise<NextResponse> {
 
     if (e instanceof HttpError) return fail(e.message, e.status);
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
-      if (e.code === 'P2002') return fail('Entry already exists (duplicate key).', 409);
+      if (e.code === 'P2002') {
+        // Sejak barcode punya batasan UNIQUE di database, P2002 bisa datang dari
+        // beberapa kolom sekaligus (kode material, barcode B-POM, barcode
+        // produk, kode alias). Menyebut kolomnya membuat pesannya bisa
+        // ditindaklanjuti, bukan sekadar "duplikat".
+        const f = metaFields(e.meta);
+        return fail(
+          f
+            ? `Nilai sudah dipakai baris lain (duplikat pada ${f}).`
+            : 'Entry already exists (duplicate key).',
+          409
+        );
+      }
       if (e.code === 'P2025') return fail('Record not found in database.', 404);
       if (e.code === 'P2011') {
         const f = metaFields(e.meta);

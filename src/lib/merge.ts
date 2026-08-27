@@ -17,7 +17,9 @@ import { applyStockIM, applyStockWM, refreshBinStatus } from './wms';
  *      fix bin, kemasan) dipindahkan ke kode utama, supaya kemampuan scan dan
  *      pemecahan pallet tidak ikut hilang.
  *   3. Kode duplikat DITUTUP, bukan dihapus. Riwayat MB51 menyimpan kode sebagai
- *      teks; menghapus barisnya akan meninggalkan riwayat tanpa master.
+ *      teks; menghapus barisnya akan meninggalkan riwayat tanpa master. Barcode
+ *      dilepas darinya lebih dulu, sebelum ditulis ke kode utama, supaya tidak
+ *      pernah ada dua material memegang barcode yang sama.
  *   4. Kode duplikat didaftarkan sebagai alias, sehingga karton lama tetap bisa
  *      discan dan file principal yang masih memakai kode lama tetap terbaca.
  *
@@ -295,6 +297,25 @@ export async function mergeMaterial(
   if (fromMat.min_safety_stock > 0 && intoMat.min_safety_stock === 0)
     carry.min_safety_stock = fromMat.min_safety_stock;
 
+  /**
+   * URUTANNYA PENTING: kode duplikat DILEPAS lebih dulu, baru barcode-nya
+   * ditulis ke kode utama.
+   *
+   * Kalau dibalik, untuk sesaat ada DUA material memegang barcode yang sama di
+   * dalam transaksi yang sama — dan batasan UNIQUE pada kolom barcode akan
+   * menolak penggabungan itu mentah-mentah. Melepasnya lebih dulu membuat
+   * barcode benar-benar berpindah tangan, bukan tersalin.
+   */
+  await tx.material.update({
+    where: { material_code: from },
+    data: {
+      is_active: false,
+      barcode_bpom: null,
+      barcode_produk: null,
+      fix_bin: null,
+    },
+  });
+
   if (Object.keys(carry).length > 0)
     await tx.material.update({ where: { material_code: into }, data: carry });
 
@@ -318,20 +339,7 @@ export async function mergeMaterial(
     });
   }
 
-  /* ---------------- 3. tutup kode duplikat ---------------- */
-  // Barcode dilepas dari kode duplikat supaya tidak ada dua material memegang
-  // barcode yang sama — inilah yang membuat batasan unik bisa dipasang nanti.
-  await tx.material.update({
-    where: { material_code: from },
-    data: {
-      is_active: false,
-      barcode_bpom: null,
-      barcode_produk: null,
-      fix_bin: null,
-    },
-  });
-
-  /* ---------------- 4. daftarkan aliasnya ---------------- */
+  /* ---------------- 3. daftarkan aliasnya ---------------- */
   await tx.materialAlias.upsert({
     where: { alias_code: from },
     create: {

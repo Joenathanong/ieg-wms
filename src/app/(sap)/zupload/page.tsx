@@ -56,11 +56,11 @@ const KINDS: Record<UploadKind, KindDef> = {
     Icon: Boxes,
     columns: ['material_code', 'description', 'uom', 'is_batch_managed', 'min_safety_stock', 'barcode_bpom', 'barcode_produk', 'kode_ocs', 'fix_bin'],
     sample: [
-      { material_code: 'FG-0001', description: 'Sabun Cair Botol 500ml', uom: 'PC', is_batch_managed: 'TRUE', min_safety_stock: 100, barcode_bpom: 'NA18201234567', barcode_produk: '8998824551223', kode_ocs: 'GIMMICK-CONTOH-SABUN-CAIR-BOTOL-500ML', fix_bin: 'GB-PICK-A-01' },
+      { material_code: 'FG-0001', description: 'Sabun Cair Botol 500ml', uom: 'PC', is_batch_managed: 'TRUE', min_safety_stock: 100, barcode_bpom: 'NA18201234567', barcode_produk: '8998824551223', kode_ocs: 'GIMMICK-CONTOH-SABUN-CAIR-BOTOL-500ML', fix_bin: 'GK-PICK-B-03' },
       { material_code: 'FG-0002', description: 'Shampoo Sachet 12ml x 12', uom: 'BOX', is_batch_managed: 'TRUE', min_safety_stock: 50, barcode_bpom: '', barcode_produk: '', kode_ocs: '', fix_bin: '' },
       { material_code: 'SP-1001', description: 'Karton Box 40x30x25', uom: 'PC', is_batch_managed: 'FALSE', min_safety_stock: 0, barcode_bpom: '', barcode_produk: '', kode_ocs: '', fix_bin: '' },
     ],
-    note: 'is_batch_managed: TRUE / FALSE. Kolom barcode_bpom / barcode_produk / kode_ocs / fix_bin opsional. Material yang sudah ada akan di-update (upsert).',
+    note: 'is_batch_managed: TRUE / FALSE. Kolom barcode_bpom / barcode_produk / kode_ocs / fix_bin opsional. fix_bin = rak tetap material: jadi tujuan replenishment (ZRF08) sekaligus saran rak put-away untuk retur (MIGO 501). Barcode wajib unik antar material. Material yang sudah ada akan di-update (upsert).',
   },
   packaging: {
     id: 'packaging',

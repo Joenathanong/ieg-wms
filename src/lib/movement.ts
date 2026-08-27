@@ -187,6 +187,23 @@ export function isGoodsReceipt(m: MovementType): boolean {
   return GOODS_RECEIPT_MOVEMENTS.includes(m);
 }
 
+/**
+ * Penerimaan yang raknya disarankan dari Fix Bin material (MM01).
+ *
+ * Hanya retur (501). Penerimaan pembelian (101) masuk ke Heavy Duty Racking dan
+ * raknya ditentukan menurut ruang kosong, bukan menurut rak tetap material —
+ * memaksakan Fix Bin di sana akan menumpuk seluruh kedatangan ke satu rak pick
+ * face yang kapasitasnya memang kecil.
+ *
+ * Retur berbeda sifatnya: jumlahnya sedikit, satuannya eceran, dan tujuannya
+ * memang mengembalikan barang ke rak asalnya di Gudang Kecil.
+ */
+export const FIX_BIN_PUTAWAY_MOVEMENTS: MovementType[] = [MovementType.GR_501_OTHER];
+
+export function suggestsFixBin(m: MovementType): boolean {
+  return FIX_BIN_PUTAWAY_MOVEMENTS.includes(m);
+}
+
 /** Movement koreksi yang tetap menunjuk bin secara langsung. */
 export const DIRECT_BIN_MOVEMENTS: MovementType[] = [
   MovementType.GI_601_SALES,

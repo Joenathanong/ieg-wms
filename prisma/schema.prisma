@@ -113,13 +113,28 @@ model Material {
   uom              String   @default("PC") @db.VarChar(16)
   is_batch_managed Boolean  @default(true)
   min_safety_stock Int      @default(0)
-  /// Barcode B-POM (registrasi BPOM) — dipakai lookup scan PDT
-  barcode_bpom     String?
-  /// Barcode produk (EAN/UPC kemasan) — dipakai lookup scan PDT
-  barcode_produk   String?
+  /// Barcode B-POM (registrasi BPOM) — dipakai lookup scan PDT.
+  ///
+  /// UNIK: satu barcode hanya boleh menunjuk satu material, kalau tidak scan di
+  /// terminal PDT jadi ambigu dan sistem diam-diam memilih salah satunya.
+  /// Batasannya ditegakkan DATABASE, bukan cuma kode aplikasi — jalur upload
+  /// massal pernah menembus pemeriksaan aplikasi, dan barisan NULL tetap boleh
+  /// banyak (material tanpa barcode tidak saling bentrok).
+  barcode_bpom     String?  @unique
+  /// Barcode produk (EAN/UPC kemasan) — dipakai lookup scan PDT. Unik, alasan
+  /// yang sama dengan barcode_bpom.
+  ///
+  /// Catatan: batasan ini berlaku PER KOLOM. Kasus barcode B-POM material A
+  /// yang kebetulan sama dengan barcode produk material B tidak bisa dijamin
+  /// oleh indeks — itu tetap dijaga pemeriksaan silang di MM01 dan ZUPLOAD.
+  barcode_produk   String?  @unique
   /// Kode OCS — identifier panjang, mis. GIMMICK-HANASUI-EYEMAZING-EYESHADOW-PALETTE-SUNSET
   kode_ocs         String?  @db.VarChar(255)
-  /// Fix bin — bin picking tetap material ini; saran tujuan replenishment ZRF08
+  /// Fix bin — rak tetap material ini. Dipakai di DUA tempat:
+  ///   - ZREPL / ZRF08 : tujuan replenishment (barang turun dari racking ke sini)
+  ///   - MIGO 501      : saran rak put-away untuk retur, lewat Transfer Requirement
+  /// Keduanya menunjuk rak yang sama, jadi barang retur kembali ke tempat yang
+  /// sama dengan tempat barang itu diambil sehari-hari.
   fix_bin          String?
   /// Penanda hapus ala SAP. Material yang sudah digabung ke SKU lain TIDAK boleh
   /// dihapus barisnya: riwayat MB51 menyimpan kodenya sebagai teks dan akan
@@ -134,9 +149,10 @@ model Material {
   aliases    MaterialAlias[]
 
   @@index([description])
-  @@index([barcode_bpom])
-  @@index([barcode_produk])
+  // barcode_bpom & barcode_produk tidak lagi diberi @@index terpisah:
+  // indeks UNIQUE-nya sudah melayani pencarian yang sama.
   @@index([kode_ocs])
+  @@index([is_active])
   @@map("materials")
 }
 
@@ -458,6 +474,17 @@ model TransferReqItem {
   pack_code     String?
   qty           Int
   qty_confirmed Int         @default(0)
+  /// Rak yang DISARANKAN sistem saat dokumen dibuat — bukan keputusan.
+  ///
+  /// Sengaja dipisah dari `target_bin`: target_bin berarti "rak yang benar-benar
+  /// dipakai", diisi saat konfirmasi. Menaruh saran di sana akan membuat LB10
+  /// dan laporan membacanya seolah raknya sudah ditentukan padahal belum ada
+  /// barang yang naik.
+  ///
+  /// Diisi untuk penerimaan retur (501) dari Fix Bin material di MM01, sehingga
+  /// tiap SKU retur langsung mengarah ke raknya sendiri tanpa operator perlu
+  /// mengingat-ingat. Tetap boleh ditimpa saat konfirmasi.
+  suggested_bin String?
   /// PUTAWAY: bin interim asal. PICK: diisi operator saat konfirmasi.
   source_bin    String?
   /// PUTAWAY: diisi operator saat konfirmasi. PICK: bin interim tujuan.

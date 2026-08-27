@@ -25,6 +25,10 @@ interface Item {
   qty_open: number;
   source_bin: string | null;
   target_bin: string | null;
+  /** rak yang disarankan sistem saat dokumen dibuat (Fix Bin material) */
+  suggested_bin: string | null;
+  /** true bila saran teratas berasal dari Fix Bin material, bukan bin kosong acak */
+  fix_bin_suggested: boolean;
   suggestions: Suggestion[];
 }
 
@@ -213,6 +217,12 @@ export function TrScreen({
             <PdtRow label="Qty terbuka" value={`${active.qty_open} ${active.uom}`} accent />
             {type === 'PUTAWAY' && active.source_bin && <PdtRow label="Dari" value={active.source_bin} />}
             {type === 'PICK' && active.target_bin && <PdtRow label="Ke" value={active.target_bin} />}
+            {/* Kolom bin sudah terisi saran teratas. Kalau sarannya berasal dari
+                rak tetap material, operator harus tahu — itu tujuan yang benar,
+                bukan sekadar rak kosong yang kebetulan tersedia. */}
+            {type === 'PUTAWAY' && active.fix_bin_suggested && active.suggestions[0] && (
+              <PdtRow label="Rak tetap" value={`${active.suggestions[0].bin_code} (MM01)`} accent />
+            )}
           </div>
 
           <PdtInput

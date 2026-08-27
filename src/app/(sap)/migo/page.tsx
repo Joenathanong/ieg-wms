@@ -521,11 +521,20 @@ export default function MigoPage() {
             <Select
               value={movement}
               onChange={(e) => {
-                setMovement(e.target.value);
+                const mv = e.target.value;
+                setMovement(mv);
                 setPosted([]);
                 // pilihan turunan ikut direset supaya tidak terbawa dari movement lama
                 setGiMode('');
-                setZoneGroup(DEFAULT_GR_ZONE_GROUP);
+                /**
+                 * Retur (501) hampir selalu kembali ke Gudang Kecil — itu rak
+                 * asal barang eceran, dan Fix Bin material di MM01 menunjuk ke
+                 * sana. Menyetel gudang tujuan mengikuti movement membuat saran
+                 * rak put-away nanti benar-benar menyala; kalau dibiarkan
+                 * BESAR, Fix Bin-nya tidak akan cocok dan sarannya diam.
+                 * Tetap bisa diubah untuk kasus retur yang masuk gudang besar.
+                 */
+                setZoneGroup(mv === '501' ? 'KECIL' : DEFAULT_GR_ZONE_GROUP);
               }}
             >
               <option value="">(pilih movement type)</option>
@@ -544,7 +553,15 @@ export default function MigoPage() {
           )}
 
           {mode === 'TR_IN' && (
-            <Field label="Gudang Tujuan" required hint="menentukan baris palletization yang dipakai">
+            <Field
+              label="Gudang Tujuan"
+              required
+              hint={
+                movement === '501'
+                  ? 'retur: rak put-away disarankan dari Fix Bin material (MM01)'
+                  : 'menentukan baris palletization yang dipakai'
+              }
+            >
               <Select value={zoneGroup} onChange={(e) => setZoneGroup(e.target.value)}>
                 {ZONE_GROUPS.map((g) => (
                   <option key={g.code} value={g.code}>

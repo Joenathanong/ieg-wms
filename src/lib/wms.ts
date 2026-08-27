@@ -1,7 +1,13 @@
 import { Prisma, BinStatus, MovementType, TrStatus, TrType, type PrismaClient } from '@prisma/client';
 import { HttpError } from './auth';
 import { nextDocNumber } from './docnum';
-import { MOVEMENT_SIGN, MOVEMENT_CODE, CANCELLED_BY, isGoodsReceipt } from './movement';
+import {
+  MOVEMENT_SIGN,
+  MOVEMENT_CODE,
+  CANCELLED_BY,
+  isGoodsReceipt,
+  suggestsFixBin,
+} from './movement';
 import { getSetting, isTrue } from './settings';
 
 /* =====================================================================
@@ -459,6 +465,8 @@ export interface TrItemInput {
    * (satu baris MIGO bisa pecah jadi beberapa baris TR karena split pallet).
    */
   src_line?: number | null;
+  /** rak yang disarankan sistem — saran, bukan keputusan */
+  suggested_bin?: string | null;
 }
 
 export async function createTransferReq(
@@ -489,6 +497,7 @@ export async function createTransferReq(
         create: args.items.map((it, i) => ({
           line_no: i + 1,
           src_line: it.src_line ?? null,
+          suggested_bin: it.suggested_bin ?? null,
           material_code: it.material_code,
           batch_number: it.batch_number ?? null,
           mfg_date: it.mfg_date ?? null,
@@ -502,6 +511,40 @@ export async function createTransferReq(
     },
     include: { items: { orderBy: { line_no: 'asc' } } },
   });
+}
+
+/**
+ * Fix Bin material, HANYA bila benar-benar layak jadi tujuan put-away.
+ *
+ * Saran yang salah lebih buruk daripada tidak ada saran: layar put-away mengisi
+ * kolom bin dengan saran teratas, jadi rak yang diblokir atau salah gudang akan
+ * terkonfirmasi begitu saja oleh operator yang sedang buru-buru. Karena itu
+ * setiap syarat diperiksa, dan kegagalan mana pun berarti null — bukan tebakan.
+ *
+ * @param zoneGroup kelompok gudang tujuan; fix bin di luar kelompok ini ditolak
+ */
+async function fixBinSuggestion(
+  tx: Prisma.TransactionClient,
+  fix_bin: string | null,
+  zoneGroup: string | null
+): Promise<string | null> {
+  const code = (fix_bin ?? '').trim().toUpperCase();
+  if (!code) return null;
+
+  const bin = await tx.storageBin.findUnique({ where: { bin_code: code } });
+  if (!bin) return null;
+  // Bin transit bukan lokasi penyimpanan; menyarankannya berarti barang
+  // "diput-away" ke tempat ia sudah berada.
+  if (bin.is_interim) return null;
+  if (bin.status === BinStatus.BLOCKED) return null;
+
+  if (zoneGroup) {
+    const zone = await tx.zone.findUnique({ where: { zone_code: bin.zone_id } });
+    if (!zone) return null;
+    if (zone.zone_group.toUpperCase() !== zoneGroup.toUpperCase()) return null;
+  }
+
+  return bin.bin_code;
 }
 
 /**
@@ -573,6 +616,18 @@ export async function postGoodsReceipt(
 
   // 3) baris put-away, dipecah per pallet
   const split = await splitByPackaging(tx, material.material_code, qty, args.pack_code, args.zone_group);
+
+  /**
+   * Retur (501) diarahkan ke Fix Bin material — rak asalnya sendiri.
+   *
+   * Sarannya menempel pada BARIS TR, bukan pada layar, karena satu dokumen
+   * retur berisi banyak SKU yang masing-masing punya rak berbeda. Saran per
+   * dokumen tidak akan menolong siapa pun di sini.
+   */
+  const suggested_bin = suggestsFixBin(args.movement_type ?? MovementType.GR_101)
+    ? await fixBinSuggestion(tx, material.fix_bin, args.zone_group ?? null)
+    : null;
+
   const trItems: TrItemInput[] = split.map((s) => ({
     material_code: material.material_code,
     batch_number: batch,
@@ -583,6 +638,7 @@ export async function postGoodsReceipt(
     source_bin: grBin.bin_code,
     target_bin: null,
     src_line: line_no,
+    suggested_bin,
   }));
 
   // Dokumen gabungan: TR dibuat sekali oleh pemanggil setelah semua baris

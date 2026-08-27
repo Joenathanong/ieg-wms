@@ -32,6 +32,10 @@ interface Item {
   source_bin: string | null;
   target_bin: string | null;
   status: string;
+  /** rak yang disarankan sistem saat dokumen dibuat (Fix Bin material) */
+  suggested_bin: string | null;
+  /** true bila saran teratas berasal dari Fix Bin material, bukan bin kosong acak */
+  fix_bin_suggested: boolean;
   suggestions: Suggestion[];
 }
 
@@ -338,7 +342,19 @@ function Lb12Inner() {
                           </datalist>
                         </td>
                         <td className="font-mono text-xxs text-sap-muted truncate max-w-[130px]">
-                          {it.suggestions.slice(0, 2).map((s) => s.bin_code).join(', ') || '—'}
+                          {it.fix_bin_suggested ? (
+                            // Operator perlu tahu bedanya: rak tetap material
+                            // adalah tujuan yang benar, bin kosong acak hanya
+                            // ruang yang kebetulan tersedia.
+                            <span
+                              className="text-sap-oktext"
+                              title={`Fix Bin material ${it.material_code} (MM01)`}
+                            >
+                              {it.suggestions[0]?.bin_code} · fix bin
+                            </span>
+                          ) : (
+                            it.suggestions.slice(0, 2).map((s) => s.bin_code).join(', ') || '—'
+                          )}
                         </td>
                       </tr>
                     );
