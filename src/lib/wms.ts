@@ -33,6 +33,14 @@ export interface MovementInput {
   tr_number?: string | null;
   via_pdt?: boolean;
   user_id: string;
+  /**
+   * Nomor dokumen yang SUDAH dialokasikan pemanggil. Dipakai bila baris ini
+   * bagian dari satu material document berisi banyak baris; bila kosong,
+   * fungsi ini mengambil nomor sendiri (dokumen satu baris).
+   */
+  document_number?: string | null;
+  /** nomor baris di dalam dokumen tersebut; bawaannya 1 */
+  line_no?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -259,7 +267,7 @@ export async function splitByPackaging(
 export async function postGoodsMovement(
   tx: Prisma.TransactionClient,
   input: MovementInput
-): Promise<{ document_number: string }> {
+): Promise<{ document_number: string; line_no: number }> {
   const qty = Math.trunc(input.qty);
   if (qty <= 0) throw new HttpError(400, 'Quantity must be greater than zero.');
 
@@ -291,10 +299,12 @@ export async function postGoodsMovement(
   await applyStockIM(tx, material.material_code, sign * qty);
   await refreshBinStatus(tx, bin_code);
 
-  const document_number = await nextDocNumber(tx, 'MATDOC');
+  const document_number = input.document_number ?? (await nextDocNumber(tx, 'MATDOC'));
+  const line_no = input.line_no ?? 1;
   await tx.migoLog.create({
     data: {
       document_number,
+      line_no,
       movement_type: input.movement_type,
       material_code: material.material_code,
       source_bin: sign > 0 ? null : bin_code,
@@ -312,7 +322,7 @@ export async function postGoodsMovement(
     },
   });
 
-  return { document_number };
+  return { document_number, line_no };
 }
 
 /* ------------------------------------------------------------------ */
@@ -411,6 +421,12 @@ export interface TrItemInput {
   qty: number;
   source_bin?: string | null;
   target_bin?: string | null;
+  /**
+   * Nomor baris dokumen MIGO asal. Diisi saat satu dokumen berisi banyak baris
+   * supaya pembatalan per baris tahu tugas put-away mana yang ikut dibatalkan
+   * (satu baris MIGO bisa pecah jadi beberapa baris TR karena split pallet).
+   */
+  src_line?: number | null;
 }
 
 export async function createTransferReq(
@@ -440,6 +456,7 @@ export async function createTransferReq(
       items: {
         create: args.items.map((it, i) => ({
           line_no: i + 1,
+          src_line: it.src_line ?? null,
           material_code: it.material_code,
           batch_number: it.batch_number ?? null,
           mfg_date: it.mfg_date ?? null,
@@ -485,6 +502,18 @@ export async function postGoodsReceipt(
      * yang berbeda hanya akan melahirkan dua jalur yang lambat laun menyimpang.
      */
     movement_type?: MovementType;
+    /** nomor dokumen yang sudah dialokasikan pemanggil (dokumen multi-baris) */
+    document_number?: string | null;
+    /** nomor baris di dalam dokumen tersebut; bawaannya 1 */
+    line_no?: number;
+    /**
+     * Mode dokumen gabungan. Bila diisi, fungsi ini TIDAK membuat Transfer
+     * Requirement sendiri; baris put-away hasil pemecahan pallet didorong ke
+     * array milik pemanggil, yang lalu membuat SATU TR untuk seluruh dokumen.
+     * Inilah yang membuat satu posting MIGO 5 baris menghasilkan satu daftar
+     * kerja put-away, bukan lima.
+     */
+    defer_tr?: TrItemInput[];
   }
 ) {
   const qty = Math.trunc(args.qty);
@@ -507,31 +536,43 @@ export async function postGoodsReceipt(
   await refreshBinStatus(tx, grBin.bin_code);
 
   // 2) material document 101
-  const document_number = await nextDocNumber(tx, 'MATDOC');
+  const document_number = args.document_number ?? (await nextDocNumber(tx, 'MATDOC'));
+  const line_no = args.line_no ?? 1;
 
-  // 3) TR PUTAWAY, dipecah per pallet
+  // 3) baris put-away, dipecah per pallet
   const split = await splitByPackaging(tx, material.material_code, qty, args.pack_code, args.zone_group);
-  const tr = await createTransferReq(tx, {
-    tr_type: TrType.PUTAWAY,
-    ref_doc: document_number,
-    reference: args.reference ?? null,
-    remarks: args.remarks ?? null,
-    user_id: args.user_id,
-    items: split.map((s) => ({
-      material_code: material.material_code,
-      batch_number: batch,
-      mfg_date: args.mfg_date ?? null,
-      exp_date: args.exp_date ?? null,
-      pack_code: s.pack_code,
-      qty: s.qty,
-      source_bin: grBin.bin_code,
-      target_bin: null,
-    })),
-  });
+  const trItems: TrItemInput[] = split.map((s) => ({
+    material_code: material.material_code,
+    batch_number: batch,
+    mfg_date: args.mfg_date ?? null,
+    exp_date: args.exp_date ?? null,
+    pack_code: s.pack_code,
+    qty: s.qty,
+    source_bin: grBin.bin_code,
+    target_bin: null,
+    src_line: line_no,
+  }));
+
+  // Dokumen gabungan: TR dibuat sekali oleh pemanggil setelah semua baris
+  // selesai, jadi nomornya belum ada di sini dan ditulis balik belakangan.
+  let tr: Awaited<ReturnType<typeof createTransferReq>> | null = null;
+  if (args.defer_tr) {
+    args.defer_tr.push(...trItems);
+  } else {
+    tr = await createTransferReq(tx, {
+      tr_type: TrType.PUTAWAY,
+      ref_doc: document_number,
+      reference: args.reference ?? null,
+      remarks: args.remarks ?? null,
+      user_id: args.user_id,
+      items: trItems,
+    });
+  }
 
   await tx.migoLog.create({
     data: {
       document_number,
+      line_no,
       movement_type: args.movement_type ?? MovementType.GR_101,
       material_code: material.material_code,
       target_bin: grBin.bin_code,
@@ -540,14 +581,14 @@ export async function postGoodsReceipt(
       uom: material.uom,
       reference: args.reference ?? null,
       remarks: args.remarks ?? null,
-      tr_number: tr.tr_number,
+      tr_number: tr?.tr_number ?? null,
       via_pdt: args.via_pdt ?? false,
       doc_date: args.doc_date ?? new Date(),
       user_id: args.user_id,
     },
   });
 
-  return { document_number, tr };
+  return { document_number, line_no, tr, tr_lines: trItems.length };
 }
 
 /**
@@ -568,6 +609,13 @@ export async function createPickRequest(
     /// dibawa ke TR supaya langkah goods issue mewarisi pembebanannya
     cost_center?: string | null;
     user_id: string;
+    /** nomor baris permintaan asal — ikut ditulis ke item TR */
+    line_no?: number;
+    /**
+     * Mode dokumen gabungan: baris picking didorong ke array milik pemanggil
+     * agar seluruh permintaan jadi SATU Transfer Requirement.
+     */
+    defer_tr?: TrItemInput[];
   }
 ) {
   const qty = Math.trunc(args.qty);
@@ -620,6 +668,20 @@ export async function createPickRequest(
   }
 
   const split = await splitByPackaging(tx, material.material_code, qty, args.pack_code, args.zone_group);
+  const trItems: TrItemInput[] = split.map((s) => ({
+    material_code: material.material_code,
+    batch_number: batch,
+    pack_code: s.pack_code,
+    qty: s.qty,
+    source_bin: null,
+    target_bin: giBin.bin_code,
+    src_line: args.line_no ?? 1,
+  }));
+
+  if (args.defer_tr) {
+    args.defer_tr.push(...trItems);
+    return { tr: null, tr_lines: trItems.length };
+  }
 
   const tr = await createTransferReq(tx, {
     tr_type: TrType.PICK,
@@ -627,17 +689,10 @@ export async function createPickRequest(
     remarks: args.remarks ?? null,
     cost_center: args.cost_center ?? null,
     user_id: args.user_id,
-    items: split.map((s) => ({
-      material_code: material.material_code,
-      batch_number: batch,
-      pack_code: s.pack_code,
-      qty: s.qty,
-      source_bin: null,
-      target_bin: giBin.bin_code,
-    })),
+    items: trItems,
   });
 
-  return { tr };
+  return { tr, tr_lines: trItems.length };
 }
 
 /**
@@ -663,6 +718,13 @@ export async function confirmTrItem(
   if (!item) throw new HttpError(404, 'Transfer requirement item does not exist.');
   if (item.status === TrStatus.CLOSED)
     throw new HttpError(400, `Line ${item.line_no} is already confirmed.`);
+  // Baris bisa dibatalkan sendirian sejak pembatalan MIGO berlaku per baris:
+  // barangnya sudah tidak ada lagi di bin interim, jadi tidak boleh disimpan.
+  if (item.status === TrStatus.CANCELLED)
+    throw new HttpError(
+      400,
+      `Line ${item.line_no} was cancelled together with its material document line and cannot be confirmed.`
+    );
   if (item.tr.status === TrStatus.CANCELLED)
     throw new HttpError(400, `Transfer requirement ${item.tr.tr_number} is cancelled.`);
 
@@ -720,7 +782,13 @@ export async function confirmTrItem(
 
   // hitung ulang status header
   const siblings = await tx.transferReqItem.findMany({ where: { tr_id: item.tr_id } });
-  const allClosed = siblings.every((s) => (s.id === item.id ? newConfirmed >= s.qty : s.status === TrStatus.CLOSED));
+  // Baris yang DIBATALKAN ikut dihitung selesai — kalau tidak, satu baris batal
+  // membuat header TR menggantung PARTIAL selamanya di LB10.
+  const allClosed = siblings.every((s) =>
+    s.id === item.id
+      ? newConfirmed >= s.qty
+      : s.status === TrStatus.CLOSED || s.status === TrStatus.CANCELLED
+  );
   const anyProgress = siblings.some((s) => (s.id === item.id ? newConfirmed > 0 : s.qty_confirmed > 0));
 
   if (allClosed) {
@@ -762,6 +830,8 @@ export async function postGoodsIssue(
     doc_date?: Date | null;
     user_id: string;
     via_pdt?: boolean;
+    document_number?: string | null;
+    line_no?: number;
   }
 ) {
   const giBin = await getInterimBin(tx, 'DEFAULT_GI_BIN');
@@ -795,6 +865,8 @@ export async function postGoodsIssue(
     doc_date: args.doc_date ?? null,
     via_pdt: args.via_pdt,
     user_id: args.user_id,
+    document_number: args.document_number ?? null,
+    line_no: args.line_no,
   });
 }
 
@@ -805,6 +877,8 @@ export async function postGoodsIssue(
 
 export interface CancelPreview {
   document_number: string;
+  /// nomor baris di dalam dokumen — pembatalan berlaku per baris
+  line_no: number;
   movement_type: MovementType;
   cancel_movement: MovementType;
   material_code: string;
@@ -818,153 +892,294 @@ export interface CancelPreview {
   reference: string | null;
   tr_number: string | null;
   user_id: string;
+  /// false bila baris ini sudah pernah dibatalkan
+  cancellable: boolean;
+  /// alasan baris tidak bisa dibatalkan (untuk ditampilkan di layar)
+  blocked_reason: string | null;
 }
 
-/** Ambil dokumen asal + validasi kelayakan pembatalan (dipakai GET preview & POST). */
-export async function getCancellable(
-  tx: ReadDb,
-  document_number: string
-): Promise<CancelPreview> {
-  const orig = await tx.migoLog.findUnique({ where: { document_number } });
-  if (!orig) throw new HttpError(404, `Material document ${document_number} does not exist.`);
-  if (orig.reversal_of)
-    throw new HttpError(400, `Document ${document_number} is itself a cancellation document and cannot be cancelled.`);
-  if (orig.reversed_by)
-    throw new HttpError(400, `Document ${document_number} has already been cancelled by document ${orig.reversed_by}.`);
-
-  const cancelType = CANCELLED_BY[orig.movement_type];
-  if (!cancelType)
-    throw new HttpError(
-      400,
-      `Movement ${MOVEMENT_CODE[orig.movement_type]} cannot be cancelled here. ` +
-        `Bin transfer (301) dibatalkan dengan transfer balik lewat LT01.`
-    );
-
-  const material = await tx.material.findUnique({ where: { material_code: orig.material_code } });
-
-  return {
-    document_number: orig.document_number,
-    movement_type: orig.movement_type,
-    cancel_movement: cancelType,
-    material_code: orig.material_code,
-    description: material?.description ?? '',
-    uom: orig.uom,
-    qty: orig.qty,
-    batch_number: orig.batch_number,
-    source_bin: orig.source_bin,
-    target_bin: orig.target_bin,
-    doc_date: orig.doc_date,
-    reference: orig.reference,
-    tr_number: orig.tr_number,
-    user_id: orig.user_id,
-  };
+export interface CancelDocPreview {
+  document_number: string;
+  doc_date: Date;
+  reference: string | null;
+  user_id: string;
+  lines: CancelPreview[];
 }
 
 /**
- * Posting pembatalan dokumen. Seluruh data (material, qty, batch, bin) diambil
- * dari dokumen asal dan TIDAK dapat diubah — sesuai perilaku MIGO Cancellation.
+ * Ambil SELURUH baris dokumen + status kelayakan pembatalannya.
+ * Dipakai layar preview: operator memilih baris mana yang dibatalkan.
+ */
+export async function getCancellableDoc(
+  tx: ReadDb,
+  document_number: string
+): Promise<CancelDocPreview> {
+  const rows = await tx.migoLog.findMany({
+    where: { document_number },
+    orderBy: { line_no: 'asc' },
+  });
+  if (rows.length === 0)
+    throw new HttpError(404, `Material document ${document_number} does not exist.`);
+  if (rows.some((r) => r.reversal_of))
+    throw new HttpError(
+      400,
+      `Document ${document_number} is itself a cancellation document and cannot be cancelled.`
+    );
+
+  const codes = [...new Set(rows.map((r) => r.material_code))];
+  const materials = await tx.material.findMany({
+    where: { material_code: { in: codes } },
+    select: { material_code: true, description: true },
+  });
+  const descOf = new Map(materials.map((m) => [m.material_code, m.description]));
+
+  const lines: CancelPreview[] = rows.map((r) => {
+    const cancelType = CANCELLED_BY[r.movement_type];
+    return {
+      document_number: r.document_number,
+      line_no: r.line_no,
+      movement_type: r.movement_type,
+      // bila movement-nya memang tidak bisa dibatalkan, kolomnya diisi dengan
+      // movement asal agar tipenya tetap terisi; kelayakannya ditandai terpisah.
+      cancel_movement: cancelType ?? r.movement_type,
+      material_code: r.material_code,
+      description: descOf.get(r.material_code) ?? '',
+      uom: r.uom,
+      qty: r.qty,
+      batch_number: r.batch_number,
+      source_bin: r.source_bin,
+      target_bin: r.target_bin,
+      doc_date: r.doc_date,
+      reference: r.reference,
+      tr_number: r.tr_number,
+      user_id: r.user_id,
+      cancellable: !r.reversed_by && !!cancelType,
+      blocked_reason: r.reversed_by
+        ? `Sudah dibatalkan oleh dokumen ${r.reversed_by} baris ${r.reversed_by_line ?? 1}.`
+        : !cancelType
+          ? `Movement ${MOVEMENT_CODE[r.movement_type]} tidak dapat dibatalkan di sini. ` +
+            'Bin transfer (301) dibatalkan dengan transfer balik lewat LT01.'
+          : null,
+    };
+  });
+
+  if (lines.every((l) => !l.cancellable))
+    throw new HttpError(
+      400,
+      lines[0].blocked_reason ?? `Document ${document_number} cannot be cancelled.`
+    );
+
+  return {
+    document_number,
+    doc_date: rows[0].doc_date,
+    reference: rows[0].reference,
+    user_id: rows[0].user_id,
+    lines,
+  };
+}
+
+/** Satu baris saja — dipakai pemanggil lama yang hanya mengenal nomor dokumen. */
+export async function getCancellable(
+  tx: ReadDb,
+  document_number: string,
+  line_no?: number
+): Promise<CancelPreview> {
+  const doc = await getCancellableDoc(tx, document_number);
+  const line =
+    line_no === undefined
+      ? doc.lines.find((l) => l.cancellable)
+      : doc.lines.find((l) => l.line_no === line_no);
+  if (!line)
+    throw new HttpError(
+      404,
+      `Document ${document_number} line ${line_no} does not exist.`
+    );
+  if (!line.cancellable)
+    throw new HttpError(400, line.blocked_reason ?? `Line ${line.line_no} cannot be cancelled.`);
+  return line;
+}
+
+/**
+ * Posting pembatalan. Seluruh data (material, qty, batch, bin) diambil dari
+ * dokumen asal dan TIDAK dapat diubah — sesuai perilaku MIGO Cancellation.
+ *
+ * Pembatalan berlaku PER BARIS: `lines` yang kosong berarti seluruh baris yang
+ * masih layak dibatalkan. Hasilnya satu dokumen pembatalan berisi sebanyak
+ * baris yang dibatalkan.
  */
 export async function postCancellation(
   tx: Prisma.TransactionClient,
   args: {
     document_number: string;
+    /** nomor baris yang dibatalkan; kosong = semua baris yang masih layak */
+    lines?: number[] | null;
     user_id: string;
     remarks?: string | null;
     via_pdt?: boolean;
   }
-): Promise<{ document_number: string; cancel_movement: MovementType; original: CancelPreview }> {
-  const prev = await getCancellable(tx, args.document_number);
-  const origSign = MOVEMENT_SIGN[prev.movement_type]; // +1 = dulu menambah stok
-  const bin_code = origSign > 0 ? prev.target_bin : prev.source_bin;
-  if (!bin_code)
-    throw new HttpError(400, `Document ${prev.document_number} has no storage bin reference.`);
+): Promise<{
+  document_number: string;
+  cancel_movement: MovementType;
+  lines: { line_no: number; source_line: number; material_code: string; qty: number }[];
+  original: CancelDocPreview;
+}> {
+  const doc = await getCancellableDoc(tx, args.document_number);
 
-  // bin boleh BLOCKED? tidak — konsisten dengan aturan movement biasa,
-  // tapi izinkan bila bin interim (transit) karena cancel GR/GI menunjuk ke sana.
-  await getBinOrThrow(tx, bin_code, false);
+  const wanted = args.lines && args.lines.length ? new Set(args.lines) : null;
+  if (wanted) {
+    for (const n of wanted) {
+      const l = doc.lines.find((x) => x.line_no === n);
+      if (!l) throw new HttpError(400, `Line ${n} does not exist in document ${doc.document_number}.`);
+      if (!l.cancellable)
+        throw new HttpError(400, `Line ${n}: ${l.blocked_reason ?? 'cannot be cancelled.'}`);
+    }
+  }
+  const targets = doc.lines.filter((l) => l.cancellable && (!wanted || wanted.has(l.line_no)));
+  if (targets.length === 0)
+    throw new HttpError(400, 'No cancellable line was selected.');
 
-  // Khusus cancel GR (102): Transfer Requirement put-away terkait harus belum
-  // dikonfirmasi sama sekali — bila barang sudah dipindah ke rak, stok di bin
-  // interim memang sudah tidak utuh dan pembatalan harus ditolak.
-  // Berlaku untuk SEMUA jenis penerimaan (101 maupun 501): keduanya menaruh
-  // barang di bin transit dan membuat TR put-away, jadi syarat pembatalannya
-  // sama persis.
-  if (isGoodsReceipt(prev.movement_type) && prev.tr_number) {
+  /* ---------------------------------------------------------------- *
+   * Cancel GR (102/502): tugas put-away untuk baris yang dibatalkan
+   * harus BELUM dikonfirmasi sama sekali — kalau barangnya sudah naik
+   * ke rak, stok di bin interim tidak lagi utuh dan pembatalan ditolak.
+   * Sejak satu dokumen memakai satu TR bersama, yang diperiksa dan
+   * dibatalkan hanyalah item TR milik baris tersebut (src_line).
+   * ---------------------------------------------------------------- */
+  const grTargets = targets.filter((l) => isGoodsReceipt(l.movement_type) && l.tr_number);
+  const trNumbers = [...new Set(grTargets.map((l) => l.tr_number as string))];
+  for (const trNumber of trNumbers) {
     const tr = await tx.transferReq.findUnique({
-      where: { tr_number: prev.tr_number },
+      where: { tr_number: trNumber },
       include: { items: true },
     });
-    if (tr && tr.status !== TrStatus.CANCELLED) {
-      if (tr.items.some((i) => i.qty_confirmed > 0))
-        throw new HttpError(
-          400,
-          `Put-away for TR ${tr.tr_number} is already (partially) confirmed. ` +
-            `Cancellation 102 is only possible while the stock is still in the interim bin.`
-        );
+    if (!tr || tr.status === TrStatus.CANCELLED) continue;
+
+    const srcLines = new Set(
+      grTargets.filter((l) => l.tr_number === trNumber).map((l) => l.line_no)
+    );
+    // Dokumen lama dibuat sebelum ada src_line: satu dokumen = satu baris,
+    // jadi item tanpa penanda memang milik baris ke-1.
+    const mine = tr.items.filter((i) => srcLines.has(i.src_line ?? 1));
+    if (mine.some((i) => i.qty_confirmed > 0))
+      throw new HttpError(
+        400,
+        `Put-away for TR ${tr.tr_number} is already (partially) confirmed. ` +
+          `Cancellation is only possible while the stock is still in the interim bin.`
+      );
+
+    await tx.transferReqItem.updateMany({
+      where: { id: { in: mine.map((i) => i.id) } },
+      data: { status: TrStatus.CANCELLED },
+    });
+
+    // Status header dihitung ulang: baris batal dianggap selesai, jadi TR yang
+    // sisa barisnya sudah dikonfirmasi ikut tertutup dan tidak menggantung
+    // PARTIAL di LB10.
+    const others = tr.items.filter((i) => !mine.some((m) => m.id === i.id));
+    const othersDone = others.every(
+      (i) => i.status === TrStatus.CLOSED || i.status === TrStatus.CANCELLED
+    );
+    if (othersDone) {
+      const anyConfirmed = others.some((i) => i.qty_confirmed > 0);
       await tx.transferReq.update({
         where: { id: tr.id },
-        data: { status: TrStatus.CANCELLED, closed_at: new Date() },
-      });
-      await tx.transferReqItem.updateMany({
-        where: { tr_id: tr.id },
-        data: { status: TrStatus.CANCELLED },
+        data: {
+          status: anyConfirmed ? TrStatus.CLOSED : TrStatus.CANCELLED,
+          closed_at: new Date(),
+        },
       });
     }
   }
 
-  // Tanggal batch untuk quant yang dibuat kembali (cancel dari movement minus):
-  // ambil dari quant lain material+batch yang masih ada.
-  let dates: { mfg_date?: Date | null; exp_date?: Date | null; gr_date?: Date | null } | undefined;
-  if (origSign < 0) {
-    const sibling = await tx.stockWM.findFirst({
-      where: { material_code: prev.material_code, batch_number: prev.batch_number },
-      orderBy: { updated_at: 'desc' },
+  const document_number = await nextDocNumber(tx, 'MATDOC');
+  const posted: { line_no: number; source_line: number; material_code: string; qty: number }[] = [];
+
+  for (let i = 0; i < targets.length; i++) {
+    const prev = targets[i];
+    const line_no = i + 1;
+    const origSign = MOVEMENT_SIGN[prev.movement_type]; // +1 = dulu menambah stok
+    const bin_code = origSign > 0 ? prev.target_bin : prev.source_bin;
+    if (!bin_code)
+      throw new HttpError(
+        400,
+        `Document ${prev.document_number} line ${prev.line_no} has no storage bin reference.`
+      );
+
+    await getBinOrThrow(tx, bin_code, false);
+
+    // Tanggal batch untuk quant yang dibuat kembali (cancel dari movement minus):
+    // ambil dari quant lain material+batch yang masih ada.
+    let dates: { mfg_date?: Date | null; exp_date?: Date | null; gr_date?: Date | null } | undefined;
+    if (origSign < 0) {
+      const sibling = await tx.stockWM.findFirst({
+        where: { material_code: prev.material_code, batch_number: prev.batch_number },
+        orderBy: { updated_at: 'desc' },
+      });
+      dates = {
+        mfg_date: sibling?.mfg_date ?? null,
+        exp_date: sibling?.exp_date ?? null,
+        gr_date: sibling?.gr_date ?? prev.doc_date,
+      };
+    }
+
+    await applyStockWM(
+      tx,
+      { material_code: prev.material_code, bin_code, batch_number: prev.batch_number },
+      -origSign * prev.qty,
+      dates
+    );
+    await applyStockIM(tx, prev.material_code, -origSign * prev.qty);
+    await refreshBinStatus(tx, bin_code);
+
+    await tx.migoLog.create({
+      data: {
+        document_number,
+        line_no,
+        movement_type: prev.cancel_movement,
+        material_code: prev.material_code,
+        // arah dibalik: dokumen cancel yang MENGURANGI stok memakai source_bin, dst.
+        source_bin: origSign > 0 ? bin_code : null,
+        target_bin: origSign > 0 ? null : bin_code,
+        batch_number: prev.batch_number,
+        qty: prev.qty,
+        uom: prev.uom,
+        reference: prev.reference,
+        remarks:
+          args.remarks?.trim() ||
+          `Cancellation of ${prev.document_number} line ${prev.line_no}`,
+        tr_number: prev.tr_number,
+        via_pdt: args.via_pdt ?? false,
+        doc_date: new Date(),
+        user_id: args.user_id,
+        reversal_of: prev.document_number,
+        reversal_of_line: prev.line_no,
+      },
     });
-    dates = {
-      mfg_date: sibling?.mfg_date ?? null,
-      exp_date: sibling?.exp_date ?? null,
-      gr_date: sibling?.gr_date ?? prev.doc_date,
-    };
+
+    await tx.migoLog.update({
+      where: {
+        document_number_line_no: {
+          document_number: prev.document_number,
+          line_no: prev.line_no,
+        },
+      },
+      data: { reversed_by: document_number, reversed_by_line: line_no },
+    });
+
+    posted.push({
+      line_no,
+      source_line: prev.line_no,
+      material_code: prev.material_code,
+      qty: prev.qty,
+    });
   }
 
-  // posting stok kebalikan arah dokumen asal — qty & batch persis sama
-  await applyStockWM(
-    tx,
-    { material_code: prev.material_code, bin_code, batch_number: prev.batch_number },
-    -origSign * prev.qty,
-    dates
-  );
-  await applyStockIM(tx, prev.material_code, -origSign * prev.qty);
-  await refreshBinStatus(tx, bin_code);
-
-  const document_number = await nextDocNumber(tx, 'MATDOC');
-  await tx.migoLog.create({
-    data: {
-      document_number,
-      movement_type: prev.cancel_movement,
-      material_code: prev.material_code,
-      // arah dibalik: dokumen cancel yang MENGURANGI stok memakai source_bin, dst.
-      source_bin: origSign > 0 ? bin_code : null,
-      target_bin: origSign > 0 ? null : bin_code,
-      batch_number: prev.batch_number,
-      qty: prev.qty,
-      uom: prev.uom,
-      reference: prev.reference,
-      remarks: args.remarks?.trim() || `Cancellation of ${prev.document_number}`,
-      tr_number: prev.tr_number,
-      via_pdt: args.via_pdt ?? false,
-      doc_date: new Date(),
-      user_id: args.user_id,
-      reversal_of: prev.document_number,
-    },
-  });
-
-  await tx.migoLog.update({
-    where: { document_number: prev.document_number },
-    data: { reversed_by: document_number },
-  });
-
-  return { document_number, cancel_movement: prev.cancel_movement, original: prev };
+  return {
+    document_number,
+    cancel_movement: targets[0].cancel_movement,
+    lines: posted,
+    original: doc,
+  };
 }
 
 /** Bisa dipanggil dengan PrismaClient biasa maupun di dalam transaction. */

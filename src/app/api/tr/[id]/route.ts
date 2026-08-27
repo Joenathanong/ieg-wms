@@ -46,7 +46,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         ...it,
         description: mMap.get(it.material_code)?.description ?? '',
         uom: mMap.get(it.material_code)?.uom ?? 'PC',
-        qty_open: it.qty - it.qty_confirmed,
+        // Baris yang dibatalkan tidak menyisakan pekerjaan: LB12 memakai
+        // qty_open untuk menentukan baris mana yang masih bisa dikonfirmasi.
+        qty_open: it.status === TrStatus.CANCELLED ? 0 : it.qty - it.qty_confirmed,
         suggestions: doc.tr_type === TrType.PICK ? pick : putawaySuggestions,
       });
     }

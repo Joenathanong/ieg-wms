@@ -42,16 +42,18 @@ const MOVEMENTS = [
   { code: '501', label: '501 — Goods Receipt Lain-lain (Retur, dll)', mode: 'TR_IN' },
   { code: '201', label: '201 — Goods Issue (Cost Center)', mode: 'TR_OUT' },
   { code: '601', label: '601 — Goods Issue (Penjualan)', mode: 'DIRECT_MIN' },
+  { code: '122', label: '122 — Retur ke Vendor', mode: 'DIRECT_MIN' },
   { code: '551', label: '551 — Scrapping / Adjustment (-)', mode: 'DIRECT_MIN' },
   { code: '701', label: '701 — Phys. Inv. Difference (+)', mode: 'DIRECT_PLUS' },
   { code: '702', label: '702 — Phys. Inv. Difference (-)', mode: 'DIRECT_MIN' },
-  { code: 'CANCEL', label: 'Cancellation — 102 / 202 / 502 / 552 / 562 / 602 / 711 / 712', mode: 'CANCEL' },
+  { code: 'CANCEL', label: 'Cancellation — 102 / 123 / 202 / 502 / 552 / 562 / 602 / 711 / 712', mode: 'CANCEL' },
 ] as const;
 
 type Mode = (typeof MOVEMENTS)[number]['mode'];
 
-interface CancelPreview {
-  document_number: string;
+/** Satu baris dokumen asal beserta status kelayakan pembatalannya. */
+interface CancelLine {
+  line_no: number;
   movement_code: string;
   movement_label: string;
   cancel_code: string;
@@ -63,10 +65,21 @@ interface CancelPreview {
   batch_number: string | null;
   source_bin: string | null;
   target_bin: string | null;
+  tr_number: string | null;
+  cancellable: boolean;
+  blocked_reason: string | null;
+}
+
+interface CancelPreview {
+  document_number: string;
+  movement_code: string;
+  movement_label: string;
+  cancel_code: string;
+  cancel_label: string;
   doc_date: string;
   reference: string | null;
-  tr_number: string | null;
   user_id: string;
+  lines: CancelLine[];
 }
 
 interface Line {
@@ -160,6 +173,8 @@ export default function MigoPage() {
   // --- mode CANCELLATION ---
   const [cancelDoc, setCancelDoc] = useState('');
   const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
+  /** nomor baris dokumen asal yang dipilih untuk dibatalkan */
+  const [cancelSel, setCancelSel] = useState<number[]>([]);
   const [cancelRemarks, setCancelRemarks] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
 
@@ -177,6 +192,12 @@ export default function MigoPage() {
   // Ditampilkan di kedua langkah 201: diisi saat REQUEST akan diwarisi oleh
   // langkah ISSUE, dan wajib paling lambat saat ISSUE.
   const showCc = mode === 'TR_OUT';
+  /**
+   * Retur ke vendor wajib menyebut tujuannya. Aplikasi ini belum punya master
+   * vendor, jadi kolom Reference yang memikul keterangan itu — tanpa isian,
+   * stok berkurang tetapi tidak ada yang tahu barangnya kembali ke siapa.
+   */
+  const refRequired = movement === '122';
   const needsCc = showCc && giMode === 'ISSUE';
 
   async function loadCancelPreview() {
@@ -184,10 +205,17 @@ export default function MigoPage() {
     if (!doc) return setStatus('Masukkan nomor material document yang akan dibatalkan', 'E');
     setCancelLoading(true);
     setCancelPreview(null);
+    setCancelSel([]);
     const r = await api<CancelPreview>(`/api/migo/cancel?doc=${encodeURIComponent(doc)}`);
     setCancelLoading(false);
     setStatus(r.message, r.ok ? 'S' : 'E');
-    if (r.ok && r.data) setCancelPreview(r.data);
+    if (r.ok && r.data) {
+      setCancelPreview(r.data);
+      // Bawaannya seluruh baris yang masih layak — kasus tersering adalah
+      // membatalkan satu dokumen utuh; mencentang ulang lima baris untuk itu
+      // hanya menambah kerja.
+      setCancelSel(r.data.lines.filter((l) => l.cancellable).map((l) => l.line_no));
+    }
   }
 
   async function submitCancel() {
@@ -196,15 +224,23 @@ export default function MigoPage() {
     setConfirmOpen(false);
     const r = await post('/api/migo/cancel', {
       document_number: cancelPreview.document_number,
+      lines: cancelSel,
       remarks: cancelRemarks,
     });
     setBusy(false);
     setStatus(r.message, r.ok ? 'S' : 'E');
     if (r.ok) {
       setCancelPreview(null);
+      setCancelSel([]);
       setCancelDoc('');
       setCancelRemarks('');
     }
+  }
+
+  function toggleCancelLine(line_no: number) {
+    setCancelSel((sel) =>
+      sel.includes(line_no) ? sel.filter((n) => n !== line_no) : [...sel, line_no]
+    );
   }
 
   const matMap = useMemo(() => new Map(materials.map((m) => [m.material_code, m])), [materials]);
@@ -433,10 +469,14 @@ export default function MigoPage() {
     if (!movement) return setStatus('Pilih movement type terlebih dahulu', 'E');
     if (isCancel) {
       if (!cancelPreview) return setStatus('Tampilkan dokumen terlebih dahulu', 'E');
+      if (cancelSel.length === 0)
+        return setStatus('Pilih minimal satu baris yang akan dibatalkan', 'E');
       return setConfirmOpen(true);
     }
     if (mode === 'TR_OUT' && !giMode) return setStatus('Pilih langkah 201 terlebih dahulu', 'E');
     if (mode === 'TR_IN' && !zoneGroup) return setStatus('Pilih gudang tujuan terlebih dahulu', 'E');
+    if (refRequired && !reference.trim())
+      return setStatus('Retur ke vendor wajib menyebut vendor / nomor retur di kolom Reference', 'E');
     if (!buildItems()) return;
     setConfirmOpen(true);
   }
@@ -550,10 +590,14 @@ export default function MigoPage() {
           )}
 
           {!isCancel && (
-            <Field label="Reference / Delivery Note">
+            <Field
+              label={refRequired ? 'Vendor / Nomor Retur' : 'Reference / Delivery Note'}
+              required={refRequired}
+              hint={refRequired ? 'Wajib — tanpa ini retur tidak bisa dicocokkan nanti' : undefined}
+            >
               <Input
                 value={reference}
-                placeholder="mis. DO-2026-00123"
+                placeholder={refRequired ? 'mis. PT ABC / RET-2026-0012' : 'mis. DO-2026-00123'}
                 onChange={(e) => setReference(e.target.value)}
               />
             </Field>
@@ -672,28 +716,6 @@ export default function MigoPage() {
                 <Field label="Tgl. Dokumen Asal">
                   <Input disabled value={fmtDate(cancelPreview.doc_date)} className="font-mono" />
                 </Field>
-                <Field label="Material">
-                  <Input disabled value={cancelPreview.material_code} className="font-mono" />
-                </Field>
-                <Field label="Deskripsi">
-                  <Input disabled value={cancelPreview.description} />
-                </Field>
-                <Field label="Quantity">
-                  <Input
-                    disabled
-                    value={`${cancelPreview.qty.toLocaleString('de-DE')} ${cancelPreview.uom}`}
-                    className="font-mono text-right"
-                  />
-                </Field>
-                <Field label="Batch">
-                  <Input disabled value={cancelPreview.batch_number ?? '—'} className="font-mono" />
-                </Field>
-                <Field label="Source Bin">
-                  <Input disabled value={cancelPreview.source_bin ?? '—'} className="font-mono" />
-                </Field>
-                <Field label="Target Bin">
-                  <Input disabled value={cancelPreview.target_bin ?? '—'} className="font-mono" />
-                </Field>
                 <Field label="Reference">
                   <Input disabled value={cancelPreview.reference ?? '—'} />
                 </Field>
@@ -701,6 +723,82 @@ export default function MigoPage() {
                   <Input disabled value={cancelPreview.user_id} className="font-mono" />
                 </Field>
               </div>
+
+              {/* Pembatalan berlaku PER BARIS: satu baris keliru pada dokumen
+                  lima baris bisa dibalik tanpa menyentuh empat baris lainnya. */}
+              <div className="border border-sap-border rounded overflow-x-auto">
+                <table className="w-full text-2xs">
+                  <thead className="bg-sap-thead text-sap-muted">
+                    <tr>
+                      <th className="p-1 w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Pilih semua baris"
+                          checked={
+                            cancelSel.length > 0 &&
+                            cancelSel.length ===
+                              cancelPreview.lines.filter((l) => l.cancellable).length
+                          }
+                          onChange={(e) =>
+                            setCancelSel(
+                              e.target.checked
+                                ? cancelPreview.lines
+                                    .filter((l) => l.cancellable)
+                                    .map((l) => l.line_no)
+                                : []
+                            )
+                          }
+                        />
+                      </th>
+                      <th className="p-1 text-left">Ln</th>
+                      <th className="p-1 text-left">Material</th>
+                      <th className="p-1 text-left">Deskripsi</th>
+                      <th className="p-1 text-right">Qty</th>
+                      <th className="p-1 text-left">Batch</th>
+                      <th className="p-1 text-left">Source</th>
+                      <th className="p-1 text-left">Target</th>
+                      <th className="p-1 text-left">Cancel</th>
+                      <th className="p-1 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cancelPreview.lines.map((l) => (
+                      <tr
+                        key={l.line_no}
+                        className={`border-t border-sap-border ${l.cancellable ? '' : 'opacity-50'}`}
+                      >
+                        <td className="p-1 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Batalkan baris ${l.line_no}`}
+                            disabled={!l.cancellable}
+                            checked={cancelSel.includes(l.line_no)}
+                            onChange={() => toggleCancelLine(l.line_no)}
+                          />
+                        </td>
+                        <td className="p-1 font-mono">{l.line_no}</td>
+                        <td className="p-1 font-mono">{l.material_code}</td>
+                        <td className="p-1">{l.description}</td>
+                        <td className="p-1 font-mono text-right">
+                          {l.qty.toLocaleString('de-DE')} {l.uom}
+                        </td>
+                        <td className="p-1 font-mono">{l.batch_number ?? '—'}</td>
+                        <td className="p-1 font-mono">{l.source_bin ?? '—'}</td>
+                        <td className="p-1 font-mono">{l.target_bin ?? '—'}</td>
+                        <td className="p-1 font-mono text-sap-warntext">{l.cancel_code}</td>
+                        <td className="p-1 text-sap-muted">
+                          {l.cancellable ? 'Dapat dibatalkan' : l.blocked_reason}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xxs text-sap-muted">
+                {cancelSel.length} dari {cancelPreview.lines.length} baris dipilih. Baris yang tidak
+                dicentang tetap berlaku.
+              </p>
+
               <Field label="Remarks Pembatalan (opsional)">
                 <Input
                   value={cancelRemarks}
@@ -1045,7 +1143,7 @@ export default function MigoPage() {
         confirmLabel={isCancel ? 'Ya, batalkan' : 'Ya, posting'}
         question={
           isCancel
-            ? 'Yakin akan membatalkan dokumen ini? Stok akan dikembalikan seperti sebelum dokumen asal diposting.'
+            ? 'Yakin akan membatalkan baris yang dipilih? Stok akan dikembalikan seperti sebelum baris tersebut diposting.'
             : 'Yakin akan memposting dokumen ini? Setelah diposting, stok langsung berubah.'
         }
         details={
@@ -1053,12 +1151,19 @@ export default function MigoPage() {
             ? [
                 { label: 'Dokumen asal', value: cancelPreview.document_number },
                 { label: 'Movement', value: cancelPreview.cancel_label },
-                { label: 'Material', value: `${cancelPreview.material_code} · ${cancelPreview.description}` },
                 {
-                  label: 'Quantity',
-                  value: `${cancelPreview.qty.toLocaleString('de-DE')} ${cancelPreview.uom}`,
+                  label: 'Baris dibatalkan',
+                  value:
+                    `${cancelSel.length} dari ${cancelPreview.lines.length} — ` +
+                    `baris ${[...cancelSel].sort((a, b) => a - b).join(', ')}`,
                 },
-                { label: 'Batch', value: cancelPreview.batch_number ?? '—' },
+                {
+                  label: 'Total quantity',
+                  value: cancelPreview.lines
+                    .filter((l) => cancelSel.includes(l.line_no))
+                    .reduce((a, l) => a + l.qty, 0)
+                    .toLocaleString('de-DE'),
+                },
               ]
             : [
                 { label: 'Movement Type', value: movementLabel },

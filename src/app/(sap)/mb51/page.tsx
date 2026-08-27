@@ -10,12 +10,15 @@ import { WILDCARD_HINT } from '@/lib/like';
 
 interface Row {
   document_number: string;
+  line_no: number;
   cost_center: string;
   movement_code: string;
   movement_type: string;
   movement_desc: string;
   reversal_of: string;
+  reversal_of_line: number | null;
   reversed_by: string;
+  reversed_by_line: number | null;
   material_code: string;
   description: string;
   batch_number: string;
@@ -34,6 +37,8 @@ const MOVES = [
   { v: '', l: 'Semua movement IM' },
   { v: '101', l: '101 — Goods Receipt (Pembelian)' },
   { v: '102', l: '102 — Cancel Goods Receipt' },
+  { v: '122', l: '122 — Retur ke Vendor' },
+  { v: '123', l: '123 — Cancel Retur ke Vendor' },
   { v: '501', l: '501 — Goods Receipt Lain-lain' },
   { v: '502', l: '502 — Cancel GR Lain-lain' },
   { v: '201', l: '201 — Goods Issue' },
@@ -59,8 +64,8 @@ const MOVES = [
  * terlihat wajar sementara arah stoknya salah baca.
  */
 const SIGN: Record<string, number> = {
-  '101': 1, '501': 1, '561': 1, '701': 1, '202': 1, '552': 1, '712': 1, '602': 1,
-  '201': -1, '601': -1, '551': -1, '702': -1, '102': -1, '502': -1, '562': -1, '711': -1,
+  '101': 1, '501': 1, '561': 1, '701': 1, '202': 1, '552': 1, '712': 1, '602': 1, '123': 1,
+  '201': -1, '601': -1, '122': -1, '551': -1, '702': -1, '102': -1, '502': -1, '562': -1, '711': -1,
   '301': 0,
 };
 
@@ -120,14 +125,24 @@ export default function Mb51Page() {
       key: 'document_number',
       header: 'Mat. Doc.',
       mono: true,
-      width: '130px',
-      // CSV ikut membawa penanda pembatalan
-      exportValue: (r) => (r.reversed_by ? `${r.document_number} (DIBATALKAN oleh ${r.reversed_by})` : r.document_number),
+      width: '150px',
+      // Satu dokumen kini bisa berisi banyak baris, jadi nomor barisnya ikut
+      // ditampilkan — tanpa itu lima baris satu kedatangan terlihat identik.
+      // CSV ikut membawa penanda pembatalan.
+      exportValue: (r) =>
+        `${r.document_number}/${r.line_no}` +
+        (r.reversed_by ? ` (DIBATALKAN oleh ${r.reversed_by}/${r.reversed_by_line ?? 1})` : ''),
       render: (r) => (
         <span className="inline-flex items-center gap-1.5">
-          <span className={r.reversed_by ? 'line-through text-sap-muted' : ''}>{r.document_number}</span>
+          <span className={r.reversed_by ? 'line-through text-sap-muted' : ''}>
+            {r.document_number}
+            <span className="text-sap-muted">/{r.line_no}</span>
+          </span>
           {r.reversed_by && (
-            <span className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext" title={`Dibatalkan oleh ${r.reversed_by}`}>
+            <span
+              className="sap-badge border-sap-errborder bg-sap-errbg text-sap-errtext"
+              title={`Dibatalkan oleh ${r.reversed_by} baris ${r.reversed_by_line ?? 1}`}
+            >
               CANC
             </span>
           )}
@@ -152,14 +167,18 @@ export default function Mb51Page() {
       width: '175px',
       exportValue: (r) =>
         r.reversal_of
-          ? `${r.movement_desc} — pembatalan dari dok. ${r.reversal_of}`
+          ? `${r.movement_desc} — pembatalan dari dok. ${r.reversal_of}/${r.reversal_of_line ?? 1}`
           : r.reversed_by
-            ? `${r.movement_desc} — dibatalkan oleh dok. ${r.reversed_by}`
+            ? `${r.movement_desc} — dibatalkan oleh dok. ${r.reversed_by}/${r.reversed_by_line ?? 1}`
             : r.movement_desc,
       render: (r) => (
         <span className="text-sap-muted">
           {r.movement_desc}
-          {r.reversal_of && <span className="font-mono text-xxs"> (dok. {r.reversal_of})</span>}
+          {r.reversal_of && (
+            <span className="font-mono text-xxs">
+              {' '}(dok. {r.reversal_of}/{r.reversal_of_line ?? 1})
+            </span>
+          )}
         </span>
       ),
     },
@@ -329,7 +348,7 @@ export default function Mb51Page() {
         columns={cols}
         rows={rows}
         loading={loading}
-        rowKey={(r) => r.document_number}
+        rowKey={(r) => `${r.document_number}/${r.line_no}`}
         maxHeight="calc(100vh - 360px)"
         onViewChange={setView}
         footer={<span>Qty bertanda − ikut terbawa ke Export CSV</span>}

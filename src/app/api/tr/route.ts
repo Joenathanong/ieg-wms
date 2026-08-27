@@ -65,7 +65,9 @@ export async function GET(req: NextRequest) {
       created_at: d.created_at,
       closed_at: d.closed_at,
       item_count: d.items.length,
-      open_lines: d.items.filter((i) => i.status !== TrStatus.CLOSED).length,
+      open_lines: d.items.filter(
+        (i) => i.status !== TrStatus.CLOSED && i.status !== TrStatus.CANCELLED
+      ).length,
       total_qty: d.items.reduce((a, i) => a + i.qty, 0),
       confirmed_qty: d.items.reduce((a, i) => a + i.qty_confirmed, 0),
       materials: [...new Set(d.items.map((i) => i.material_code))].join(', '),

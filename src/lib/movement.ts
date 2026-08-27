@@ -6,6 +6,8 @@ export const MOVEMENT_LABEL: Record<MovementType, string> = {
   GI_201: '201 — Goods Issue (Cost Center)',
   GI_601_SALES: '601 — Goods Issue (Penjualan)',
   GR_501_OTHER: '501 — Goods Receipt Lain-lain',
+  RET_122_VEND: '122 — Retur ke Vendor',
+  RET_123_CANC: '123 — Cancel Retur ke Vendor',
   GR_502_CANC: '502 — Cancel GR Lain-lain',
   TR_301_BIN: '301 — Transfer Posting (Bin to Bin)',
   ADJ_551_MIN: '551 — Scrapping / Adjustment (-)',
@@ -27,6 +29,8 @@ export const MOVEMENT_DESC: Record<MovementType, string> = {
   GI_201: 'Goods Issue to Cost Center',
   GI_601_SALES: 'Goods Issue — Penjualan',
   GR_501_OTHER: 'Goods Receipt — Retur & penerimaan lain',
+  RET_122_VEND: 'Retur ke Vendor',
+  RET_123_CANC: 'Pembatalan Retur ke Vendor',
   GR_502_CANC: 'Pembatalan GR Lain-lain',
   TR_301_BIN: 'Transfer Posting (Bin to Bin)',
   ADJ_551_MIN: 'Scrapping / Adjustment (-)',
@@ -48,6 +52,8 @@ export const MOVEMENT_CODE: Record<MovementType, string> = {
   GI_201: '201',
   GI_601_SALES: '601',
   GR_501_OTHER: '501',
+  RET_122_VEND: '122',
+  RET_123_CANC: '123',
   GR_502_CANC: '502',
   TR_301_BIN: '301',
   ADJ_551_MIN: '551',
@@ -69,6 +75,8 @@ export const MOVEMENT_SIGN: Record<MovementType, 1 | -1 | 0> = {
   GI_201: -1,
   GI_601_SALES: -1,
   GR_501_OTHER: 1,
+  RET_122_VEND: -1,
+  RET_123_CANC: 1,
   GR_502_CANC: -1,
   TR_301_BIN: 0,
   ADJ_551_MIN: -1,
@@ -95,6 +103,7 @@ export const CANCEL_OF: Partial<Record<MovementType, MovementType>> = {
   PI_712_CANC: MovementType.ADJ_702_MIN,
   GI_602_CANC: MovementType.GI_601_SALES,
   GR_502_CANC: MovementType.GR_501_OTHER,
+  RET_123_CANC: MovementType.RET_122_VEND,
 };
 
 /** Movement asal -> movement pembatalannya (kebalikan CANCEL_OF). */
@@ -107,6 +116,7 @@ export const CANCELLED_BY: Partial<Record<MovementType, MovementType>> = {
   [MovementType.ADJ_702_MIN]: MovementType.PI_712_CANC,
   [MovementType.GI_601_SALES]: MovementType.GI_602_CANC,
   [MovementType.GR_501_OTHER]: MovementType.GR_502_CANC,
+  [MovementType.RET_122_VEND]: MovementType.RET_123_CANC,
 };
 
 /** Movement yang boleh dipilih di layar MIGO. */
@@ -115,6 +125,7 @@ export const MIGO_MOVEMENTS: MovementType[] = [
   MovementType.GR_501_OTHER,
   MovementType.GI_201,
   MovementType.GI_601_SALES,
+  MovementType.RET_122_VEND,
   MovementType.ADJ_551_MIN,
   MovementType.ADJ_701_PLUS,
   MovementType.ADJ_702_MIN,
@@ -150,6 +161,7 @@ export function isGoodsReceipt(m: MovementType): boolean {
 /** Movement koreksi yang tetap menunjuk bin secara langsung. */
 export const DIRECT_BIN_MOVEMENTS: MovementType[] = [
   MovementType.GI_601_SALES,
+  MovementType.RET_122_VEND,
   MovementType.ADJ_551_MIN,
   MovementType.ADJ_701_PLUS,
   MovementType.ADJ_702_MIN,
@@ -167,6 +179,21 @@ export const COST_CENTER_MOVEMENTS: MovementType[] = [
 
 export function needsCostCenter(m: MovementType): boolean {
   return COST_CENTER_MOVEMENTS.includes(m);
+}
+
+/**
+ * Movement yang WAJIB menyebut referensi dokumen.
+ *
+ * Retur ke vendor tanpa keterangan vendor atau nomor returnya tidak bisa
+ * dicocokkan dengan apa pun di kemudian hari — stoknya berkurang, tetapi tidak
+ * ada yang tahu ke siapa barangnya pergi. Karena aplikasi ini belum punya
+ * master vendor, kolom Reference-lah yang memikul keterangan itu, jadi ia tidak
+ * boleh kosong.
+ */
+export const REFERENCE_REQUIRED_MOVEMENTS: MovementType[] = [MovementType.RET_122_VEND];
+
+export function needsReference(m: MovementType): boolean {
+  return REFERENCE_REQUIRED_MOVEMENTS.includes(m);
 }
 
 /** Terima "101", "101_GR", "GR_101" -> MovementType */

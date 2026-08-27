@@ -42,6 +42,9 @@ enum MovementType {
   /// dan penerimaan lain di luar pembelian. Alurnya sama dengan 101: barang
   /// masuk ke bin transit lebih dulu, lalu di-put-away lewat LB12/ZRF02.
   GR_501_OTHER @map("501_GR_OTHER")
+  /// Retur ke vendor — barang dikembalikan ke pemasok (barang rusak, salah
+  /// kirim, tidak sesuai spesifikasi). Stok berkurang dan keluar dari gudang.
+  RET_122_VEND @map("122_RETURN_VENDOR")
   TR_301_BIN   @map("301_TR_BIN")
   ADJ_551_MIN  @map("551_ADJ_MIN")
   INIT_561     @map("561_INIT_STOCK")
@@ -56,6 +59,7 @@ enum MovementType {
   PI_712_CANC  @map("712_PI_CANCEL_PLUS")
   GI_602_CANC  @map("602_GI_SALES_CANCEL")
   GR_502_CANC  @map("502_GR_OTHER_CANCEL")
+  RET_123_CANC @map("123_RETURN_VENDOR_CANCEL")
 }
 
 enum UserRole {
@@ -301,9 +305,20 @@ model StockWM {
 // TRANSACTION / AUDIT TRAIL (MB51)
 // ---------------------------------------------------------------------
 
+/// Material document — SATU dokumen dapat memuat BANYAK baris.
+///
+/// Dulu `document_number` unik, sehingga satu posting MIGO berisi 5 line
+/// menghasilkan 5 nomor dokumen dan 5 Transfer Requirement terpisah — petugas
+/// put-away harus memproses lima daftar kerja untuk satu kedatangan barang.
+///
+/// Sekarang identitas barisnya adalah (document_number, line_no), meniru cara
+/// SAP: satu dokumen, banyak item. Dokumen lama tetap terbaca sebagai baris
+/// ke-1, jadi tidak ada migrasi data yang diperlukan.
 model MigoLog {
   id              String       @id @default(uuid())
-  document_number String       @unique
+  document_number String
+  /// nomor baris di dalam dokumen; dokumen satu baris selalu bernilai 1
+  line_no         Int          @default(1)
   movement_type   MovementType
   material_code   String
   source_bin      String?
@@ -322,11 +337,19 @@ model MigoLog {
   user_id         String
   /// true bila diposting lewat terminal PDT (ZRF)
   via_pdt         Boolean      @default(false)
-  /// nomor dokumen ASAL yang dibatalkan oleh dokumen ini (khusus movement pembatalan)
+  /// nomor dokumen ASAL yang dibatalkan oleh baris ini (khusus movement pembatalan)
   reversal_of     String?
-  /// nomor dokumen PEMBATALAN — diisi pada dokumen asal saat dibatalkan
+  /// nomor BARIS asal yang dibatalkan — pembatalan berlaku per baris, bukan
+  /// per dokumen, sehingga satu baris keliru bisa dibalik tanpa mengganggu
+  /// baris lain pada dokumen yang sama
+  reversal_of_line Int?
+  /// nomor dokumen PEMBATALAN — diisi pada baris asal saat dibatalkan
   reversed_by     String?
+  /// nomor baris pada dokumen pembatalan
+  reversed_by_line Int?
 
+  @@unique([document_number, line_no])
+  @@index([document_number])
   @@index([material_code])
   @@index([movement_type])
   @@index([doc_date])
@@ -379,6 +402,13 @@ model TransferReqItem {
   tr_id         String
   tr            TransferReq @relation(fields: [tr_id], references: [id], onDelete: Cascade)
   line_no       Int
+  /// nomor baris DOKUMEN MIGO asal.
+  ///
+  /// Satu baris MIGO bisa pecah menjadi beberapa baris TR karena pemecahan
+  /// pallet, jadi nomor baris TR tidak bisa dipakai untuk menelusuri balik.
+  /// Tanpa penunjuk ini, pembatalan per baris tidak bisa tahu tugas put-away
+  /// mana yang harus ikut dibatalkan.
+  src_line      Int?
   material_code String
   batch_number  String?
   mfg_date      DateTime?

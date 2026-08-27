@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
       prisma.migoLog.count({ where }),
       prisma.migoLog.findMany({
         where,
-        orderBy: [{ doc_date: 'desc' }, { created_at: 'desc' }],
+        orderBy: [{ doc_date: 'desc' }, { created_at: 'desc' }, { line_no: 'asc' }],
         skip: (page - 1) * size,
         take: size,
       }),
@@ -86,11 +86,14 @@ export async function GET(req: NextRequest) {
 
     const rows = logs.map((l) => ({
       document_number: l.document_number,
+      line_no: l.line_no,
       movement_type: l.movement_type,
       movement_code: MOVEMENT_CODE[l.movement_type],
       movement_desc: MOVEMENT_DESC[l.movement_type],
       reversal_of: l.reversal_of ?? '',
+      reversal_of_line: l.reversal_of_line ?? null,
       reversed_by: l.reversed_by ?? '',
+      reversed_by_line: l.reversed_by_line ?? null,
       material_code: l.material_code,
       description: mMap.get(l.material_code) ?? '',
       batch_number: l.batch_number ?? '',
