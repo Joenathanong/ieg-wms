@@ -14,6 +14,8 @@ export const MOVEMENT_LABEL: Record<MovementType, string> = {
   INIT_561: '561 — Initial Stock Entry',
   ADJ_701_PLUS: '701 — Phys. Inv. Difference (+)',
   ADJ_702_MIN: '702 — Phys. Inv. Difference (-)',
+  TRM_309_OUT: '309 — Transfer Material ke Material (keluar)',
+  TRM_309_IN: '309 — Transfer Material ke Material (masuk)',
   GR_102_CANC: '102 — Cancel Goods Receipt',
   GI_202_CANC: '202 — Cancel Goods Issue',
   ADJ_552_CANC: '552 — Cancel Scrapping (+)',
@@ -37,6 +39,8 @@ export const MOVEMENT_DESC: Record<MovementType, string> = {
   INIT_561: 'Initial Stock Entry',
   ADJ_701_PLUS: 'Phys. Inv. Difference (+)',
   ADJ_702_MIN: 'Phys. Inv. Difference (-)',
+  TRM_309_OUT: 'Transfer Material ke Material — sisi keluar',
+  TRM_309_IN: 'Transfer Material ke Material — sisi masuk',
   GR_102_CANC: 'Cancel Goods Receipt',
   GI_202_CANC: 'Cancel Goods Issue',
   ADJ_552_CANC: 'Cancel Scrapping (+)',
@@ -60,6 +64,12 @@ export const MOVEMENT_CODE: Record<MovementType, string> = {
   INIT_561: '561',
   ADJ_701_PLUS: '701',
   ADJ_702_MIN: '702',
+  // Kedua sisi memakai kode yang sama, persis seperti SAP — yang membedakan
+  // adalah kolom bin (source vs target). Akibatnya parseMovement('309') tidak
+  // bisa menentukan sisi mana yang dimaksud, jadi 309 sengaja DILARANG masuk
+  // lewat MIGO; satu-satunya jalurnya adalah penggabungan SKU (ZMATDUP).
+  TRM_309_OUT: '309',
+  TRM_309_IN: '309',
   GR_102_CANC: '102',
   GI_202_CANC: '202',
   ADJ_552_CANC: '552',
@@ -83,6 +93,8 @@ export const MOVEMENT_SIGN: Record<MovementType, 1 | -1 | 0> = {
   INIT_561: 1,
   ADJ_701_PLUS: 1,
   ADJ_702_MIN: -1,
+  TRM_309_OUT: -1,
+  TRM_309_IN: 1,
   // pembatalan = kebalikan arah dokumen asal
   GR_102_CANC: -1,
   GI_202_CANC: 1,
@@ -118,6 +130,23 @@ export const CANCELLED_BY: Partial<Record<MovementType, MovementType>> = {
   [MovementType.GR_501_OTHER]: MovementType.GR_502_CANC,
   [MovementType.RET_122_VEND]: MovementType.RET_123_CANC,
 };
+
+/**
+ * Transfer posting material ke material (309).
+ *
+ * Sengaja TIDAK punya pasangan pembatalan di CANCELLED_BY: membatalkan separuh
+ * penggabungan akan meninggalkan stok menggantung di kode yang sudah berstatus
+ * alias. Kalau penggabungan perlu dibalik, jalankan penggabungan ke arah
+ * sebaliknya supaya kedua sisinya tetap seimbang.
+ */
+export const MATERIAL_TRANSFER_MOVEMENTS: MovementType[] = [
+  MovementType.TRM_309_OUT,
+  MovementType.TRM_309_IN,
+];
+
+export function isMaterialTransfer(m: MovementType): boolean {
+  return MATERIAL_TRANSFER_MOVEMENTS.includes(m);
+}
 
 /** Movement yang boleh dipilih di layar MIGO. */
 export const MIGO_MOVEMENTS: MovementType[] = [

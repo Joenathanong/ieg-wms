@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt } from '@/lib/api';
+import { resolveMaterialCode } from '@/lib/alias';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -41,8 +42,17 @@ export async function POST(req: NextRequest) {
     if (!pack_code) throw new HttpError(400, 'Packaging code is mandatory.');
     if (qty_per_unit <= 0) throw new HttpError(400, 'Quantity per unit must be greater than zero.');
 
-    const material = await prisma.material.findUnique({ where: { material_code } });
+    // Kemasan hanya boleh menempel pada material utama. Kode lama diterjemahkan
+    // supaya baris kemasan tidak tercipta atas nama kode yang sudah jadi alias
+    // dan karena itu tidak akan pernah terpakai saat split pallet.
+    const resolvedMat = await resolveMaterialCode(prisma, material_code);
+    if (!resolvedMat) throw new HttpError(400, `Material ${material_code} does not exist (MM01).`);
+    const material = await prisma.material.findUnique({
+      where: { material_code: resolvedMat.material_code },
+    });
     if (!material) throw new HttpError(400, `Material ${material_code} does not exist (MM01).`);
+    /** kode utama — dipakai untuk semua tulisan ke tabel kemasan */
+    const mcode = material.material_code;
 
     const isDefault = b.is_default === true;
 
@@ -50,14 +60,14 @@ export async function POST(req: NextRequest) {
       if (isDefault) {
         // default berlaku per kelompok gudang
         await tx.packagingType.updateMany({
-          where: { material_code, zone_group },
+          where: { material_code: mcode, zone_group },
           data: { is_default: false },
         });
       }
       const saved = await tx.packagingType.upsert({
-        where: { material_code_pack_code: { material_code, pack_code } },
+        where: { material_code_pack_code: { material_code: mcode, pack_code } },
         create: {
-          material_code,
+          material_code: mcode,
           pack_code,
           su_type,
           zone_group,
@@ -75,14 +85,14 @@ export async function POST(req: NextRequest) {
       });
 
       // pastikan selalu ada tepat satu default
-      const all = await tx.packagingType.findMany({ where: { material_code, zone_group } });
+      const all = await tx.packagingType.findMany({ where: { material_code: mcode, zone_group } });
       if (all.length > 0 && !all.some((p) => p.is_default)) {
         await tx.packagingType.update({ where: { id: all[0].id }, data: { is_default: true } });
       }
       return saved;
     });
 
-    return ok(row, `Packaging ${pack_code} for ${material_code} saved (${qty_per_unit} ${material.uom}/unit)`);
+    return ok(row, `Packaging ${pack_code} for ${mcode} saved (${qty_per_unit} ${material.uom}/unit)`);
   });
 }
 

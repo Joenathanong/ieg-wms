@@ -50,6 +50,12 @@ enum MovementType {
   INIT_561     @map("561_INIT_STOCK")
   ADJ_701_PLUS @map("701_ADJ_PLUS")
   ADJ_702_MIN  @map("702_ADJ_MIN")
+  /// Transfer posting MATERIAL ke MATERIAL (SAP 309). Dipakai saat dua kode SKU
+  /// ternyata barang yang sama dan stoknya digabung: sisi keluar mengurangi kode
+  /// duplikat, sisi masuk menambah kode utama, pada bin dan batch yang sama.
+  /// Keduanya baris pada SATU material document, jadi jejaknya utuh di MB51.
+  TRM_309_OUT  @map("309_MAT_OUT")
+  TRM_309_IN   @map("309_MAT_IN")
   /// Movement pembatalan (reversal). Selalu menunjuk dokumen asal via MigoLog.reversal_of
   GR_102_CANC  @map("102_GR_CANCEL")
   GI_202_CANC  @map("202_GI_CANCEL")
@@ -115,16 +121,51 @@ model Material {
   kode_ocs         String?  @db.VarChar(255)
   /// Fix bin — bin picking tetap material ini; saran tujuan replenishment ZRF08
   fix_bin          String?
+  /// Penanda hapus ala SAP. Material yang sudah digabung ke SKU lain TIDAK boleh
+  /// dihapus barisnya: riwayat MB51 menyimpan kodenya sebagai teks dan akan
+  /// kehilangan master-nya. Barisnya tetap ada tetapi ditutup — tidak muncul di
+  /// pencarian, tidak bisa dipakai posting, dan setiap kode yang menunjuk ke sini
+  /// dialihkan lewat MaterialAlias.
+  is_active        Boolean  @default(true)
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
   packagings PackagingType[]
+  aliases    MaterialAlias[]
 
   @@index([description])
   @@index([barcode_bpom])
   @@index([barcode_produk])
   @@index([kode_ocs])
   @@map("materials")
+}
+
+/// Alias kode material — satu barang fisik yang terlanjur terdaftar dengan
+/// lebih dari satu kode SKU.
+///
+/// Membiarkan satu barcode menunjuk ke beberapa SKU akan membuat scan-nya sah
+/// tetapi angkanya tetap salah: stok, safety stock, FEFO, dan hasil opname
+/// terbelah dua selamanya. Karena itu barang yang sama TIDAK dipecah — satu
+/// kode ditetapkan sebagai utama, kode lainnya menjadi alias di sini.
+///
+/// Kode alias tetap boleh diketik, discan, dan muncul di file Excel dari
+/// principal, tetapi SELALU diterjemahkan ke material utama sebelum menyentuh
+/// stok. Dengan begitu barcode tetap 1:1 dan tidak ada layar pilih tambahan
+/// di terminal PDT.
+model MaterialAlias {
+  id            String   @id @default(uuid())
+  /// kode lama / kode dari principal — yang diketik atau discan operator
+  alias_code    String   @unique
+  /// material utama yang menjadi tujuan penerjemahan
+  material_code String
+  material      Material @relation(fields: [material_code], references: [material_code], onDelete: Cascade)
+  /// asal-usul kode ini (mis. "kode lama sebelum penggabungan 27.08.2026")
+  remarks       String?  @db.VarChar(255)
+  created_at    DateTime @default(now())
+  created_by    String
+
+  @@index([material_code])
+  @@map("material_aliases")
 }
 
 /// Tabel palletization — material x tipe storage unit x kelompok gudang.

@@ -33,7 +33,11 @@ export async function GET(req: NextRequest) {
     await requireUser();
     const known = cleanStr(req.nextUrl.searchParams.get('v'));
 
+    // Hanya material AKTIF. Kode yang sudah digabung ke SKU lain tidak boleh
+    // muncul lagi di saran ketik — kalau muncul, orang akan memilihnya kembali
+    // dan posting-nya ditolak tanpa alasan yang jelas di layar.
     const agg = await prisma.material.aggregate({
+      where: { is_active: true },
       _count: { _all: true },
       _max: { updated_at: true },
     });
@@ -44,6 +48,7 @@ export async function GET(req: NextRequest) {
     }
 
     const materials = await prisma.material.findMany({
+      where: { is_active: true },
       orderBy: { material_code: 'asc' },
       // Sengaja TANPA packagings: saran ketik hanya butuh identitas material.
       select: {

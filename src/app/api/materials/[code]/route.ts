@@ -61,6 +61,21 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       if (bin.is_interim) throw new HttpError(400, `Fix bin ${fix_bin} is an interim bin and cannot be used.`);
     }
 
+    // Membuka kembali kode yang masih terdaftar sebagai alias akan membuat dua
+    // arti untuk satu kode: resolver mendahulukan material yang ada, sehingga
+    // aliasnya diam-diam tidak berlaku lagi. Lebih baik ditolak terang-terangan.
+    if (b.is_active === true && !current.is_active) {
+      const asAlias = await prisma.materialAlias.findUnique({
+        where: { alias_code: material_code },
+      });
+      if (asAlias)
+        throw new HttpError(
+          400,
+          `${material_code} masih terdaftar sebagai alias dari ${asAlias.material_code}. ` +
+            `Lepas aliasnya lebih dulu bila kode ini memang mau dipakai sendiri lagi.`
+        );
+    }
+
     const m = await prisma.material.update({
       where: { material_code },
       data: {
@@ -73,6 +88,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         barcode_produk,
         kode_ocs,
         fix_bin,
+        // Menutup / membuka kembali material. Menutup adalah pengganti hapus
+        // untuk kode yang riwayatnya sudah ada di MB51.
+        is_active: b.is_active !== undefined ? Boolean(b.is_active) : undefined,
       },
     });
 

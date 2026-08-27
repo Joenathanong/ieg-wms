@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     // Kode material sendiri ikut dicocokkan: banyak kode material berupa angka
     // (mis. 1201020604) dan tidak akan pernah terdaftar di kolom barcode.
-    const m = await prisma.material.findFirst({
+    let m = await prisma.material.findFirst({
       where: {
         OR: [
           { material_code: { equals: code } },
@@ -28,13 +28,27 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    const up = code.toUpperCase();
+    let alias_of: string | null = null;
+
+    // Kode lama yang sudah digabung tetap tercetak di kemasan dan tetap dipakai
+    // di file principal, jadi harus tetap bisa discan — tetapi diterjemahkan ke
+    // material utama supaya stoknya tidak kembali terbelah.
+    if (!m) {
+      const alias = await prisma.materialAlias.findUnique({ where: { alias_code: up } });
+      if (alias) {
+        m = await prisma.material.findUnique({ where: { material_code: alias.material_code } });
+        if (m) alias_of = up;
+      }
+    }
+
     if (!m) {
       return fail(`${code} tidak dikenali sebagai kode material maupun barcode (MM01).`, 404);
     }
 
-    const up = code.toUpperCase();
-    const matched_by =
-      m.material_code.toUpperCase() === up
+    const matched_by = alias_of
+      ? 'ALIAS'
+      : m.material_code.toUpperCase() === up
         ? 'MATERIAL'
         : m.barcode_bpom && m.barcode_bpom.toUpperCase() === up
           ? 'BPOM'
@@ -48,8 +62,12 @@ export async function GET(req: NextRequest) {
         is_batch_managed: m.is_batch_managed,
         fix_bin: m.fix_bin,
         matched_by,
+        /** kode lama yang discan, bila hasilnya lewat penerjemahan alias */
+        alias_of,
       },
-      `Barcode ${code} -> material ${m.material_code}`
+      alias_of
+        ? `Kode lama ${alias_of} -> material ${m.material_code} (${m.description})`
+        : `Barcode ${code} -> material ${m.material_code}`
     );
   });
 }

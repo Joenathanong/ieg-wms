@@ -47,10 +47,42 @@ export interface MovementInput {
 /* Master data guards                                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Ambil material master, dengan penerjemahan alias.
+ *
+ * Ini satu-satunya pintu yang dilewati SEMUA posting stok (MIGO, transfer,
+ * picking, replenishment, opname), jadi cukup di sini alias diterjemahkan agar
+ * kode lama diterima di seluruh aplikasi tanpa menyebar `if` ke tiap t-code.
+ *
+ * Yang dikembalikan selalu material UTAMA — pemanggil tidak perlu tahu bahwa
+ * operator tadi mengetik kode lama, dan stok tidak mungkin nyasar ke kode
+ * duplikat.
+ */
 export async function getMaterialOrThrow(tx: Prisma.TransactionClient, code: string) {
-  const m = await tx.material.findUnique({ where: { material_code: code } });
-  if (!m) throw new HttpError(400, `Material ${code} does not exist in master data (MM01).`);
-  return m;
+  const wanted = String(code ?? '').trim().toUpperCase();
+  const m = await tx.material.findUnique({ where: { material_code: wanted } });
+  if (m && m.is_active) return m;
+
+  const alias = await tx.materialAlias.findUnique({ where: { alias_code: wanted } });
+  if (alias) {
+    const target = await tx.material.findUnique({ where: { material_code: alias.material_code } });
+    // Alias menggantung (tujuannya terhapus atau ikut ditutup) diperlakukan
+    // sebagai kode tidak dikenal, bukan dibiarkan lewat — lebih baik posting
+    // gagal terang-terangan daripada stok masuk ke kode yang sudah mati.
+    if (target && target.is_active) return target;
+  }
+
+  // Material yang ditutup tanpa alias adalah kesalahan konfigurasi, dan pesannya
+  // harus menyebutkannya — kalau hanya dibilang "tidak ada", operator akan
+  // mencari-cari kode yang jelas-jelas terlihat di daftar lama.
+  if (m && !m.is_active)
+    throw new HttpError(
+      400,
+      `Material ${m.material_code} sudah ditutup dan tidak bisa dipakai posting. ` +
+        `Bila kode ini digabung ke SKU lain, daftarkan aliasnya di MM01.`
+    );
+
+  throw new HttpError(400, `Material ${code} does not exist in master data (MM01).`);
 }
 
 export async function getBinOrThrow(

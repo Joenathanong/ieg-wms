@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt } from '@/lib/api';
+import { resolveMaterialCode } from '@/lib/alias';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -48,20 +49,28 @@ export async function POST(req: NextRequest) {
         const value = toInt(raw, 'min_safety_stock');
         if (value < 0) throw new Error('Safety stock cannot be negative.');
 
+        // File dari principal masih memakai kode lama, jadi diterjemahkan dulu —
+        // kalau tidak, barisnya ditolak sebagai "material tidak ada" padahal
+        // barangnya jelas ada, hanya kodenya sudah digabung.
+        const resolved = await resolveMaterialCode(prisma, material_code);
+        if (!resolved)
+          throw new Error(`Material ${material_code} does not exist in master data (MM01).`);
+        const target = resolved.material_code;
+
         const current = await prisma.material.findUnique({
-          where: { material_code },
+          where: { material_code: target },
           select: { min_safety_stock: true },
         });
-        if (!current) throw new Error(`Material ${material_code} does not exist in master data (MM01).`);
+        if (!current) throw new Error(`Material ${target} does not exist in master data (MM01).`);
 
         await prisma.material.update({
-          where: { material_code },
+          where: { material_code: target },
           data: { min_safety_stock: value },
         });
 
         results.push({
           row: lineNo,
-          key: material_code,
+          key: resolved.redirected ? `${material_code} -> ${target}` : target,
           status: 'UPDATED',
           old_value: current.min_safety_stock,
           new_value: value,

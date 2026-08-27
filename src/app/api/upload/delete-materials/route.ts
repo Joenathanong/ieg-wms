@@ -81,6 +81,17 @@ export async function POST(req: NextRequest) {
         if (trItems > 0)
           throw new Error(`Material ${material_code} is still referenced by ${trItems} transfer requirement line(s).`);
 
+        // Menghapus material yang menjadi TUJUAN alias akan ikut menghapus
+        // aliasnya (cascade), sehingga kode lama pada karton mendadak tidak
+        // dikenali lagi — dan tidak ada apa pun di layar yang menjelaskan
+        // kenapa. Lebih baik ditolak.
+        const aliasCount = await prisma.materialAlias.count({ where: { material_code } });
+        if (aliasCount > 0)
+          throw new Error(
+            `Material ${material_code} masih menjadi tujuan ${aliasCount} kode alias. ` +
+              `Lepas aliasnya di MM01 lebih dulu.`
+          );
+
         await prisma.$transaction([
           prisma.stockIM.deleteMany({ where: { material_code } }),
           prisma.material.delete({ where: { material_code } }),

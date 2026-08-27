@@ -4,6 +4,7 @@ import { requireUser, requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt, toDate, normBatch } from '@/lib/api';
 import { BinStatus, PhysInvStatus } from '@prisma/client';
 import { fromDbList, toDbList } from '@/lib/dblist';
+import { resolveMaterialCode } from '@/lib/alias';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -277,7 +278,18 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           const counted = toInt(raw.counted_qty ?? 0, 'counted quantity');
           if (counted < 0) throw new HttpError(400, 'Counted quantity cannot be negative.');
 
-          const material_code = cleanStr(raw.material_code).toUpperCase();
+          /**
+           * Kode lama (alias) diterjemahkan lebih dulu.
+           *
+           * Terminal PDT sudah menerjemahkannya saat scan, tetapi kalau lookup
+           * itu gagal karena jaringan gudang sesaat putus, kode lama bisa sampai
+           * ke sini. Membiarkannya lewat berarti hasil hitungan tercatat atas
+           * nama kode yang stoknya nol — selisihnya jadi palsu di kedua sisi.
+           */
+          const rawMaterial = cleanStr(raw.material_code).toUpperCase();
+          const material_code = rawMaterial
+            ? ((await resolveMaterialCode(tx, rawMaterial))?.material_code ?? rawMaterial)
+            : '';
           const bin_code = cleanStr(raw.bin_code).toUpperCase();
           const batch_number = normBatch(raw.batch_number);
 

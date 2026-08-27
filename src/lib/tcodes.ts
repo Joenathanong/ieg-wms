@@ -42,6 +42,7 @@ export const TCODES: TCodeEntry[] = [
   // ---------------- MASTER DATA ----------------
   { code: 'MM01', title: 'Create / Maintain Material Master', path: '/mm01', group: 'MASTER' },
   { code: 'MM02', title: 'Change Material Master', path: '/mm01', group: 'MASTER', aliases: ['MM03'] },
+  { code: 'ZMATDUP', title: 'SKU Kembar — Pemindai & Penggabung', path: '/zmatdup', group: 'MASTER', adminOnly: true, aliases: ['ZDUP', 'ZMERGE'] },
   { code: 'LS01N', title: 'Create Storage Bin', path: '/ls01n', group: 'MASTER' },
   { code: 'LS02N', title: 'Change Storage Bin', path: '/ls01n', group: 'MASTER' },
   { code: 'LS06', title: 'Block / Unblock Storage Bin', path: '/ls01n', group: 'MASTER' },

@@ -15,6 +15,15 @@ export async function GET(req: NextRequest) {
     const q = cleanStr(sp.get('q'));
     const limit = Math.min(Number(sp.get('limit') ?? 500), 2000);
 
+    /**
+     * Material yang sudah ditutup (digabung ke SKU lain) TIDAK ikut secara
+     * bawaan. Inilah yang membuat kode duplikat berhenti muncul di seluruh
+     * search help, katalog PDT, dan daftar pilihan — tanpa perlu menambah
+     * penyaringan di tiap layar. `?all=1` menampilkannya kembali, dipakai
+     * layar administrasi yang memang perlu melihat kode lama.
+     */
+    const includeClosed = cleanStr(sp.get('all')) === '1';
+
     // mencari kode, deskripsi, kode OCS, maupun barcode — mendukung wildcard '*'
     const where = likeWhereAny(
       ['material_code', 'description', 'kode_ocs', 'barcode_bpom', 'barcode_produk'],
@@ -22,7 +31,12 @@ export async function GET(req: NextRequest) {
     );
 
     const materials = await prisma.material.findMany({
-      where: (where ?? undefined) as Prisma.MaterialWhereInput | undefined,
+      where: {
+        AND: [
+          (where ?? {}) as Prisma.MaterialWhereInput,
+          includeClosed ? {} : { is_active: true },
+        ],
+      },
       orderBy: { material_code: 'asc' },
       take: limit,
       include: {
@@ -30,7 +44,20 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return ok(materials, `${materials.length} material(s) selected`);
+    // Kode lama yang menunjuk ke material yang tampil — supaya layar bisa
+    // memberi tahu "kode ini juga dikenal sebagai ..." tanpa query tambahan.
+    const aliases = await prisma.materialAlias.findMany({
+      where: { material_code: { in: materials.map((m) => m.material_code) } },
+      select: { alias_code: true, material_code: true },
+      orderBy: { alias_code: 'asc' },
+    });
+    const aliasMap = new Map<string, string[]>();
+    for (const a of aliases)
+      aliasMap.set(a.material_code, [...(aliasMap.get(a.material_code) ?? []), a.alias_code]);
+
+    const rows = materials.map((m) => ({ ...m, aliases: aliasMap.get(m.material_code) ?? [] }));
+
+    return ok(rows, `${rows.length} material(s) selected`);
   });
 }
 

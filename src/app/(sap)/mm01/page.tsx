@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Boxes, Search, Save, Plus, Trash2, Download, Package, Star } from 'lucide-react';
+import { Boxes, Search, Save, Plus, Trash2, Download, Package, Star, Link2 } from 'lucide-react';
 import { Panel, Field, Input, Select, Button, Toolbar, Grid, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useExecuteKey } from '@/components/sap/keynav';
@@ -21,7 +21,18 @@ interface Row {
   barcode_produk: string | null;
   kode_ocs: string | null;
   fix_bin: string | null;
+  is_active: boolean;
   packagings: PackagingLite[];
+  /** kode lama yang dibaca sebagai material ini */
+  aliases?: string[];
+}
+
+interface AliasRow {
+  alias_code: string;
+  material_code: string;
+  remarks: string | null;
+  created_by: string;
+  created_at: string;
 }
 
 const emptyForm = {
@@ -34,6 +45,7 @@ const emptyForm = {
   barcode_produk: '',
   kode_ocs: '',
   fix_bin: '',
+  is_active: true,
 };
 
 const emptyPack = {
@@ -49,6 +61,12 @@ export default function Mm01Page() {
   const { setStatus } = useStatus();
   const { bins } = useMasterData();
   const [q, setQ] = useState('');
+  /**
+   * Material yang sudah ditutup (digabung ke SKU lain) disembunyikan di mana-mana
+   * supaya tidak terpilih lagi. Layar master tetap butuh jalan untuk melihatnya —
+   * kalau tidak, kode yang salah ditutup tidak bisa dibuka kembali dari mana pun.
+   */
+  const [showClosed, setShowClosed] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [view, setView] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,14 +77,19 @@ export default function Mm01Page() {
   const [packs, setPacks] = useState<PackagingLite[]>([]);
   const [packForm, setPackForm] = useState({ ...emptyPack });
 
+  /** kode lama yang menunjuk ke material yang sedang dibuka */
+  const [aliases, setAliases] = useState<AliasRow[]>([]);
+  const [aliasInput, setAliasInput] = useState('');
+  const [aliasNote, setAliasNote] = useState('');
+
   const run = useCallback(async () => {
     setLoading(true);
-    const r = await api<Row[]>('/api/materials' + qs({ q }));
+    const r = await api<Row[]>('/api/materials' + qs({ q, all: showClosed ? '1' : '' }));
     setLoading(false);
     if (!r.ok) return setStatus(r.message, 'E');
     setRows(r.data ?? []);
     setStatus(r.message, (r.data?.length ?? 0) > 0 ? 'S' : 'W');
-  }, [q, setStatus]);
+  }, [q, showClosed, setStatus]);
 
   useEffect(() => {
     run();
@@ -109,6 +132,69 @@ export default function Mm01Page() {
     }
   }
 
+  const loadAliases = useCallback(async (code: string) => {
+    if (!code) return setAliases([]);
+    const r = await api<{ aliases: AliasRow[] }>(
+      `/api/materials/${encodeURIComponent(code)}/alias`
+    );
+    setAliases(r.ok ? (r.data?.aliases ?? []) : []);
+  }, []);
+
+  async function addAlias() {
+    if (mode !== 'CHANGE') return setStatus('Pilih materialnya terlebih dahulu', 'E');
+    const code = aliasInput.trim().toUpperCase();
+    if (!code) return setStatus('Kode alias wajib diisi', 'E');
+
+    setBusy(true);
+    const r = await post(`/api/materials/${encodeURIComponent(form.material_code)}/alias`, {
+      alias_code: code,
+      remarks: aliasNote.trim() || null,
+    });
+    setBusy(false);
+    setStatus(r.message, r.ok ? 'S' : 'E');
+    if (r.ok) {
+      setAliasInput('');
+      setAliasNote('');
+      invalidateMasterData();
+      await loadAliases(form.material_code);
+    }
+  }
+
+  /**
+   * Menutup / membuka kembali kode material.
+   *
+   * Menutup adalah pengganti hapus untuk kode yang riwayatnya sudah ada di
+   * MB51: barisnya harus tetap ada agar riwayat itu punya master, tetapi kodenya
+   * tidak boleh lagi terpilih di layar mana pun.
+   */
+  async function toggleActive() {
+    const next = !form.is_active;
+    setBusy(true);
+    const r = await patch(`/api/materials/${encodeURIComponent(form.material_code)}`, {
+      is_active: next,
+    });
+    setBusy(false);
+    setStatus(r.message, r.ok ? 'S' : 'E');
+    if (r.ok) {
+      setForm((f) => ({ ...f, is_active: next }));
+      invalidateMasterData();
+      run();
+    }
+  }
+
+  async function removeAlias(alias_code: string) {
+    setBusy(true);
+    const r = await del(
+      `/api/materials/${encodeURIComponent(form.material_code)}/alias?alias=${encodeURIComponent(alias_code)}`
+    );
+    setBusy(false);
+    setStatus(r.message, r.ok ? 'S' : 'E');
+    if (r.ok) {
+      invalidateMasterData();
+      await loadAliases(form.material_code);
+    }
+  }
+
   async function savePack() {
     if (mode !== 'CHANGE') return setStatus('Simpan material terlebih dahulu sebelum menambah pallet', 'E');
     if (!packForm.pack_code.trim()) return setStatus('Packaging code is mandatory', 'E');
@@ -143,7 +229,26 @@ export default function Mm01Page() {
   }
 
   const cols: Column<Row>[] = [
-    { key: 'material_code', header: 'Material', mono: true, width: '150px' },
+    {
+      key: 'material_code',
+      header: 'Material',
+      mono: true,
+      width: '160px',
+      exportValue: (r) => (r.is_active ? r.material_code : `${r.material_code} (DITUTUP)`),
+      render: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className={r.is_active ? '' : 'line-through text-sap-muted'}>{r.material_code}</span>
+          {!r.is_active && (
+            <span
+              className="sap-badge border-sap-neutralborder bg-sap-neutralbg text-sap-muted"
+              title="Kode ini sudah digabung ke SKU lain"
+            >
+              TUTUP
+            </span>
+          )}
+        </span>
+      ),
+    },
     { key: 'description', header: 'Material Description', width: '280px' },
     { key: 'uom', header: 'Base UoM', mono: true, width: '85px' },
     {
@@ -323,6 +428,21 @@ export default function Mm01Page() {
                 >
                   <Plus size={13} /> New
                 </Button>
+                {mode === 'CHANGE' && (
+                  <Button
+                    variant={form.is_active ? 'default' : 'primary'}
+                    className="ml-auto"
+                    loading={busy}
+                    onClick={toggleActive}
+                    title={
+                      form.is_active
+                        ? 'Tutup kode ini — tidak lagi muncul di pencarian dan tidak bisa diposting'
+                        : 'Buka kembali kode ini'
+                    }
+                  >
+                    {form.is_active ? 'Tutup kode' : 'Buka kembali'}
+                  </Button>
+                )}
               </div>
             </div>
           </Panel>
@@ -446,6 +566,86 @@ export default function Mm01Page() {
               </div>
             )}
           </Panel>
+
+          {/* KODE ALIAS */}
+          <Panel
+            title="Kode Alias (kode lama yang dibaca sebagai material ini)"
+            icon={<Link2 size={13} className="text-sap-infotext" />}
+          >
+            {mode !== 'CHANGE' ? (
+              <p className="text-xxs text-sap-muted leading-relaxed">
+                Pilih material dari daftar di sebelah kanan untuk melihat dan mengelola kode
+                aliasnya.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xxs text-sap-muted leading-relaxed">
+                  Kode di sini tetap boleh diketik, discan dari karton lama, dan muncul di file
+                  Excel principal — semuanya diterjemahkan ke{' '}
+                  <b className="font-mono">{form.material_code}</b> sebelum menyentuh stok.
+                </p>
+
+                {aliases.length === 0 ? (
+                  <p className="text-xxs text-sap-muted">Belum ada kode alias.</p>
+                ) : (
+                  <table className="sap-grid">
+                    <thead>
+                      <tr>
+                        <th className="w-[150px]">Kode Alias</th>
+                        <th>Keterangan</th>
+                        <th className="w-[70px]" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aliases.map((a) => (
+                        <tr key={a.alias_code}>
+                          <td className="font-mono">{a.alias_code}</td>
+                          <td className="text-xxs text-sap-muted">{a.remarks ?? '—'}</td>
+                          <td>
+                            <Button
+                              variant="ghost"
+                              onClick={() => removeAlias(a.alias_code)}
+                              disabled={busy}
+                              title={`Lepaskan ${a.alias_code}`}
+                            >
+                              <Trash2 size={12} />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 items-start">
+                  <Field label="Kode Alias Baru">
+                    <Input
+                      className="uppercase font-mono"
+                      value={aliasInput}
+                      placeholder="kode lama"
+                      onChange={(e) => setAliasInput(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Keterangan">
+                    <Input
+                      value={aliasNote}
+                      placeholder="mis. kode sebelum penggabungan"
+                      onChange={(e) => setAliasNote(e.target.value)}
+                    />
+                  </Field>
+                </div>
+
+                <Button variant="primary" onClick={addAlias} loading={busy}>
+                  <Save size={13} /> Tambah Alias
+                </Button>
+
+                <p className="text-xxs text-sap-muted leading-relaxed">
+                  Kode yang masih berupa material aktif tidak bisa didaftarkan di sini — stoknya
+                  harus ikut pindah lebih dulu. Pakai <b>ZMATDUP</b> untuk itu.
+                </p>
+              </div>
+            )}
+          </Panel>
         </div>
 
         {/* LIST */}
@@ -465,6 +665,15 @@ export default function Mm01Page() {
             <Button onClick={() => exportCsv('material_master.csv', cols, view)} disabled={view.length === 0}>
               <Download size={13} /> Export
             </Button>
+            <label className="flex items-center gap-1.5 text-xxs text-sap-muted cursor-pointer">
+              <input
+                type="checkbox"
+                className="accent-sap-blue"
+                checked={showClosed}
+                onChange={(e) => setShowClosed(e.target.checked)}
+              />
+              Tampilkan kode tertutup
+            </label>
             <span className="ml-auto text-xxs text-sap-muted">
               Klik baris untuk mengubah (MM02) &amp; mengelola pallet · tanda * = default
             </span>
@@ -488,9 +697,13 @@ export default function Mm01Page() {
                 barcode_produk: r.barcode_produk ?? '',
                 kode_ocs: r.kode_ocs ?? '',
                 fix_bin: r.fix_bin ?? '',
+                is_active: r.is_active,
               });
               setPacks(r.packagings ?? []);
               setPackForm({ ...emptyPack });
+              setAliasInput('');
+              setAliasNote('');
+              void loadAliases(r.material_code);
               setMode('CHANGE');
               setStatus(`Material ${r.material_code} selected for change`, 'I');
             }}

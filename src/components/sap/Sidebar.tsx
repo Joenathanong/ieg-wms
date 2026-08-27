@@ -24,6 +24,7 @@ import {
   Settings,
   ShieldCheck,
   Wallet,
+  Copy,
 } from 'lucide-react';
 
 interface Item {
@@ -70,6 +71,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     title: 'Master Data',
     items: [
       { code: 'MM01', label: 'Material & Pallet', href: '/mm01', Icon: Boxes },
+      { code: 'ZMATDUP', label: 'SKU Kembar & Penggabungan', href: '/zmatdup', Icon: Copy, adminOnly: true },
       { code: 'LS01N', label: 'Storage Bin', href: '/ls01n', Icon: Folder },
       { code: 'ZZONE', label: 'Zone / Storage Section', href: '/zzone', Icon: Layers3, adminOnly: true },
       { code: 'KS01', label: 'Cost Center', href: '/ks01', Icon: Wallet, adminOnly: true },

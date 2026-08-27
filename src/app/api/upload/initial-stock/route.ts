@@ -60,6 +60,16 @@ export async function POST(req: NextRequest) {
             const material = await getMaterialOrThrow(tx, material_code);
             await getBinOrThrow(tx, bin_code, true);
 
+            /**
+             * Selalu pakai kode dari master, bukan kode di file.
+             *
+             * getMaterialOrThrow menerjemahkan kode lama (alias) ke material
+             * utama. Kalau stok tetap ditulis dengan kode dari file, hasilnya
+             * justru quant baru atas nama kode yang sudah tidak dipakai — persis
+             * masalah yang hendak dihilangkan.
+             */
+            const mcode = material.material_code;
+
             const batch_number = material.is_batch_managed ? normBatch(r.batch_number ?? r.BATCH_NUMBER) : null;
             if (material.is_batch_managed && !batch_number)
               throw new Error(`Material ${material_code} is batch managed. Column batch_number is mandatory.`);
@@ -70,19 +80,19 @@ export async function POST(req: NextRequest) {
             let delta = fileQty;
             if (mode === 'SET') {
               const existing = await tx.stockWM.findFirst({
-                where: { material_code, bin_code, batch_number },
+                where: { material_code: mcode, bin_code, batch_number },
               });
               delta = fileQty - (existing?.qty ?? 0);
             }
 
             if (delta === 0) return null;
 
-            await applyStockWM(tx, { material_code, bin_code, batch_number }, delta, {
+            await applyStockWM(tx, { material_code: mcode, bin_code, batch_number }, delta, {
               mfg_date,
               exp_date,
               gr_date: new Date(),
             });
-            await applyStockIM(tx, material_code, delta);
+            await applyStockIM(tx, mcode, delta);
             await refreshBinStatus(tx, bin_code);
 
             const docNo = await nextDocNumber(tx, 'MATDOC');
@@ -90,14 +100,17 @@ export async function POST(req: NextRequest) {
               data: {
                 document_number: docNo,
                 movement_type: MovementType.INIT_561,
-                material_code,
+                material_code: mcode,
                 source_bin: delta < 0 ? bin_code : null,
                 target_bin: delta > 0 ? bin_code : null,
                 batch_number,
                 qty: Math.abs(delta),
                 uom: material.uom,
                 reference: 'ZUPLOAD',
-                remarks: `Initial stock upload (${mode})`,
+                remarks:
+                  mcode === material_code
+                    ? `Initial stock upload (${mode})`
+                    : `Initial stock upload (${mode}) — kode di file ${material_code}`,
                 doc_date: new Date(),
                 user_id: user.username,
               },

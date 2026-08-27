@@ -2,7 +2,13 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireWrite, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, toInt, toDate, normBatch } from '@/lib/api';
-import { parseMovement, needsCostCenter, isGoodsReceipt, needsReference } from '@/lib/movement';
+import {
+  parseMovement,
+  needsCostCenter,
+  isGoodsReceipt,
+  needsReference,
+  isMaterialTransfer,
+} from '@/lib/movement';
 import {
   postGoodsMovement,
   postGoodsReceipt,
@@ -49,6 +55,13 @@ export async function POST(req: NextRequest) {
       throw new HttpError(400, 'Use transaction LT01 / LT10 / LB12 for movement type 301.');
     if (mt === MovementType.INIT_561)
       throw new HttpError(400, 'Movement 561 is only allowed via ZUPLOAD (initial stock upload).');
+    // 309 selalu berpasangan (sisi keluar + sisi masuk). Diposting sepotong
+    // lewat MIGO, stoknya hilang di satu kode tanpa muncul di kode lain.
+    if (isMaterialTransfer(mt))
+      throw new HttpError(
+        400,
+        'Movement 309 hanya dibuat oleh penggabungan SKU (ZMATDUP), tidak lewat MIGO.'
+      );
 
     const rawItems = Array.isArray(body.items) ? body.items : [body];
     if (rawItems.length === 0) throw new HttpError(400, 'No line items were entered.');

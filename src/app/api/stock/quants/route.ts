@@ -27,6 +27,29 @@ export async function GET(req: NextRequest) {
      */
     const q = cleanStr(sp.get('q')).toUpperCase();
     const qFilter = await materialCodeFilter('material_code', q);
+
+    /**
+     * Kode lama yang sudah digabung diterjemahkan lebih dulu.
+     *
+     * Tanpa ini, operator yang memindai karton bercetak kode lama akan melihat
+     * "stok tidak ada" padahal barangnya jelas di rak — pencocokan `material`
+     * bersifat PERSIS, dan stoknya sudah pindah ke kode utama.
+     */
+    let materialFilter = material;
+    let alias_of: string | null = null;
+    if (material) {
+      const exists = await prisma.material.findUnique({
+        where: { material_code: material },
+        select: { material_code: true },
+      });
+      if (!exists) {
+        const alias = await prisma.materialAlias.findUnique({ where: { alias_code: material } });
+        if (alias) {
+          materialFilter = alias.material_code;
+          alias_of = material;
+        }
+      }
+    }
     /** '1' = kecualikan bin interim (TRANSIT-IN/OUT) — dipakai ZRF08 replenishment */
     const exclInterim = cleanStr(sp.get('exclInterim')) === '1';
     /**
@@ -80,7 +103,7 @@ export async function GET(req: NextRequest) {
             : bin
               ? { bin_code: bin }
               : {},
-          material ? { material_code: material } : {},
+          materialFilter ? { material_code: materialFilter } : {},
           (qFilter ?? {}) as Prisma.StockWMWhereInput,
           batch ? { batch_number: batch } : {},
           exclInterim && interimCodes.length ? { bin_code: { notIn: interimCodes } } : {},
@@ -125,6 +148,11 @@ export async function GET(req: NextRequest) {
       qty: q.qty,
     }));
 
-    return ok(rows, `${rows.length} quant(s) available`);
+    return ok(
+      rows,
+      alias_of
+        ? `${rows.length} quant(s) available — kode lama ${alias_of} dibaca sebagai ${materialFilter}`
+        : `${rows.length} quant(s) available`
+    );
   });
 }

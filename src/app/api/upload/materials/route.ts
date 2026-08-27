@@ -30,6 +30,16 @@ export async function POST(req: NextRequest) {
 
     const results: RowResult[] = [];
 
+    /**
+     * Barcode yang sudah dipakai di dalam FILE ini sendiri.
+     *
+     * Memeriksa ke database saja tidak cukup: dua baris pada file yang sama
+     * belum ada di database saat diperiksa, jadi keduanya lolos dan justru
+     * duplikatnya lahir dari upload ini. Kunci Map = barcode, nilai = kode
+     * material yang lebih dulu memakainya.
+     */
+    const seenBarcode = new Map<string, string>();
+
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const lineNo = offset + i + 1;
@@ -52,6 +62,48 @@ export async function POST(req: NextRequest) {
         if (fix_bin) {
           const bin = await prisma.storageBin.findUnique({ where: { bin_code: fix_bin } });
           if (!bin) throw new Error(`Fix bin ${fix_bin} does not exist (upload storage bins first).`);
+        }
+
+        // Kode yang sudah menjadi alias tidak boleh dihidupkan kembali sebagai
+        // material tersendiri — itu persis cara stok terbelah dua sejak awal.
+        const asAlias = await prisma.materialAlias.findUnique({
+          where: { alias_code: material_code },
+        });
+        if (asAlias)
+          throw new Error(
+            `${material_code} sudah terdaftar sebagai alias dari ${asAlias.material_code}. ` +
+              `Perbaiki kodenya di file sumber, atau hapus aliasnya lebih dulu di MM01.`
+          );
+
+        /**
+         * Barcode harus unik antar material supaya scan PDT tidak ambigu.
+         *
+         * Pemeriksaan ini dulunya HANYA ada di layar MM01, sedangkan upload
+         * massal menulis apa adanya — itulah jalan masuk barcode kembar yang
+         * ada sekarang. Dicek silang ke KEDUA kolom, karena barcode B-POM satu
+         * material dan barcode produk material lain sama-sama dipakai saat
+         * lookup scan.
+         */
+        for (const [label, val] of [
+          ['Barcode B-POM', barcode_bpom],
+          ['Barcode produk', barcode_produk],
+        ] as const) {
+          if (!val) continue;
+
+          const inFile = seenBarcode.get(val);
+          if (inFile && inFile !== material_code)
+            throw new Error(`${label} ${val} sudah dipakai material ${inFile} di file yang sama.`);
+
+          const dup = await prisma.material.findFirst({
+            where: {
+              material_code: { not: material_code },
+              OR: [{ barcode_bpom: { equals: val } }, { barcode_produk: { equals: val } }],
+            },
+            select: { material_code: true },
+          });
+          if (dup) throw new Error(`${label} ${val} sudah dipakai material ${dup.material_code}.`);
+
+          seenBarcode.set(val, material_code);
         }
 
         const existing = await prisma.material.findUnique({ where: { material_code } });

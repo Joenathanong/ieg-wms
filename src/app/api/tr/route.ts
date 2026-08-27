@@ -100,7 +100,15 @@ export async function POST(req: NextRequest) {
         const qty = toInt(it.qty, `line ${i + 1} quantity`);
         if (qty <= 0) throw new HttpError(400, `Line ${i + 1}: quantity must be greater than zero.`);
 
-        const split = await splitByPackaging(tx, material_code, qty, cleanStr(it.pack_code) || null);
+        // kode dari master, bukan dari input: kode lama (alias) sudah
+        // diterjemahkan oleh getMaterialOrThrow dan tabel kemasan hanya
+        // mengenal kode utama
+        const split = await splitByPackaging(
+          tx,
+          material.material_code,
+          qty,
+          cleanStr(it.pack_code) || null
+        );
         for (const s of split) {
           items.push({
             material_code: material.material_code,
