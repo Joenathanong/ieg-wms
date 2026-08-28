@@ -180,12 +180,12 @@ export default function PfcgPage() {
               const codes = items.map((t) => t.code);
               const allOn = codes.every((c) => selected.has(c));
               return (
-                <div key={g} className="border border-sap-border rounded-[3px]">
+                <div key={g} className="border border-sap-border rounded-sappanel">
                   <button
                     type="button"
                     onClick={() => toggleGroup(codes)}
                     className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-sap-titlebar text-2xs
-                               font-semibold uppercase tracking-wide text-sap-text rounded-t-[3px]"
+                               font-semibold uppercase tracking-wide text-sap-text rounded-t-sappanel"
                   >
                     {allOn ? (
                       <CheckSquare size={13} className="text-sap-blue" />
@@ -202,7 +202,7 @@ export default function PfcgPage() {
                     {items.map((t) => (
                       <label
                         key={t.code}
-                        className="flex items-center gap-2 px-1.5 py-1 rounded-[2px] text-2xs cursor-pointer hover:bg-sap-hover"
+                        className="flex items-center gap-2 px-1.5 py-1 rounded-sap text-2xs cursor-pointer hover:bg-sap-hover"
                       >
                         <input
                           type="checkbox"

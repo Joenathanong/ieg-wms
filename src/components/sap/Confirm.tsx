@@ -88,7 +88,7 @@ export function ConfirmDialog({
           <p className="text-2xs leading-relaxed">{question}</p>
 
           {details && details.length > 0 && (
-            <div className="border border-sap-border rounded-[3px] divide-y divide-sap-border">
+            <div className="border border-sap-border rounded-sappanel divide-y divide-sap-border">
               {details.map((d) => (
                 <div key={d.label} className="flex items-baseline gap-3 px-2.5 py-1.5">
                   <span className="text-xxs uppercase tracking-wide text-sap-muted w-[120px] shrink-0">

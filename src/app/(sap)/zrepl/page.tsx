@@ -321,7 +321,7 @@ function QuantPicker({
 
         <div className="p-3 overflow-auto">
           {msg && (
-            <div className="rounded-[3px] border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
+            <div className="rounded-sappanel border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
               {msg}
             </div>
           )}
@@ -872,7 +872,7 @@ export default function ZreplPage() {
                     });
                     setBinFor(null);
                   }}
-                  className="w-full flex items-center justify-between gap-3 rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 hover:border-sap-blue/60"
+                  className="w-full flex items-center justify-between gap-3 rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2 hover:border-sap-blue/60"
                 >
                   <span className="font-mono text-2xs text-sap-blue">{b.bin_code}</span>
                   <span className="font-mono text-2xs tabular-nums">{b.qty}</span>

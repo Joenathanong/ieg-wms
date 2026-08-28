@@ -782,7 +782,7 @@ export default function Zso02Page() {
                   : 'Rak yang masih ada baris belum sepakat sudah dicentang otomatis. Anda tetap bisa menambah rak lain yang ingin diperiksa ulang.'}
               </p>
 
-              <div className="max-h-[26dvh] overflow-auto border border-sap-border rounded-[3px]">
+              <div className="max-h-[26dvh] overflow-auto border border-sap-border rounded-sappanel">
                 {cmp.by_material ? (
                   <table className="sap-grid">
                     <thead>
@@ -949,7 +949,7 @@ export default function Zso02Page() {
               </ActionField>
 
               {repeatWarnings.length > 0 && (
-                <div className="rounded-[3px] border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
+                <div className="rounded-sappanel border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
                   <p className="font-semibold flex items-center gap-1.5">
                     <AlertTriangle size={12} /> Penghitung berulang
                   </p>

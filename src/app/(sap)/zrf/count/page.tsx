@@ -258,7 +258,7 @@ export default function ZrfCountPage() {
               key={d.id}
               type="button"
               onClick={() => openDoc(d.id)}
-              className="w-full text-left rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2.5
+              className="w-full text-left rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2.5
                          hover:border-sap-blue/60 flex items-center gap-2"
             >
               <div className="min-w-0 flex-1">
@@ -294,7 +294,7 @@ export default function ZrfCountPage() {
     >
       {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
-      <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
+      <div className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2">
         <PdtRow label="Dokumen" value={doc.doc_number} accent />
         <PdtRow label="Progres bin" value={`${doneCount} / ${doc.bins.length} selesai`} />
         <PdtRow label="Belum dihitung" value={`${outstanding.length}`} />
@@ -314,7 +314,7 @@ export default function ZrfCountPage() {
                 setBin(b.bin_code);
                 setShowOutstanding(false);
               }}
-              className="w-full text-left rounded-[3px] border border-sap-border bg-sap-panelalt
+              className="w-full text-left rounded-sappanel border border-sap-border bg-sap-panelalt
                          px-3 py-2 font-mono text-sm hover:border-sap-blue/60"
             >
               {b.bin_code}
@@ -383,7 +383,7 @@ export default function ZrfCountPage() {
 
           <div className="space-y-2 max-h-[34dvh] overflow-auto">
             {binItems.map((it) => (
-              <div key={it.id} className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5">
+              <div key={it.id} className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5">
                 <p className="font-mono text-sm text-sap-blue">{it.material_code}</p>
                 <p className="text-2xs text-sap-text truncate">{it.description}</p>
                 <div className="flex items-center justify-between gap-2">
@@ -416,7 +416,7 @@ export default function ZrfCountPage() {
                   value={counts[it.id] ?? ''}
                   onChange={(e) => setCounts((s) => ({ ...s, [it.id]: e.target.value }))}
                   className="w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
-                             rounded-[3px] px-3 py-2 text-base font-mono text-right"
+                             rounded-sappanel px-3 py-2 text-base font-mono text-right"
                 />
               </div>
             ))}
@@ -425,7 +425,7 @@ export default function ZrfCountPage() {
             {extras.map((e) => (
               <div
                 key={e.key}
-                className="rounded-[3px] border-2 border-sap-warnborder bg-sap-warnbg/40 px-3 py-2 space-y-1.5"
+                className="rounded-sappanel border-2 border-sap-warnborder bg-sap-warnbg/40 px-3 py-2 space-y-1.5"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xxs uppercase tracking-wide text-sap-warntext">

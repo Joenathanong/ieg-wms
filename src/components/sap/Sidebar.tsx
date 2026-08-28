@@ -137,7 +137,7 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={() => setClosed((c) => ({ ...c, [g.title]: !c[g.title] }))}
-                className="w-full flex items-center gap-1 px-3 py-1.5 text-xxs uppercase tracking-[0.12em]
+                className="w-full flex items-center gap-1 px-3 py-1.5 text-xxs sap-tile-label
                            text-sap-muted/80 hover:text-sap-text"
               >
                 <ChevronDown

@@ -541,7 +541,7 @@ export default function Zso01Page() {
         >
           <div className="space-y-3">
             {users.length === 0 && (
-              <div className="rounded-[3px] border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
+              <div className="rounded-sappanel border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
                 Belum ada user yang diizinkan menerima tugas opname. Aktifkan{' '}
                 <b>Boleh ditugaskan stock opname</b> pada user yang bersangkutan di <b>SU01</b>.
               </div>

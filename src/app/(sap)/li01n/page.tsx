@@ -244,7 +244,7 @@ export default function Li01nPage() {
               {selectableBins.length} bin ditampilkan
             </span>
           </div>
-          <div className="max-h-[260px] overflow-auto border border-sap-border rounded-[2px] p-2 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-1">
+          <div className="max-h-[260px] overflow-auto border border-sap-border rounded-sap p-2 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-1">
             {selectableBins.map((b) => {
               const on = !!picked[b.bin_code];
               return (
@@ -252,7 +252,7 @@ export default function Li01nPage() {
                   key={b.id}
                   type="button"
                   onClick={() => setPicked((s) => ({ ...s, [b.bin_code]: !on }))}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-[2px] border text-2xs font-mono text-left
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-sap border text-2xs font-mono text-left
                     ${on ? 'border-sap-blue bg-sap-blue/15 text-sap-text' : 'border-sap-border bg-sap-panelalt text-sap-muted hover:border-sap-blue/50'}`}
                 >
                   {on ? <CheckSquare size={12} className="text-sap-blue shrink-0" /> : <Square size={12} className="shrink-0" />}

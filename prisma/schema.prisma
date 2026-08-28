@@ -705,6 +705,15 @@ model User {
   /// Bawaannya true agar pemasangan yang sudah berjalan tidak mendadak kehilangan
   /// seluruh daftar petugasnya; admin tinggal mematikan yang tidak perlu.
   so_enabled    Boolean   @default(true)
+  /// Tema tampilan pilihan user (lihat src/lib/themes.ts).
+  ///
+  /// Disimpan di master user, bukan hanya di browser, supaya pilihan ikut
+  /// berpindah saat orang yang sama masuk dari PDT, laptop gudang, atau
+  /// komputer kantor. Cookie tetap dipakai sebagai salinan cepat agar server
+  /// bisa menuliskan temanya sebelum halaman digambar.
+  ///
+  /// null = belum pernah memilih; aplikasi memakai tema bawaan.
+  theme         String?   @db.VarChar(32)
   /// role otorisasi T-Code (PFCG). null = tidak dibatasi (full sesuai role dasar)
   auth_role_id  String?
   auth_role     AuthRole? @relation(fields: [auth_role_id], references: [id], onDelete: SetNull)

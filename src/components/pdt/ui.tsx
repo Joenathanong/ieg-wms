@@ -32,7 +32,7 @@ export function PdtScreen({
           <Link
             href={back}
             aria-label="Kembali"
-            className="text-sap-muted hover:text-sap-blue p-1.5 -ml-1.5 rounded-[3px] active:bg-sap-hover"
+            className="text-sap-muted hover:text-sap-blue p-1.5 -ml-1.5 rounded-sappanel active:bg-sap-hover"
           >
             <ChevronLeft size={20} />
           </Link>
@@ -161,7 +161,7 @@ export const PdtInput = React.forwardRef<
           }}
           /* text-base (16px) mencegah iOS auto-zoom saat field difokus */
           className={`w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
-                      rounded-[3px] px-3 py-2.5 text-base font-mono text-sap-text
+                      rounded-sappanel px-3 py-2.5 text-base font-mono text-sap-text
                       disabled:opacity-50 ${managed ? 'pr-11' : ''} ${className}`}
           {...rest}
         />
@@ -178,7 +178,7 @@ export const PdtInput = React.forwardRef<
               e.stopPropagation();
             }}
             onClick={() => (typing ? closeKeyboard() : openKeyboard())}
-            className={`absolute right-1 top-1/2 -translate-y-1/2 p-2 rounded-[3px]
+            className={`absolute right-1 top-1/2 -translate-y-1/2 p-2 rounded-sappanel
                         active:bg-sap-hover ${typing ? 'text-sap-blue' : 'text-sap-muted'}`}
           >
             {typing ? <KeyboardOff size={18} /> : <Keyboard size={18} />}
@@ -209,7 +209,7 @@ export function PdtButton({
         : 'bg-sap-btn border-sap-border text-sap-text hover:bg-sap-btnhover';
   return (
     <button
-      className={`w-full min-h-[46px] flex items-center justify-center gap-2 px-3 py-3 rounded-[3px] border-2
+      className={`w-full min-h-[46px] flex items-center justify-center gap-2 px-3 py-3 rounded-sappanel border-2
                   text-sm font-semibold transition-colors active:opacity-80 disabled:opacity-40
                   disabled:cursor-not-allowed touch-manipulation ${v} ${className}`}
       disabled={loading || rest.disabled}
@@ -242,7 +242,7 @@ export function PdtMessage({ text, type }: { text: string; type: 'S' | 'E' | 'W'
           ? 'border-sap-warnborder bg-sap-warnbg text-sap-warntext'
           : 'border-sap-infoborder bg-sap-infobg text-sap-infotext';
   return (
-    <div className={`rounded-[3px] border px-3 py-2 text-2xs leading-relaxed break-words ${style}`}>
+    <div className={`rounded-sappanel border px-3 py-2 text-2xs leading-relaxed break-words ${style}`}>
       {text}
     </div>
   );

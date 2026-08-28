@@ -272,7 +272,7 @@ export default function ZuploadPage() {
                   setResults([]);
                   if (fileRef.current) fileRef.current.value = '';
                 }}
-                className={`flex items-start gap-2.5 p-3 rounded-[3px] border text-left transition-colors
+                className={`flex items-start gap-2.5 p-3 rounded-sappanel border text-left transition-colors
                   ${
                     // Menu penghapus diberi warna merah supaya tidak pernah
                     // terpilih hanya karena posisinya bersebelahan.
@@ -317,13 +317,13 @@ export default function ZuploadPage() {
                 accept=".xlsx,.xls,.csv"
                 onChange={(e) => e.target.files?.[0] && readFile(e.target.files[0])}
                 className="block w-full text-2xs text-sap-muted file:mr-2 file:py-[5px] file:px-3
-                           file:rounded-[2px] file:border file:border-sap-border file:text-2xs
+                           file:rounded-sap file:border file:border-sap-border file:text-2xs
                            file:bg-sap-btn file:text-sap-text hover:file:bg-sap-btnhover cursor-pointer"
               />
             </div>
 
             {fileName && (
-              <div className="text-xxs font-mono text-sap-muted border border-sap-border rounded-[2px] p-2 bg-sap-field">
+              <div className="text-xxs font-mono text-sap-muted border border-sap-border rounded-sap p-2 bg-sap-field">
                 <p className="text-sap-text truncate">{fileName}</p>
                 <p>{rows.length} data row(s) siap dikirim</p>
               </div>
@@ -392,7 +392,7 @@ export default function ZuploadPage() {
                 </span>
                 <span>{pct}%</span>
               </div>
-              <div className="h-[6px] bg-sap-field border border-sap-border rounded-[2px] overflow-hidden">
+              <div className="h-[6px] bg-sap-field border border-sap-border rounded-sap overflow-hidden">
                 <div className="h-full bg-sap-blue transition-all duration-200" style={{ width: `${pct}%` }} />
               </div>
               <div className="flex gap-3 mt-2 text-xxs font-mono">

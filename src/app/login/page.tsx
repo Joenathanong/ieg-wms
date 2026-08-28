@@ -135,7 +135,7 @@ function LoginForm() {
         </div>
 
         {err && (
-          <div className="flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-errborder bg-sap-errbg text-2xs text-sap-errtext">
+          <div className="flex items-start gap-2 px-2.5 py-2 rounded-sap border border-sap-errborder bg-sap-errbg text-2xs text-sap-errtext">
             <ShieldAlert size={14} className="shrink-0 mt-[1px]" />
             <span>{err}</span>
           </div>
@@ -170,7 +170,7 @@ export default function LoginPage() {
 
       <div className="relative w-full max-w-[380px]">
         <div className="flex items-center gap-3 mb-4">
-          <div className="shrink-0 w-11 h-11 rounded-[4px] border border-sap-blue/30 bg-sap-blue/10 flex items-center justify-center">
+          <div className="shrink-0 w-11 h-11 rounded-sap border border-sap-blue/30 bg-sap-blue/10 flex items-center justify-center">
             <Boxes size={22} className="text-sap-blue" />
           </div>
           <div className="min-w-0">

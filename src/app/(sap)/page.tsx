@@ -52,12 +52,22 @@ async function loadKpi() {
   }
 }
 
+/**
+ * Kartu KPI.
+ *
+ * `accent` sengaja berupa CHANNEL RGB ("54 123 245" atau "var(--sap-blue-rgb)"),
+ * bukan hex. Dengan begitu satu nilai bisa dipakai untuk tiga keperluan
+ * sekaligus — isi, garis, dan ikon — lewat rgb(... / alpha), dan warna yang
+ * bermakna (biru, peringatan, aman) ikut berganti bersama tema. Hex dengan
+ * akhiran alpha seperti `#367BF522` tidak bisa melakukan itu: nilainya mati,
+ * jadi kartu tetap memakai biru tema gelap walau temanya sudah terang.
+ */
 function Tile({
   label,
   value,
   sub,
   Icon,
-  accent = '#367BF5',
+  accent = 'var(--sap-blue-rgb)',
   href,
 }: {
   label: string;
@@ -70,13 +80,16 @@ function Tile({
   const inner = (
     <div className="sap-panel p-3 flex items-start gap-3 hover:border-sap-blue/60 transition-colors h-full">
       <div
-        className="w-9 h-9 rounded-[3px] flex items-center justify-center shrink-0"
-        style={{ backgroundColor: `${accent}22`, border: `1px solid ${accent}55` }}
+        className="w-9 h-9 rounded-sappanel flex items-center justify-center shrink-0"
+        style={{
+          backgroundColor: `rgb(${accent} / 0.13)`,
+          border: `1px solid rgb(${accent} / 0.34)`,
+        }}
       >
-        <Icon size={17} style={{ color: accent }} />
+        <Icon size={17} style={{ color: `rgb(${accent})` }} />
       </div>
       <div className="min-w-0">
-        <p className="text-xxs uppercase tracking-[0.1em] text-sap-muted">{label}</p>
+        <p className="sap-tile-label text-xxs text-sap-muted">{label}</p>
         <p className="font-mono text-lg leading-tight tabular-nums">{value}</p>
         {sub && <p className="text-xxs text-sap-muted/70 truncate">{sub}</p>}
       </div>
@@ -125,23 +138,23 @@ export default async function EasyAccess() {
       {kpi && (
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
           <Tile label="Total Stock (IM)" value={kpi.totalQty.toLocaleString('de-DE')} Icon={PackageCheck} href="/mb52" />
-          <Tile label="Material Master" value={kpi.materials} Icon={Boxes} accent="#8B5CF6" href="/mm01" />
-          <Tile label="Storage Bins" value={kpi.bins} sub={`${kpi.blockedBins} blocked`} Icon={Grid3x3} accent="#14B8A6" href="/ls01n" />
-          <Tile label="Empty Bins" value={kpi.emptyBins} Icon={Folder} accent="#94A3B8" href="/ls04" />
+          <Tile label="Material Master" value={kpi.materials} Icon={Boxes} accent="139 92 246" href="/mm01" />
+          <Tile label="Storage Bins" value={kpi.bins} sub={`${kpi.blockedBins} blocked`} Icon={Grid3x3} accent="20 184 166" href="/ls01n" />
+          <Tile label="Empty Bins" value={kpi.emptyBins} Icon={Folder} accent="var(--sap-muted-rgb)" href="/ls04" />
           <Tile
             label="Open Transfer Req."
             value={kpi.openTr}
             sub="menunggu put-away / picking"
             Icon={ListTodo}
-            accent={kpi.openTr > 0 ? '#E9A23B' : '#3FA45B'}
+            accent={kpi.openTr > 0 ? 'var(--sap-warning-rgb)' : 'var(--sap-success-rgb)'}
             href="/lb10"
           />
-          <Tile label="Docs Today" value={kpi.docsToday} Icon={FileClock} accent="#367BF5" href="/mb51" />
+          <Tile label="Docs Today" value={kpi.docsToday} Icon={FileClock} accent="var(--sap-blue-rgb)" href="/mb51" />
           <Tile
             label="Below Safety Stock"
             value={kpi.lowStock}
             Icon={AlertTriangle}
-            accent={kpi.lowStock > 0 ? '#E9A23B' : '#3FA45B'}
+            accent={kpi.lowStock > 0 ? 'var(--sap-warning-rgb)' : 'var(--sap-success-rgb)'}
             href="/mb52?onlyBelowSafety=1"
           />
         </div>
@@ -169,7 +182,7 @@ export default async function EasyAccess() {
             if (items.length === 0) return null;
             return (
               <div key={g.key} className="mb-2">
-                <div className="flex items-center gap-1.5 py-1 text-2xs text-sap-muted uppercase tracking-[0.1em]">
+                <div className="flex items-center gap-1.5 py-1 text-2xs text-sap-muted sap-tile-label">
                   <FolderOpen size={12} className="text-sap-blue/70" />
                   {g.title}
                 </div>

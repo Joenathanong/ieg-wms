@@ -149,7 +149,7 @@ function DocChip({ value, onCopied }: { value: string; onCopied: (ok: boolean) =
         e.stopPropagation();
         onCopied(await copyText(value));
       }}
-      className="px-1.5 py-[1px] rounded-[2px] border border-sap-border font-mono text-xxs
+      className="px-1.5 py-[1px] rounded-sap border border-sap-border font-mono text-xxs
                  hover:bg-sap-blue/20 select-all"
     >
       {value}
@@ -219,7 +219,7 @@ function MessagePopup({
           {/* pesan aktif */}
           {message ? (
             <div
-              className="rounded-[3px] border px-3 py-2.5 space-y-2"
+              className="rounded-sappanel border px-3 py-2.5 space-y-2"
               style={{ backgroundColor: s.bg, borderColor: s.color }}
             >
               <div className="flex items-center gap-2 text-2xs font-mono" style={{ color: s.color }}>
@@ -275,7 +275,7 @@ function MessagePopup({
               )}
             </div>
 
-            <div className="border border-sap-border rounded-[3px] divide-y divide-sap-border max-h-[38dvh] overflow-auto">
+            <div className="border border-sap-border rounded-sappanel divide-y divide-sap-border max-h-[38dvh] overflow-auto">
               {history.length === 0 && (
                 <p className="px-2.5 py-3 text-xxs text-sap-muted text-center">Riwayat masih kosong.</p>
               )}

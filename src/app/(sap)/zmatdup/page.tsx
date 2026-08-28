@@ -429,7 +429,7 @@ export default function ZmatdupPage() {
         >
           <div className="space-y-3">
             {plan.blockers.length > 0 && (
-              <div className="rounded-[3px] border border-sap-errborder bg-sap-errbg p-2">
+              <div className="rounded-sappanel border border-sap-errborder bg-sap-errbg p-2">
                 <p className="text-2xs font-medium text-sap-errtext">
                   Belum bisa dijalankan — {plan.blockers.length} hal perlu dibereskan:
                 </p>
@@ -461,7 +461,7 @@ export default function ZmatdupPage() {
             </div>
 
             {plan.carried.length > 0 && (
-              <div className="rounded-[3px] border border-sap-border bg-sap-infobg p-2">
+              <div className="rounded-sappanel border border-sap-border bg-sap-infobg p-2">
                 <p className="text-xxs text-sap-infotext">
                   Ikut dipindahkan ke {plan.into_code} karena kolomnya masih kosong di sana:{' '}
                   {plan.carried.join(', ')}.

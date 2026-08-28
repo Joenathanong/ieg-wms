@@ -225,7 +225,7 @@ export default async function HelpPage() {
             ['/n<TCODE>', 'Format SAP klasik, mis. /nMIGO'],
             ['/exit', 'Log off dari sistem'],
           ].map(([k, d]) => (
-            <div key={k} className="flex items-center gap-3 px-2 py-1.5 border border-sap-border rounded-[2px] bg-sap-panelalt">
+            <div key={k} className="flex items-center gap-3 px-2 py-1.5 border border-sap-border rounded-sap bg-sap-panelalt">
               <span className="font-mono text-sap-blue w-[90px] shrink-0">{k}</span>
               <span className="text-sap-muted">{d}</span>
             </div>

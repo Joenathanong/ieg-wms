@@ -59,8 +59,8 @@ export function Bar({
         <span className="truncate">{label}</span>
         <span className="font-mono text-sap-muted shrink-0">{right ?? `${pct}%`}</span>
       </div>
-      <div className="h-[10px] rounded-[2px] bg-sap-neutralbg border border-sap-border overflow-hidden">
-        <div className={`h-full rounded-r-[4px] ${fill}`} style={{ width: `${pct}%` }} />
+      <div className="h-[10px] rounded-sap bg-sap-neutralbg border border-sap-border overflow-hidden">
+        <div className={`h-full rounded-r-sap ${fill}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -94,7 +94,7 @@ export function Composition({
         {seg.map((s) => (
           <div
             key={s.key}
-            className={`${s.cls} first:rounded-l-[3px] last:rounded-r-[3px]`}
+            className={`${s.cls} first:rounded-l-sappanel last:rounded-r-sappanel`}
             style={{ width: `${(s.n / total) * 100}%` }}
             title={`${s.label}: ${s.n} baris (${Math.round((s.n / total) * 100)}%)`}
           />
@@ -104,7 +104,7 @@ export function Composition({
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xxs">
         {seg.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5">
-            <span className={`w-[9px] h-[9px] rounded-[2px] ${s.cls}`} />
+            <span className={`w-[9px] h-[9px] rounded-sap ${s.cls}`} />
             <span className="text-sap-muted">
               {s.label} · <span className="font-mono text-sap-text">{s.n}</span>
             </span>
@@ -238,7 +238,7 @@ export function Histogram({ data }: { data: { label: string; n: number }[] }) {
         <div key={d.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
           <span className="text-xxs font-mono text-sap-text">{d.n || ''}</span>
           <div
-            className="w-full bg-sap-blue rounded-t-[4px]"
+            className="w-full bg-sap-blue rounded-t-sap"
             style={{ height: `${Math.max(2, (d.n / max) * 74)}px` }}
             title={`${d.label} unit: ${d.n} baris`}
           />

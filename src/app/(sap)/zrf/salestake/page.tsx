@@ -166,7 +166,7 @@ export default function ZrfSalesTakePage() {
       <PdtScreen title="SO Penjualan" code="ZRF09">
         {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
-        <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 space-y-2">
+        <div className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2 space-y-2">
           <p className="text-xxs text-sap-muted">Buka dokumen baru untuk shift / periode ini</p>
           <PdtInput
             label="Referensi (mis. SHIFT-1)"
@@ -188,7 +188,7 @@ export default function ZrfSalesTakePage() {
               key={d.id}
               type="button"
               onClick={() => openDoc(d.id)}
-              className="w-full text-left rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2.5
+              className="w-full text-left rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2.5
                          hover:border-sap-blue/60 flex items-center gap-2"
             >
               <div className="min-w-0 flex-1">
@@ -225,7 +225,7 @@ export default function ZrfSalesTakePage() {
     >
       {msg && <PdtMessage text={msg.text} type={msg.type} />}
 
-      <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
+      <div className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2">
         <PdtRow label="Dokumen" value={doc.doc_number} accent />
         {doc.reference && <PdtRow label="Referensi" value={doc.reference} />}
         <PdtRow label="Bin selesai" value={`${doc.counted_bins.length}`} />
@@ -260,7 +260,7 @@ export default function ZrfSalesTakePage() {
               return (
                 <div
                   key={key(q)}
-                  className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5"
+                  className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5"
                 >
                   <p className="font-mono text-sm text-sap-blue">{q.material_code}</p>
                   <p className="text-2xs text-sap-text truncate">{q.description}</p>
@@ -275,7 +275,7 @@ export default function ZrfSalesTakePage() {
                     value={v ?? ''}
                     onChange={(e) => setActual((s) => ({ ...s, [key(q)]: e.target.value }))}
                     className="w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
-                               rounded-[3px] px-3 py-2 text-base font-mono text-right"
+                               rounded-sappanel px-3 py-2 text-base font-mono text-right"
                   />
                   {diff !== null && (
                     <p

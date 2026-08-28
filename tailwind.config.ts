@@ -1,13 +1,16 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * SAP GUI 8.0 — Dual Theme
- *   Dark  : "Quartz Dark / Dark Crystal"  (default)
- *   Light : "SAP Morning Horizon"
+ * Manajer tema — lihat `src/lib/themes.ts` dan blok html[data-theme] di
+ * globals.css.
  *
- * Semua warna menunjuk CSS variable channel RGB di globals.css
- * (html[data-theme='dark'|'light']) sehingga opacity modifier
- * seperti bg-sap-blue/15 tetap berfungsi di kedua tema.
+ * Warna menunjuk CSS variable channel RGB sehingga opacity modifier seperti
+ * bg-sap-blue/15 tetap berfungsi di semua tema.
+ *
+ * Radius juga menunjuk variable, BUKAN angka tetap. Inilah yang membuat
+ * keluarga Horizon bisa membulat 8/12px sementara Quartz tetap tajam 2/3px
+ * tanpa satu pun layar diubah — asalkan komponen memakai `rounded-sap` /
+ * `rounded-sappanel`, bukan `rounded-[2px]`.
  */
 const rgb = (v: string) => `rgb(var(--sap-${v}-rgb) / <alpha-value>)`;
 
@@ -86,7 +89,13 @@ const config: Config = {
       },
       fontFamily: {
         mono: ['"JetBrains Mono"', '"Cascadia Mono"', 'Consolas', '"Courier New"', 'monospace'],
-        sans: ['"Segoe UI"', '"72"', 'Arial', 'sans-serif'],
+        sans: ['var(--sap-font-sans)'],
+      },
+      borderRadius: {
+        /** kontrol, badge, chip — mengikuti geometri tema */
+        sap: 'var(--sap-radius)',
+        /** panel & kartu — sedikit lebih besar dari kontrol */
+        sappanel: 'var(--sap-radius-panel)',
       },
       fontSize: {
         xxs: ['10px', '14px'],
@@ -94,6 +103,7 @@ const config: Config = {
       },
       boxShadow: {
         sap: 'var(--sap-shadow)',
+        sappanel: 'var(--sap-panel-shadow)',
       },
     },
   },

@@ -17,7 +17,7 @@ import { CommandField } from './CommandField';
 import { DbStatus } from '@/components/sap/DbStatus';
 import { Sidebar } from './Sidebar';
 import { StatusBar, StatusProvider, useStatus } from './StatusBar';
-import { ThemeToggle } from './ThemeToggle';
+import { ThemeMenu } from './ThemeMenu';
 import { useTableKeyNav } from './keynav';
 import { tcodeByPath } from '@/lib/tcodes';
 import { IS_PROD_SYSTEM, SAP_CLIENT, SAP_SYSTEM, SYSTEM_TITLE } from '@/lib/system';
@@ -75,11 +75,11 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
           <span className="hidden lg:flex items-center gap-1.5 text-2xs text-sap-muted font-mono">
             <UserRound size={13} className="text-sap-blue" />
             {user.username}
-            <span className="px-1.5 py-[1px] rounded-[2px] border border-sap-border text-[10px]">
+            <span className="px-1.5 py-[1px] rounded-sap border border-sap-border text-[10px]">
               {user.role}
             </span>
             {user.pdt && (
-              <span className="px-1.5 py-[1px] rounded-[2px] border border-sap-blue/60 text-sap-blue text-[10px]">
+              <span className="px-1.5 py-[1px] rounded-sap border border-sap-blue/60 text-sap-blue text-[10px]">
                 PDT
               </span>
             )}
@@ -87,7 +87,7 @@ function TopBar({ user, onToggle }: { user: SessionPayload; onToggle: () => void
           {/* Indikator koneksi database — sengaja ditaruh persis di sebelah
               identitas user, tempat operator sudah biasa melihat status sesi. */}
           <DbStatus />
-          <ThemeToggle className="!px-2 !py-1.5 sm:!px-1.5 sm:!py-1" />
+          <ThemeMenu className="!px-2 !py-1.5 sm:!px-1.5 sm:!py-1" />
           <Link
             href="/help"
             title="Help"

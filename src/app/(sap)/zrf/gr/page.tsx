@@ -238,7 +238,7 @@ export default function ZrfGrPage() {
         hint={mat ? mat.description : 'Boleh diketik manual, atau langsung di-scan.'}
       />
       {mat && (
-        <div className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
+        <div className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2">
           <PdtRow label="Deskripsi" value={mat.description} />
           <PdtRow label="UoM" value={mat.uom} />
           <PdtRow label="Batch" value={mat.is_batch_managed ? 'WAJIB' : 'tidak dipakai'} />

@@ -75,7 +75,7 @@ export default function ZrfInquiryPage() {
 
       <div className="space-y-1.5 max-h-[48dvh] overflow-auto">
         {rows.map((r, i) => (
-          <div key={i} className="rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2">
+          <div key={i} className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2">
             <div className="flex items-baseline justify-between gap-2">
               <span className="font-mono text-sm text-sap-blue">{r.bin_code}</span>
               <span className="font-mono text-sm">

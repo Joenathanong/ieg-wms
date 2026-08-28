@@ -520,7 +520,7 @@ export function Grid<T extends Record<string, any>>({
   const popCol = popover ? columns.find((c) => c.key === popover.key) : null;
 
   return (
-    <div className="border border-sap-border rounded-[3px] overflow-hidden bg-sap-panelalt">
+    <div className="border border-sap-border rounded-sappanel overflow-hidden bg-sap-panelalt">
       {toolbar && (
         <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 border-b border-sap-border bg-sap-toolbar">
           <div className="relative">
@@ -540,7 +540,7 @@ export function Grid<T extends Record<string, any>>({
             return (
               <span
                 key={key}
-                className="inline-flex items-center gap-1 px-1.5 py-[2px] rounded-[2px] border border-sap-infoborder
+                className="inline-flex items-center gap-1 px-1.5 py-[2px] rounded-sap border border-sap-infoborder
                            bg-sap-infobg text-sap-infotext text-xxs font-mono max-w-[220px]"
                 title={`${c?.header ?? key}: ${sign} ${f.val}`}
               >
@@ -659,7 +659,7 @@ export function Grid<T extends Record<string, any>>({
                             const rect = e.currentTarget.getBoundingClientRect();
                             setPopover((p) => (p?.key === c.key ? null : { key: c.key, rect }));
                           }}
-                          className={`shrink-0 p-[2px] rounded-[2px] hover:text-sap-blue ${
+                          className={`shrink-0 p-[2px] rounded-sap hover:text-sap-blue ${
                             hasFilter ? 'text-sap-blue bg-sap-blue/15' : 'opacity-35 hover:opacity-100'
                           }`}
                         >
@@ -777,7 +777,7 @@ export function Toolbar({ children, className = '' }: { children: React.ReactNod
   return (
     <div
       className={`flex flex-wrap items-center gap-1.5 px-2 py-1.5 bg-sap-toolbar border border-sap-border
-                  rounded-[3px] ${className}`}
+                  rounded-sappanel ${className}`}
     >
       {children}
     </div>

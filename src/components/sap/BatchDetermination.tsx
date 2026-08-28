@@ -194,7 +194,7 @@ export function BatchDetermination({
           )}
 
           {!loading && msg && (
-            <div className="rounded-[3px] border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
+            <div className="rounded-sappanel border border-sap-warnborder bg-sap-warnbg text-sap-warntext px-3 py-2 text-2xs">
               {msg}
             </div>
           )}

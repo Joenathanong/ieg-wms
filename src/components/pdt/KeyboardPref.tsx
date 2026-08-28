@@ -40,7 +40,7 @@ export function KeyboardPrefToggle() {
         <button
           type="button"
           onClick={() => choose('auto')}
-          className={`rounded-[3px] border-2 px-2 py-2 text-left ${
+          className={`rounded-sappanel border-2 px-2 py-2 text-left ${
             pref === 'auto' ? 'border-sap-blue bg-sap-blue/10' : 'border-sap-border bg-sap-panelalt'
           }`}
         >
@@ -55,7 +55,7 @@ export function KeyboardPrefToggle() {
         <button
           type="button"
           onClick={() => choose('always')}
-          className={`rounded-[3px] border-2 px-2 py-2 text-left ${
+          className={`rounded-sappanel border-2 px-2 py-2 text-left ${
             pref === 'always' ? 'border-sap-blue bg-sap-blue/10' : 'border-sap-border bg-sap-panelalt'
           }`}
         >

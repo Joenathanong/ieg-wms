@@ -200,7 +200,7 @@ function Lb12Inner() {
         </div>
 
         {doc && (
-          <div className="mt-3 flex items-start gap-2 px-2.5 py-2 rounded-[2px] border border-sap-blue/40 bg-sap-blue/10 text-2xs text-sap-infotext">
+          <div className="mt-3 flex items-start gap-2 px-2.5 py-2 rounded-sap border border-sap-blue/40 bg-sap-blue/10 text-2xs text-sap-infotext">
             <Info size={13} className="shrink-0 mt-[1px]" />
             {doc.tr_type === 'PUTAWAY' ? (
               <span>

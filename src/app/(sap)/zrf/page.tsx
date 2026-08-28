@@ -88,7 +88,7 @@ export default async function ZrfMenu() {
           const inner = (
             <>
               <div
-                className={`w-10 h-10 rounded-[3px] flex items-center justify-center shrink-0 border
+                className={`w-10 h-10 rounded-sappanel flex items-center justify-center shrink-0 border
                   ${on ? 'bg-sap-blue/15 border-sap-blue/40' : 'bg-sap-neutralbg border-sap-border'}`}
               >
                 <m.Icon size={19} className={on ? 'text-sap-blue' : 'text-sap-muted'} />

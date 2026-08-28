@@ -107,7 +107,7 @@ export default function ZrfGiPage() {
                 setSel(q);
                 setQty(String(q.qty));
               }}
-              className="w-full text-left rounded-[3px] border border-sap-border bg-sap-panelalt px-3 py-2 hover:border-sap-blue/60"
+              className="w-full text-left rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2 hover:border-sap-blue/60"
             >
               <p className="font-mono text-sm text-sap-blue">{q.material_code}</p>
               <p className="text-2xs text-sap-text truncate">{q.description}</p>
@@ -127,7 +127,7 @@ export default function ZrfGiPage() {
 
       {sel && (
         <>
-          <div className="rounded-[3px] border border-sap-blue/40 bg-sap-blue/10 px-3 py-2">
+          <div className="rounded-sappanel border border-sap-blue/40 bg-sap-blue/10 px-3 py-2">
             <PdtRow label="Material" value={sel.material_code} accent />
             <PdtRow label="Deskripsi" value={sel.description} />
             {sel.batch_number && <PdtRow label="Batch" value={sel.batch_number} />}

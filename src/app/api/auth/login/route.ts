@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { comparePassword, hashPassword } from '@/lib/auth';
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/session';
 import { handle, fail, cleanStr } from '@/lib/api';
+import { THEME_COOKIE, THEME_COOKIE_MAX_AGE, normalizeTheme } from '@/lib/themes';
 import { isTrue } from '@/lib/settings';
 import { fromDbList, toDbList } from '@/lib/dblist';
 
@@ -88,6 +89,22 @@ export async function POST(req: NextRequest) {
       secure: process.env.NODE_ENV === 'production',
       path: '/',
       maxAge: SESSION_MAX_AGE,
+    });
+
+    /**
+     * Tema mengikuti user, bukan browser.
+     *
+     * Cookie-nya ditulis ulang di setiap login supaya orang yang memakai
+     * komputer gudang bersama tidak mewarisi tema rekan sebelumnya. Nilainya
+     * diambil dari master user, jadi pilihan yang pernah dibuat di HP langsung
+     * berlaku juga di desktop.
+     */
+    res.cookies.set(THEME_COOKIE, normalizeTheme(user.theme), {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: THEME_COOKIE_MAX_AGE,
     });
 
     return res;
