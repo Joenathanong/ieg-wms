@@ -55,12 +55,18 @@ export async function POST(req: NextRequest) {
       throw new HttpError(400, 'Use transaction LT01 / LT10 / LB12 for movement type 301.');
     if (mt === MovementType.INIT_561)
       throw new HttpError(400, 'Movement 561 is only allowed via ZUPLOAD (initial stock upload).');
-    // 309 selalu berpasangan (sisi keluar + sisi masuk). Diposting sepotong
-    // lewat MIGO, stoknya hilang di satu kode tanpa muncul di kode lain.
+    /**
+     * 309 selalu BERPASANGAN (sisi keluar + sisi masuk). Diposting sepotong
+     * lewat jalur umum ini, stoknya hilang di satu sisi tanpa muncul di sisi
+     * lain. Karena itu ia hanya boleh lahir dari fungsi yang membuat kedua
+     * sisinya sekaligus: ubah batch (/api/migo/batch-change) dan penggabungan
+     * SKU (ZMATDUP).
+     */
     if (isMaterialTransfer(mt))
       throw new HttpError(
         400,
-        'Movement 309 hanya dibuat oleh penggabungan SKU (ZMATDUP), tidak lewat MIGO.'
+        'Movement 309 dibuat lewat menu Ubah Batch di MIGO atau penggabungan SKU (ZMATDUP), ' +
+          'bukan lewat posting movement biasa.'
       );
 
     const rawItems = Array.isArray(body.items) ? body.items : [body];

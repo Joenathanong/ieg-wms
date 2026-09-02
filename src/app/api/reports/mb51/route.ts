@@ -2,7 +2,13 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser } from '@/lib/auth';
 import { handle, ok, cleanStr, toDate } from '@/lib/api';
-import { parseMovement, MOVEMENT_CODE, MOVEMENT_DESC } from '@/lib/movement';
+import {
+  parseMovement,
+  movementsByCode,
+  MOVEMENT_CODE,
+  MOVEMENT_DESC,
+  MOVEMENT_SIGN,
+} from '@/lib/movement';
 import { likeWhereAny } from '@/lib/like';
 import { materialCodeFilter } from '@/lib/search';
 import { MovementType, Prisma } from '@prisma/client';
@@ -35,8 +41,15 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, Number(sp.get('page') ?? 1));
     const size = Math.min(Number(sp.get('size') ?? 200), 1000);
 
-    const mt = movement ? parseMovement(movement) : null;
-    if (movement && !mt) return ok({ rows: [], total: 0, page, size }, `Movement type ${movement} is not defined`);
+    /**
+     * Satu kode bisa menunjuk lebih dari satu movement (309 punya sisi keluar
+     * dan sisi masuk). Menyaring dengan satu movement saja akan menampilkan
+     * separuh dokumen — barang keluar tanpa pasangannya yang masuk.
+     */
+    const mts = movement ? movementsByCode(movement) : [];
+    const mt = mts[0] ?? (movement ? parseMovement(movement) : null);
+    if (movement && mts.length === 0)
+      return ok({ rows: [], total: 0, page, size }, `Movement type ${movement} is not defined`);
 
     /** 301 = dokumen level WM, tempatnya di LT22 — dikecualikan kecuali diminta khusus */
     const withWm = sp.get('withWm') === '1';
@@ -59,7 +72,7 @@ export async function GET(req: NextRequest) {
     const where: Prisma.MigoLogWhereInput = {
       AND: [
         (matFilter ?? {}) as Prisma.MigoLogWhereInput,
-        mt ? { movement_type: mt } : {},
+        mts.length ? { movement_type: { in: mts } } : {},
         wmFilter,
         (likeWhereAny(['source_bin', 'target_bin'], bin) ?? {}) as Prisma.MigoLogWhereInput,
         (likeWhereAny(['batch_number'], batch) ?? {}) as Prisma.MigoLogWhereInput,
@@ -90,6 +103,16 @@ export async function GET(req: NextRequest) {
       movement_type: l.movement_type,
       movement_code: MOVEMENT_CODE[l.movement_type],
       movement_desc: MOVEMENT_DESC[l.movement_type],
+      /**
+       * Arah stok dihitung SERVER, bukan dari tabel salinan di layar.
+       *
+       * Laporan ini dulu memelihara peta kode->tanda sendiri, dan peta itu
+       * berkali-kali tertinggal saat movement baru ditambahkan (601 pernah
+       * luput, 309 akan luput juga). Yang lebih berbahaya: kode yang tidak ada
+       * di peta tampil tanpa tanda sama sekali — angkanya terlihat wajar
+       * padahal arahnya salah baca. Sekarang sumbernya satu: MOVEMENT_SIGN.
+       */
+      sign: MOVEMENT_SIGN[l.movement_type],
       reversal_of: l.reversal_of ?? '',
       reversal_of_line: l.reversal_of_line ?? null,
       reversed_by: l.reversed_by ?? '',

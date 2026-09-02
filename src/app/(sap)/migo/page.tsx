@@ -22,6 +22,7 @@ import { useMasterData, useCostCenters } from '@/components/sap/hooks';
 import { useExecuteKey } from '@/components/sap/keynav';
 import { ConfirmDialog } from '@/components/sap/Confirm';
 import { BatchDetermination } from '@/components/sap/BatchDetermination';
+import { BatchChangeLines } from '@/components/sap/BatchChangeLines';
 import { api, post, fmtDate } from '@/lib/client';
 import { ZONE_GROUPS, DEFAULT_GR_ZONE_GROUP } from '@/lib/zones';
 import { fillMfg, DEFAULT_SHELF_LIFE_YEARS } from '@/lib/shelflife';
@@ -46,6 +47,7 @@ const MOVEMENTS = [
   { code: '551', label: '551 — Scrapping / Adjustment (-)', mode: 'DIRECT_MIN' },
   { code: '701', label: '701 — Phys. Inv. Difference (+)', mode: 'DIRECT_PLUS' },
   { code: '702', label: '702 — Phys. Inv. Difference (-)', mode: 'DIRECT_MIN' },
+  { code: '309', label: '309 — Ubah Batch (Transfer Batch ke Batch)', mode: 'BATCH_CHG' },
   { code: 'CANCEL', label: 'Cancellation — 102 / 123 / 202 / 502 / 552 / 562 / 602 / 711 / 712', mode: 'CANCEL' },
 ] as const;
 
@@ -188,6 +190,12 @@ export default function MigoPage() {
   const isTwoStep = mode === 'TR_IN' || mode === 'TR_OUT';
   const isInbound = mode === 'TR_IN' || mode === 'DIRECT_PLUS';
   const isCancel = mode === 'CANCEL';
+  /**
+   * Ubah batch punya kolom yang berbeda sama sekali (dua batch, dan bin-nya
+   * tempat barang SUDAH berada), jadi tabel line-nya dipegang komponen sendiri
+   * — lihat BatchChangeLines. Layar ini hanya menyediakan header dokumennya.
+   */
+  const isBatchChg = mode === 'BATCH_CHG';
   // 201 tahap ISSUE membebankan biaya ke cost center; 601 (penjualan) tidak.
   // Ditampilkan di kedua langkah 201: diisi saat REQUEST akan diwarisi oleh
   // langkah ISSUE, dan wajib paling lambat saat ISSUE.
@@ -467,6 +475,8 @@ export default function MigoPage() {
   /** Tombol Post / tombol Enter: validasi dulu, lalu minta konfirmasi. */
   function askPost() {
     if (!movement) return setStatus('Pilih movement type terlebih dahulu', 'E');
+    // Ubah batch punya tombol postingnya sendiri di BatchChangeLines.
+    if (isBatchChg) return;
     if (isCancel) {
       if (!cancelPreview) return setStatus('Tampilkan dokumen terlebih dahulu', 'E');
       if (cancelSel.length === 0)
@@ -510,7 +520,9 @@ export default function MigoPage() {
   const movementLabel = MOVEMENTS.find((m) => m.code === movement)?.label ?? movement;
 
   // Enter / F8 = jalankan aksi utama layar (tetap lewat dialog konfirmasi)
-  useExecuteKey(askPost, !busy);
+  // Saat mode ubah batch, tombol Enter/F8 milik komponen BatchChangeLines —
+  // memicu askPost() di sini akan memposting dokumen kosong.
+  useExecuteKey(askPost, !busy && !isBatchChg);
 
   return (
     <div className="space-y-3">
@@ -828,8 +840,21 @@ export default function MigoPage() {
         </Panel>
       )}
 
+      {/* UBAH BATCH — tabel & tombol postingnya milik komponen sendiri */}
+      {isBatchChg && (
+        <BatchChangeLines
+          docDate={docDate}
+          reference={reference}
+          onPosted={(doc) =>
+            setPosted([
+              { line: 1, material_code: '—', qty: 0, document_number: doc, tr_number: null, tr_lines: 0 },
+            ])
+          }
+        />
+      )}
+
       {/* ITEM TABLE */}
-      {!isCancel && (
+      {!isCancel && !isBatchChg && (
       <Panel
         title={`Line Items (${lines.length})`}
         icon={<ClipboardCheck size={13} className="text-sap-blue" />}
@@ -1040,6 +1065,7 @@ export default function MigoPage() {
       )}
 
       {/* TOOLBAR */}
+      {!isBatchChg && (
       <Toolbar>
         {isCancel ? (
           <>
@@ -1079,6 +1105,7 @@ export default function MigoPage() {
           </>
         )}
       </Toolbar>
+      )}
 
       {/* HASIL POSTING */}
       {posted.length > 0 && (

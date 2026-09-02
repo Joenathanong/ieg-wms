@@ -242,6 +242,26 @@ export function needsReference(m: MovementType): boolean {
   return REFERENCE_REQUIRED_MOVEMENTS.includes(m);
 }
 
+/**
+ * SEMUA movement type yang memakai kode tampilan tertentu.
+ *
+ * Sebagian kode dipakai oleh lebih dari satu movement — 309 punya sisi keluar
+ * dan sisi masuk yang keduanya bernama "309", persis seperti di SAP. Menyaring
+ * laporan dengan parseMovement() saja hanya akan memunculkan salah satu
+ * sisinya, sehingga dokumen terlihat timpang: barang keluar tanpa ada yang
+ * masuk.
+ */
+export function movementsByCode(input: string): MovementType[] {
+  const digits = String(input ?? '').trim().toUpperCase().replace(/[^0-9]/g, '');
+  if (!digits) {
+    const direct = (Object.values(MovementType) as string[]).find(
+      (m) => m === String(input ?? '').trim().toUpperCase()
+    );
+    return direct ? [direct as MovementType] : [];
+  }
+  return (Object.keys(MOVEMENT_CODE) as MovementType[]).filter((m) => MOVEMENT_CODE[m] === digits);
+}
+
 /** Terima "101", "101_GR", "GR_101" -> MovementType */
 export function parseMovement(input: string): MovementType | null {
   const v = String(input ?? '').trim().toUpperCase();

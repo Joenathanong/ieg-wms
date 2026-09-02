@@ -13,6 +13,8 @@ interface Row {
   line_no: number;
   cost_center: string;
   movement_code: string;
+  /** arah stok: +1 menambah, -1 mengurangi, 0 netral — dihitung server */
+  sign: number;
   movement_type: string;
   movement_desc: string;
   reversal_of: string;
@@ -49,6 +51,7 @@ const MOVES = [
   { v: '552', l: '552 — Cancel Scrapping' },
   { v: '561', l: '561 — Initial Stock' },
   { v: '562', l: '562 — Cancel Initial Stock' },
+  { v: '309', l: '309 — Ubah Batch / Material (2 sisi)' },
   { v: '701', l: '701 — Phys. Inv. (+)' },
   { v: '702', l: '702 — Phys. Inv. (−)' },
   { v: '711', l: '711 — Cancel Phys. Inv. (+)' },
@@ -56,18 +59,14 @@ const MOVES = [
 ];
 
 /**
- * Arah pergerakan tiap movement, untuk menampilkan tanda + / − di laporan.
+ * Arah pergerakan dibaca dari kolom `sign` yang dikirim server.
  *
- * Wajib memuat SETIAP movement yang bisa muncul di MigoLog. Kode yang
- * tertinggal di sini tidak menghasilkan galat — angkanya hanya tampil tanpa
- * tanda, dan itu jauh lebih berbahaya daripada gagal terang-terangan: laporan
- * terlihat wajar sementara arah stoknya salah baca.
+ * Dulu di sini ada peta kode->tanda yang dipelihara terpisah, dan peta itu
+ * berkali-kali tertinggal saat movement baru ditambahkan — 601 pernah luput,
+ * dan 309 pasti luput karena kedua sisinya memakai kode tampilan yang SAMA
+ * sehingga satu baris peta tidak mungkin mewakili keduanya. Sumber kebenaran
+ * sekarang tunggal: MOVEMENT_SIGN di server.
  */
-const SIGN: Record<string, number> = {
-  '101': 1, '501': 1, '561': 1, '701': 1, '202': 1, '552': 1, '712': 1, '602': 1, '123': 1,
-  '201': -1, '601': -1, '122': -1, '551': -1, '702': -1, '102': -1, '502': -1, '562': -1, '711': -1,
-  '301': 0,
-};
 
 export default function Mb51Page() {
   const { setStatus } = useStatus();
@@ -156,7 +155,7 @@ export default function Mb51Page() {
       width: '58px',
       align: 'center',
       render: (r) => {
-        const s = SIGN[r.movement_code] ?? 0;
+        const s = r.sign ?? 0;
         const cls = s > 0 ? 'text-sap-oktext' : s < 0 ? 'text-sap-errtext' : 'text-sap-infotext';
         return <span className={`font-mono font-semibold ${cls}`}>{r.movement_code}</span>;
       },
@@ -202,10 +201,10 @@ export default function Mb51Page() {
       align: 'right',
       width: '90px',
       // nilai bertanda: movement pengurang & pembatalan (102/562/711/201/551/702) menjadi negatif
-      value: (r) => ((SIGN[r.movement_code] ?? 0) < 0 ? -r.qty : r.qty),
-      exportValue: (r) => ((SIGN[r.movement_code] ?? 0) < 0 ? -r.qty : r.qty),
+      value: (r) => ((r.sign ?? 0) < 0 ? -r.qty : r.qty),
+      exportValue: (r) => ((r.sign ?? 0) < 0 ? -r.qty : r.qty),
       render: (r) => {
-        const s = SIGN[r.movement_code] ?? 0;
+        const s = r.sign ?? 0;
         const cls = s > 0 ? 'text-sap-oktext' : s < 0 ? 'text-sap-errtext' : '';
         return (
           <span className={cls}>
