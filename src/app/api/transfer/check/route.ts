@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireUser, HttpError } from '@/lib/auth';
 import { handle, ok, cleanStr, normBatch } from '@/lib/api';
+import { TrStatus, TrType } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -89,10 +90,36 @@ export async function POST(req: NextRequest) {
 
       const src = await prisma.storageBin.findUnique({
         where: { bin_code: source_bin },
-        select: { bin_code: true, status: true },
+        select: { bin_code: true, status: true, is_interim: true },
       });
       if (!src) { bad(`Bin asal ${source_bin} tidak terdaftar (LS01N).`); continue; }
       if (src.status === 'BLOCKED') { bad(`Bin asal ${source_bin} berstatus BLOCKED.`); continue; }
+
+      /**
+       * Bin transit yang isinya masih ditunggu Transfer Requirement tidak boleh
+       * dikosongkan lewat transfer manual — aturan yang sama ditegakkan saat
+       * posting. Diperiksa di sini juga supaya baris yang bermasalah kelihatan
+       * SEMUANYA sekaligus, bukan satu per satu tiap kali posting gagal.
+       */
+      if (src.is_interim) {
+        const waiting = await prisma.transferReqItem.findFirst({
+          where: {
+            material_code,
+            batch_number: batch_number ?? null,
+            source_bin,
+            status: { in: [TrStatus.OPEN, TrStatus.PARTIAL] },
+            tr: { tr_type: TrType.PUTAWAY, status: { in: [TrStatus.OPEN, TrStatus.PARTIAL] } },
+          },
+          include: { tr: { select: { tr_number: true } } },
+        });
+        if (waiting) {
+          bad(
+            `Masih ditunggu ${waiting.tr.tr_number} — simpan ke rak lewat LB12 supaya baris TR-nya ` +
+              `ikut tertutup. Bila TR itu keliru, batalkan barisnya dulu di LB10.`
+          );
+          continue;
+        }
+      }
 
       const dst = await prisma.storageBin.findUnique({
         where: { bin_code: target_bin },

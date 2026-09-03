@@ -380,6 +380,37 @@ export interface TransferInput {
   via_pdt?: boolean;
 }
 
+/**
+ * Transfer Requirement put-away yang MASIH MENUNGGU barang ini di bin transit.
+ *
+ * Dipakai untuk menolak pemindahan manual keluar dari bin transit. Kejadian
+ * nyata yang melatarbelakanginya: barang put-away dipindahkan ke rak lewat
+ * LT01 alih-alih LB12, sehingga stoknya benar (sudah di rak) tetapi baris TR-nya
+ * tidak pernah tertutup. Antrean kerja LB10 lalu menyuruh petugas berikutnya
+ * mencari barang yang sudah tidak ada di sana, dan barisnya tidak bisa
+ * dikonfirmasi maupun dibatalkan.
+ *
+ * Mengembalikan nomor TR pertama yang menunggu, atau null bila tidak ada.
+ */
+export async function openPutawayTrFor(
+  tx: Prisma.TransactionClient,
+  args: { material_code: string; batch_number: string | null; source_bin: string }
+): Promise<{ tr_number: string; open_qty: number } | null> {
+  const item = await tx.transferReqItem.findFirst({
+    where: {
+      material_code: args.material_code,
+      batch_number: args.batch_number,
+      source_bin: args.source_bin,
+      status: { in: [TrStatus.OPEN, TrStatus.PARTIAL] },
+      tr: { tr_type: TrType.PUTAWAY, status: { in: [TrStatus.OPEN, TrStatus.PARTIAL] } },
+    },
+    include: { tr: { select: { tr_number: true } } },
+    orderBy: { line_no: 'asc' },
+  });
+  if (!item) return null;
+  return { tr_number: item.tr.tr_number, open_qty: item.qty - item.qty_confirmed };
+}
+
 export async function postBinTransfer(
   tx: Prisma.TransactionClient,
   input: TransferInput
@@ -393,8 +424,34 @@ export async function postBinTransfer(
   const batch = material.is_batch_managed ? (input.batch_number ?? null) : null;
   validateBatch(material.is_batch_managed, input.batch_number ?? null, material.material_code);
 
-  await getBinOrThrow(tx, input.source_bin);
+  const srcBin = await getBinOrThrow(tx, input.source_bin);
   await getBinOrThrow(tx, input.target_bin);
+
+  /**
+   * Mengosongkan bin transit secara manual DILARANG selama masih ada Transfer
+   * Requirement put-away yang menunggu barang itu.
+   *
+   * Yang membedakan sah dari tidak sah adalah `tr_number`: konfirmasi di LB12
+   * selalu menyebutkannya, transfer manual tidak pernah. Jadi pemeriksaan ini
+   * hanya menyentuh jalur manual dan tidak mungkin menghalangi put-away yang
+   * benar.
+   */
+  if (srcBin.is_interim && !input.tr_number) {
+    const waiting = await openPutawayTrFor(tx, {
+      material_code: material.material_code,
+      batch_number: batch,
+      source_bin: input.source_bin,
+    });
+    if (waiting)
+      throw new HttpError(
+        400,
+        `${material.material_code}${batch ? ` / batch ${batch}` : ''} di ${input.source_bin} ` +
+          `masih ditunggu Transfer Requirement ${waiting.tr_number} (${waiting.open_qty} belum dikonfirmasi). ` +
+          `Simpan ke rak lewat LB12 supaya baris TR-nya ikut tertutup — memindahkannya di sini ` +
+          `membuat antrean kerja menyuruh orang mencari barang yang sudah tidak ada. ` +
+          `Bila TR itu memang keliru, batalkan barisnya dulu di LB10.`
+      );
+  }
 
   const src = await tx.stockWM.findFirst({
     where: {
