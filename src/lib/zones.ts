@@ -62,6 +62,14 @@ export const ZONES: ZoneDef[] = [
     pick: true,
   },
 
+  /* ---------------- Penampung selisih penjualan ---------------- */
+  {
+    code: 'GK-GI',
+    label: 'Gudang Kecil — Penampung GI Penjualan',
+    binPattern: 'GI-PENJUALAN',
+    group: 'KECIL',
+  },
+
   /* ---------------- Transit / interim (alur 2-step) ---------------- */
   {
     code: 'TRANSIT-IN',
@@ -86,6 +94,18 @@ export const ZONES: ZoneDef[] = [
   { code: 'REJECT', label: 'Barang reject', binPattern: 'RJ-01', group: 'LAIN' },
   { code: 'QUARANTINE', label: 'Karantina / hold QC', binPattern: 'QC-01', group: 'LAIN' },
 ];
+
+/**
+ * Bin penampung GI penjualan untuk material yang BELUM punya Fix Bin di MM01.
+ *
+ * Semua kekurangannya dikumpulkan di satu tempat, bukan disebar ke rak acak:
+ * saldo minus di rak yang salah jauh lebih sulit ditelusuri daripada saldo
+ * minus di satu bin yang memang bernama apa adanya. Isinya juga langsung
+ * menjadi daftar kerja — setiap material yang muncul di sini berarti Fix
+ * Bin-nya belum diisi di MM01.
+ */
+export const SALES_GI_ZONE = 'GK-GI';
+export const SALES_GI_BIN = 'GI-PENJUALAN';
 
 export const ZONE_CODES = ZONES.map((z) => z.code);
 export const INTERIM_ZONES = ZONES.filter((z) => z.interim).map((z) => z.code);

@@ -24,6 +24,8 @@ export const TCODES: TCodeEntry[] = [
   { code: 'LI11N', title: 'Enter Physical Inventory Count', path: '/li11n', group: 'TRANSACTION' },
   { code: 'ZSO01', title: 'Opname Terkelola — Pilih Rak & Tugaskan Petugas', path: '/zso01', group: 'TRANSACTION', adminOnly: true, aliases: ['ZOPNAME', 'ZSO'] },
   { code: 'ZSO02', title: 'Opname — Monitor, Bandingkan Ronde & Tugaskan Ulang', path: '/zso02', group: 'TRANSACTION', adminOnly: true, aliases: ['ZSOMON'] },
+  { code: 'ZGI01', title: 'Upload Penjualan & Goods Issue (601)', path: '/zgi01', group: 'TRANSACTION', adminOnly: true, aliases: ['ZSALES', 'ZJUAL'] },
+  { code: 'ZGI02', title: 'Monitor Goods Issue Penjualan & Saldo Minus', path: '/zgi02', group: 'TRANSACTION', adminOnly: true, aliases: ['ZSALESLOG', 'ZGILOG'] },
 
   // ---------------- WAREHOUSE (level WM / bin) ----------------
   { code: 'LB10', title: 'Transfer Requirement List (Work Queue)', path: '/lb10', group: 'WAREHOUSE' },

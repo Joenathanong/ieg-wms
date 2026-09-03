@@ -417,6 +417,121 @@ model MigoLog {
   @@map("migo_logs")
 }
 
+// ---------------------------------------------------------------------
+// GOODS ISSUE PENJUALAN OTOMATIS (601)
+// ---------------------------------------------------------------------
+
+/// Status satu proses GI penjualan.
+enum SalesGiStatus {
+  /// baris sudah dimuat, belum diposting
+  PENDING
+  /// sedang diposting
+  RUNNING
+  /// seluruh baris berhasil
+  DONE
+  /// sebagian berhasil, sebagian gagal
+  PARTIAL
+  /// tidak ada satu pun baris yang berhasil
+  FAILED
+}
+
+/// Satu proses GI penjualan untuk SATU tanggal penjualan.
+///
+/// `sales_date` sengaja UNIK. Itulah pengaman utama terhadap posting ganda:
+/// job jam 1 pagi yang jalan dua kali, tombol "jalankan ulang" yang tertekan,
+/// atau upload backfill yang tanggalnya beririsan dengan proses otomatis —
+/// ketiganya ditolak oleh DATABASE, bukan oleh pemeriksaan di kode yang bisa
+/// terlewat saat dua proses berjalan bersamaan.
+///
+/// Proses yang GAGAL boleh dihapus lalu diulang; yang sudah DONE tidak.
+model SalesGiRun {
+  id              String        @id @default(uuid())
+  /// tanggal PENJUALAN, bukan tanggal proses
+  sales_date      DateTime      @db.Date
+  /// OCS (otomatis) | UPLOAD (ZGI01)
+  source          String        @default("UPLOAD") @db.VarChar(16)
+  status          SalesGiStatus @default(PENDING)
+  /// material document 601 yang terbit; null selama belum diposting
+  document_number String?
+  total_lines     Int           @default(0)
+  posted_lines    Int           @default(0)
+  failed_lines    Int           @default(0)
+  total_qty       Int           @default(0)
+  posted_qty      Int           @default(0)
+  /// jumlah qty yang terpaksa jadi minus karena stok Gudang Kecil tidak cukup
+  short_qty       Int           @default(0)
+  /// pesan kegagalan tingkat proses (bukan per baris)
+  error           String?       @db.VarChar(1000)
+  started_at      DateTime?
+  finished_at     DateTime?
+  /**
+   * Kunci pemrosesan.
+   *
+   * `sales_date` yang unik hanya mencegah tanggal yang sama DIMUAT dua kali;
+   * ia tidak mencegah dua proses menggarap run yang SAMA secara bersamaan —
+   * dua operator menekan Posting, cron berbarengan dengan posting manual, atau
+   * satu tombol terklik dua kali. Tanpa kunci ini keduanya membaca daftar
+   * baris tertunda yang sama dan mengeluarkan stok dua kali.
+   *
+   * Kunci kedaluwarsa sendiri setelah beberapa menit, sehingga proses yang
+   * mati di tengah tidak mengunci tanggal itu selamanya.
+   */
+  locked_at       DateTime?
+  locked_by       String?
+  created_by      String
+  created_at      DateTime      @default(now())
+
+  items SalesGiItem[]
+
+  @@unique([sales_date])
+  @@index([status])
+  @@index([created_at])
+  @@map("sales_gi_runs")
+}
+
+/// Satu material dalam proses GI penjualan.
+///
+/// Baris pesanan dari OCS DIJUMLAHKAN per material sebelum disimpan. Satu hari
+/// bisa berisi ribuan baris pesanan tetapi hanya beberapa ratus material, dan
+/// yang dibutuhkan gudang adalah "berapa yang keluar", bukan "pesanan mana".
+/// Rincian pesanannya tetap ada di OCS.
+model SalesGiItem {
+  id            String     @id @default(uuid())
+  run_id        String
+  run           SalesGiRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
+  line_no       Int
+  /// kode SKU APA ADANYA dari sumber — disimpan supaya baris yang tidak
+  /// dikenali tetap bisa ditelusuri ke file/laporan asalnya
+  sku           String     @db.VarChar(64)
+  /// hasil penerjemahan ke master (lewat material_code, kode_ocs, atau alias)
+  material_code String?
+  qty           Int
+  /// jumlah pesanan yang dijumlahkan menjadi baris ini
+  order_count   Int        @default(0)
+  /**
+   * PENDING (belum diproses) | POSTING (sedang digarap) | OK | ERROR
+   *
+   * POSTING hanya hidup di dalam satu transaksi: baris diklaim, stoknya
+   * diposting, lalu ditandai OK — semuanya sekali jalan. Bila transaksinya
+   * batal, statusnya kembali PENDING dengan sendirinya. Klaim itulah yang
+   * membuat dua proses bersamaan tidak mungkin menggarap baris yang sama:
+   * yang kedua menunggu, lalu melihat baris itu sudah OK dan melewatinya.
+   */
+  status        String     @default("PENDING") @db.VarChar(16)
+  message       String?    @db.VarChar(255)
+  /// rincian pengambilan, mis. "GK-PICK-B-03/F26021:60, GK-PICK-B-03/E26307:-40"
+  picked        String?    @db.VarChar(500)
+  /// qty yang tidak tertutup stok dan menjadi minus
+  short_qty     Int        @default(0)
+
+  @@unique([run_id, line_no])
+  @@index([run_id])
+  @@index([run_id, status])
+  @@index([sku])
+  @@index([material_code])
+  @@map("sales_gi_items")
+}
+
 /// Penomoran dokumen ala SAP (number range object)
 model DocumentCounter {
   id       String @id @default(uuid())

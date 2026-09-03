@@ -25,6 +25,8 @@ import {
   ShieldCheck,
   Wallet,
   Copy,
+  ShoppingCart,
+  Activity,
 } from 'lucide-react';
 
 interface Item {
@@ -45,6 +47,8 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { code: 'LI11N', label: 'Enter Count / Post Diff', href: '/li11n', Icon: ClipboardList },
       { code: 'ZSO01', label: 'Opname Terkelola', href: '/zso01', Icon: ClipboardList, adminOnly: true },
       { code: 'ZSO02', label: 'Opname — Monitor Ronde', href: '/zso02', Icon: ClipboardList, adminOnly: true },
+      { code: 'ZGI01', label: 'Upload Penjualan (GI 601)', href: '/zgi01', Icon: ShoppingCart, adminOnly: true },
+      { code: 'ZGI02', label: 'Monitor GI Penjualan', href: '/zgi02', Icon: Activity, adminOnly: true },
     ],
   },
   {

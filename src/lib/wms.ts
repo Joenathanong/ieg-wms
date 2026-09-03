@@ -125,12 +125,23 @@ export async function getInterimBin(
 export async function applyStockIM(
   tx: Prisma.TransactionClient,
   material_code: string,
-  delta: number
+  delta: number,
+  /**
+   * Sama seperti applyStockWM: izin saldo negatif diberikan PER PEMANGGILAN,
+   * bukan lewat pengaturan global.
+   *
+   * Dipakai GI penjualan. Bila stok level bin sudah boleh minus tetapi level
+   * IM tidak, keduanya bisa berbeda saat material itu tidak punya stok di mana
+   * pun — dan MB52 akan menampilkan angka yang tidak sama dengan jumlah LX02.
+   * Dua laporan yang saling bertentangan lebih buruk daripada satu angka minus
+   * yang jujur.
+   */
+  opts?: { allowNegative?: boolean }
 ) {
   if (delta === 0) return;
   const current = await tx.stockIM.findUnique({ where: { material_code } });
   const newQty = (current?.total_qty ?? 0) + delta;
-  if (newQty < 0)
+  if (newQty < 0 && !opts?.allowNegative)
     throw new HttpError(
       400,
       `Deficiency of stock (IM): material ${material_code} only has ${current?.total_qty ?? 0} available.`
@@ -156,7 +167,22 @@ export async function applyStockWM(
   tx: Prisma.TransactionClient,
   key: QuantKey,
   delta: number,
-  dates?: { mfg_date?: Date | null; exp_date?: Date | null; gr_date?: Date | null }
+  dates?: { mfg_date?: Date | null; exp_date?: Date | null; gr_date?: Date | null },
+  /**
+   * IZIN saldo negatif — sengaja opsi terpisah, bukan pengaturan sistem.
+   *
+   * Penolakan saldo negatif adalah pengaman terpenting di seluruh mesin stok:
+   * ia menahan salah ketik di MIGO, transfer dari rak kosong, dan posting
+   * opname yang melebihi isi rak. Membukanya lewat setting global akan
+   * melepaskan pengaman itu di SEMUA jalur sekaligus.
+   *
+   * Satu-satunya pemakai sah saat ini adalah GI penjualan ke Gudang Kecil,
+   * di mana saldo minus memang bermakna: "replenishment dari Gudang Besar
+   * terlewat sebanyak ini". Pemanggil harus menyebutkannya secara eksplisit
+   * per pemanggilan, sehingga setiap tempat yang mengizinkannya terlihat saat
+   * membaca kode.
+   */
+  opts?: { allowNegative?: boolean }
 ) {
   if (delta === 0) return;
 
@@ -170,7 +196,7 @@ export async function applyStockWM(
 
   const newQty = (existing?.qty ?? 0) + delta;
 
-  if (newQty < 0) {
+  if (newQty < 0 && !opts?.allowNegative) {
     throw new HttpError(
       400,
       `Deficiency of stock in bin ${key.bin_code}` +
@@ -192,7 +218,9 @@ export async function applyStockWM(
       },
     });
   } else if (newQty === 0) {
-    // quant habis -> hapus (sesuai perilaku SAP: quant di-delete saat nol)
+    // quant habis -> hapus (sesuai perilaku SAP: quant di-delete saat nol).
+    // Ini pula yang membuat saldo minus "impas" hilang dengan sendirinya
+    // begitu replenishment menutupinya: -100 + 100 = 0 -> barisnya lenyap.
     await tx.stockWM.delete({ where: { id: existing.id } });
   } else {
     await tx.stockWM.update({
@@ -219,7 +247,15 @@ export async function refreshBinStatus(tx: Prisma.TransactionClient, bin_code: s
     _sum: { qty: true },
   });
   const total = agg._sum.qty ?? 0;
-  const next = total > 0 ? BinStatus.OCCUPIED : BinStatus.EMPTY;
+  /**
+   * Saldo NEGATIF bukan bin kosong.
+   *
+   * Sejak GI penjualan boleh membuat Gudang Kecil minus, `total <= 0` tidak
+   * lagi berarti "tidak ada apa-apa di sini". Bin bersaldo -100 yang ditandai
+   * EMPTY akan ditawarkan sebagai ruang kosong oleh saran put-away — padahal
+   * yang ada di sana adalah utang, bukan tempat.
+   */
+  const next = total !== 0 ? BinStatus.OCCUPIED : BinStatus.EMPTY;
   if (next !== bin.status) {
     await tx.storageBin.update({ where: { bin_code }, data: { status: next } });
   }
