@@ -17,6 +17,18 @@ export const maxDuration = 60;
  *             kolom B-POM dan kolom produk, karena lookup scan mencocokkan ke
  *             keduanya: barcode B-POM material A yang sama dengan barcode produk
  *             material B sudah cukup membuat scan menjadi ambigu.
+ *   MIRIP   — deskripsi yang HAMPIR sama: beda spasi ganda, tanda hubung, titik,
+ *             atau garis bawah. Ini BUKAN daftar untuk digabung.
+ *
+ *             GI penjualan, perluasan cakupan opname, dan reklasifikasi 309
+ *             semuanya mengelompokkan SKU lewat deskripsi yang SAMA PERSIS. SKU
+ *             kembar yang deskripsinya beda satu spasi karena itu tidak akan
+ *             pernah masuk satu kelompok — penjualannya tidak digabung FEFO,
+ *             dan selisih opname-nya terbaca sebagai temuan sungguhan.
+ *
+ *             Yang membuatnya berbahaya adalah diamnya: tidak ada error, tidak
+ *             ada yang gagal, semuanya hanya bekerja seolah keduanya barang
+ *             yang berbeda. Daftar ini satu-satunya tempat hal itu terlihat.
  *
  * Seluruh master dibaca sekali lalu dikelompokkan di memori, bukan lewat
  * beberapa query GROUP BY. Jumlah SKU di sini ribuan, bukan jutaan, dan
@@ -46,7 +58,7 @@ interface Member {
 }
 
 interface Group {
-  kind: 'NAMA' | 'BARCODE';
+  kind: 'NAMA' | 'BARCODE' | 'MIRIP';
   /** nilai yang membuat mereka bertemu — deskripsi atau barcode */
   key: string;
   members: Member[];
@@ -58,7 +70,7 @@ export async function GET(req: NextRequest) {
   return handle(async () => {
     await requireUser();
     const q = cleanStr(req.nextUrl.searchParams.get('q')).toUpperCase();
-    /** 'NAMA' | 'BARCODE' | '' (semua) */
+    /** 'NAMA' | 'BARCODE' | 'MIRIP' | '' (semua) */
     const kind = cleanStr(req.nextUrl.searchParams.get('kind')).toUpperCase();
 
     // Material yang sudah ditutup sengaja tidak ikut: ia memang hasil
@@ -84,13 +96,30 @@ export async function GET(req: NextRequest) {
     /* ---------------- kelompokkan ---------------- */
     const byName = new Map<string, string[]>();
     const byBarcode = new Map<string, Set<string>>();
+    /** deskripsi tanpa spasi & tanda baca -> kode material */
+    const byNorm = new Map<string, string[]>();
+    /** kode material -> deskripsi apa adanya (rapi) */
+    const descOf = new Map<string, string>();
+
+    // Hanya karakter huruf dan angka yang dipertahankan. Yang dicari di sini
+    // adalah deskripsi yang MAKSUDNYA sama tetapi penulisannya berbeda, dan
+    // perbedaan itu selalu berupa pemisah: spasi ganda, tanda hubung, titik.
+    const norm = (t: string) => t.toUpperCase().replace(/[^A-Z0-9]+/g, '');
 
     for (const m of all) {
       const name = m.description.trim().toUpperCase();
+      descOf.set(m.material_code, name);
       if (name) {
         const list = byName.get(name) ?? [];
         list.push(m.material_code);
         byName.set(name, list);
+
+        const nk = norm(name);
+        if (nk) {
+          const nlist = byNorm.get(nk) ?? [];
+          nlist.push(m.material_code);
+          byNorm.set(nk, nlist);
+        }
       }
       for (const bc of [m.barcode_bpom, m.barcode_produk]) {
         const v = (bc ?? '').trim().toUpperCase();
@@ -104,13 +133,36 @@ export async function GET(req: NextRequest) {
     const nameGroups = [...byName.entries()].filter(([, codes]) => codes.length > 1);
     const barcodeGroups = [...byBarcode.entries()].filter(([, codes]) => codes.size > 1);
 
+    /**
+     * MIRIP hanya berisi yang penulisannya BERBEDA. Kelompok yang seluruh
+     * anggotanya sudah bertuliskan sama persis bukan masalah — itu justru
+     * kelompok yang bekerja dengan benar, dan sudah terdaftar sebagai NAMA.
+     */
+    const miripGroups = [...byNorm.entries()]
+      .filter(([, codes]) => codes.length > 1)
+      .map(([, codes]) => {
+        const raws = [...new Set(codes.map((c) => descOf.get(c) ?? ''))];
+        return { raws, codes };
+      })
+      .filter((g) => g.raws.length > 1);
+
     const wantName = !kind || kind === 'NAMA';
     const wantBarcode = !kind || kind === 'BARCODE';
+    const wantMirip = !kind || kind === 'MIRIP';
 
-    const rawGroups: { kind: 'NAMA' | 'BARCODE'; key: string; codes: string[] }[] = [
+    const rawGroups: { kind: 'NAMA' | 'BARCODE' | 'MIRIP'; key: string; codes: string[] }[] = [
       ...(wantName ? nameGroups.map(([key, codes]) => ({ kind: 'NAMA' as const, key, codes })) : []),
       ...(wantBarcode
         ? barcodeGroups.map(([key, codes]) => ({ kind: 'BARCODE' as const, key, codes: [...codes] }))
+        : []),
+      ...(wantMirip
+        ? miripGroups.map((g) => ({
+            kind: 'MIRIP' as const,
+            // Kuncinya sengaja menampilkan kedua penulisannya berdampingan —
+            // itulah satu-satunya yang perlu dilihat orang di baris ini.
+            key: g.raws.join('  ≠  '),
+            codes: g.codes,
+          }))
         : []),
     ];
 
@@ -196,10 +248,16 @@ export async function GET(req: NextRequest) {
     groups.sort((a, b) => a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key));
 
     const skuCount = new Set(groups.flatMap((g) => g.members.map((m) => m.material_code))).size;
+    const mirip = groups.filter((g) => g.kind === 'MIRIP').length;
 
     return ok(
       { groups, total_groups: groups.length },
-      `${groups.length} kelompok kembar ditemukan, melibatkan ${skuCount} kode SKU.`
+      `${groups.length} kelompok kembar ditemukan, melibatkan ${skuCount} kode SKU.` +
+        (mirip > 0
+          ? ` ${mirip} di antaranya MIRIP — deskripsinya nyaris sama tetapi tidak persis, sehingga ` +
+            `SKU-nya TIDAK ikut dikelompokkan di GI penjualan maupun opname. Seragamkan penulisannya ` +
+            `di MM01; tidak perlu digabung.`
+          : '')
     );
   });
 }

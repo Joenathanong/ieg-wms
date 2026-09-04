@@ -138,6 +138,59 @@ export default function ZrfCountPage() {
   const binStat = doc?.bins.find((b) => b.bin_code === binCode) ?? null;
   const inScope = !!doc && doc.frozen_bins.includes(binCode);
 
+  /**
+   * SATU KARTU UNTUK SKU YANG TIDAK BISA DIBEDAKAN
+   * ===========================================================================
+   *
+   * Beberapa SKU sengaja dipelihara dengan deskripsi yang sama. Pada barang
+   * lepas, petugas tidak punya cara apa pun untuk tahu botol di tangannya milik
+   * SKU yang mana — yang tertempel hanya barcode produk / QR B-POM, dan itu
+   * cuma menunjuk SKU yang kebetulan memegang barcode tersebut.
+   *
+   * Tanpa penggabungan ini, layar menampilkan DUA KARTU BERISI DESKRIPSI YANG
+   * SAMA PERSIS dan petugas harus membagi hitungannya di antara keduanya. Yang
+   * rusak bukan angkanya — reklasifikasi 309 saat posting sudah merapikan
+   * bukunya — melainkan KESEPAKATANNYA: konsensus dihitung per (rak, material,
+   * batch), jadi ronde 1 yang menaruh 140 di SKU-A dan ronde 2 yang menaruh 140
+   * di SKU-B tidak pernah menghasilkan satu baris pun dengan tiga suara. Ketiga
+   * orang menghitung angka yang sama, tetapi dokumennya terkunci UNRESOLVED.
+   *
+   * Karena itu SISTEM yang memilih SKU-nya, bukan petugas, dan pilihannya sama
+   * di setiap ronde: buku terbesar, seri diputus kode material. Angka masuk ke
+   * SKU itu, anggota lain nol, dan 309 saat posting memindahkan bukunya.
+   */
+  interface CountGroup {
+    key: string;
+    anchor: Item;
+    members: Item[];
+    book_qty: number;
+    grouped: boolean;
+  }
+
+  const binGroups: CountGroup[] = (() => {
+    const map = new Map<string, Item[]>();
+    for (const i of binItems) {
+      const k = `${i.batch_number ?? ''}|${(i.description ?? '').trim().toUpperCase()}`;
+      const arr = map.get(k);
+      if (arr) arr.push(i);
+      else map.set(k, [i]);
+    }
+    return [...map.entries()].map(([key, members]) => {
+      // book_qty adalah snapshot saat freeze — nilainya sama di semua ronde,
+      // jadi jangkarnya pasti sama pula. Itu syaratnya, bukan kebetulan.
+      const sorted = [...members].sort(
+        (a, b) => b.book_qty - a.book_qty || (a.material_code < b.material_code ? -1 : 1)
+      );
+      return {
+        key,
+        anchor: sorted[0],
+        members: sorted,
+        book_qty: members.reduce((t, m) => t + m.book_qty, 0),
+        grouped: members.length > 1,
+      };
+    });
+  })();
+
   const outOfScopeHere = doc?.out_of_scope.find((o) => o.bin_code === binCode)?.materials ?? 0;
 
   const outstanding = doc ? doc.bins.filter((b) => b.counted_at === null) : [];
@@ -147,16 +200,40 @@ export default function ZrfCountPage() {
   async function submit(markEmpty = false) {
     if (!doc || !inScope) return;
 
-    const items: Record<string, unknown>[] = binItems
-      .filter((i) => markEmpty || (counts[i.id] !== undefined && counts[i.id] !== ''))
-      .map((i) => ({
-        id: i.id,
-        bin_code: i.bin_code,
-        material_code: i.material_code,
-        batch_number: i.batch_number,
-        counted_qty: markEmpty ? 0 : Number(counts[i.id]),
-        ...(swapMark[i.id] ? { swap_group: swapMark[i.id] } : {}),
-      }));
+    const items: Record<string, unknown>[] = [];
+    for (const g of binGroups) {
+      const raw = counts[g.anchor.id];
+      const filled = raw !== undefined && raw !== '';
+      if (!markEmpty && !filled) continue;
+
+      items.push({
+        id: g.anchor.id,
+        bin_code: g.anchor.bin_code,
+        material_code: g.anchor.material_code,
+        batch_number: g.anchor.batch_number,
+        counted_qty: markEmpty ? 0 : Number(raw),
+        ...(swapMark[g.anchor.id] ? { swap_group: swapMark[g.anchor.id] } : {}),
+      });
+
+      /**
+       * Anggota lain dikirim NOL, bukan dibiarkan kosong.
+       *
+       * Baris yang tidak dikirim dianggap belum dihitung, dan baris yang belum
+       * dihitung tidak akan pernah menghasilkan selisih negatif untuk
+       * dipasangkan — reklasifikasi 309-nya kehilangan lawan, dan seluruh angka
+       * di SKU jangkar terbaca sebagai selisih lebih yang sesungguhnya.
+       */
+      for (const m of g.members) {
+        if (m.id === g.anchor.id) continue;
+        items.push({
+          id: m.id,
+          bin_code: m.bin_code,
+          material_code: m.material_code,
+          batch_number: m.batch_number,
+          counted_qty: 0,
+        });
+      }
+    }
 
     if (!markEmpty) {
       for (const e of extras) {
@@ -235,6 +312,16 @@ export default function ZrfCountPage() {
     if (!v) return;
     const rs = await resolveScan(v);
     if (!rs.ok) return setMsg({ text: rs.message ?? 'Barcode tidak dikenal', type: 'E' });
+
+    /**
+     * Barcode item tidak bisa membedakan SKU yang deskripsinya sama, dan
+     * hasilnya jatuh seluruhnya ke SKU yang kebetulan memegang barcode itu.
+     * Petugas diberi tahu SEKARANG, saat kartonnya masih di tangan dan kode
+     * master box masih bisa discan — setelah barisnya tersimpan, tidak ada lagi
+     * yang menunjukkan bahwa angkanya bisa jatuh ke SKU yang keliru.
+     */
+    if (rs.twins && rs.twins.length > 0) setMsg({ text: rs.message ?? '', type: 'W' });
+
     setExtras((s) =>
       s.map((e) =>
         e.key === key
@@ -382,44 +469,73 @@ export default function ZrfCountPage() {
           )}
 
           <div className="space-y-2 max-h-[34dvh] overflow-auto">
-            {binItems.map((it) => (
-              <div key={it.id} className="rounded-sappanel border border-sap-border bg-sap-panelalt px-3 py-2 space-y-1.5">
-                <p className="font-mono text-sm text-sap-blue">{it.material_code}</p>
-                <p className="text-2xs text-sap-text truncate">{it.description}</p>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xxs text-sap-muted font-mono min-w-0 truncate">
-                    {it.batch_number || 'no batch'}
-                    {doc.blind_book ? ' · buta' : ` · book ${it.book_qty} ${it.uom}`}
-                    {it.counted_qty !== null ? ` · tercatat ${it.counted_qty}` : ''}
-                  </p>
-                  {!it.posted && !swapMark[it.id] && (
-                    <button
-                      type="button"
-                      onClick={() => swapBatch(it)}
-                      title="Barangnya ada, tapi batch-nya berbeda dari catatan"
-                      className="sap-btn !py-[3px] !px-2 text-xxs shrink-0"
-                    >
-                      <Replace size={12} /> Ganti batch
-                    </button>
+            {binGroups.map((g) => {
+              const it = g.anchor;
+              return (
+                <div
+                  key={g.key}
+                  className={`rounded-sappanel border px-3 py-2 space-y-1.5 ${
+                    g.grouped
+                      ? 'border-sap-infoborder bg-sap-infobg/30'
+                      : 'border-sap-border bg-sap-panelalt'
+                  }`}
+                >
+                  <p className="font-mono text-sm text-sap-blue">{it.material_code}</p>
+                  <p className="text-2xs text-sap-text truncate">{it.description}</p>
+
+                  {g.grouped && (
+                    <p className="text-xxs text-sap-infotext leading-snug">
+                      {g.members.length} SKU berdeskripsi sama digabung jadi satu hitungan (
+                      {g.members.map((m) => m.material_code).join(', ')}). Hitung SELURUH barang
+                      dengan deskripsi ini di rak — jangan dipisah per kode, karena pada barang
+                      lepas kodenya memang tidak bisa dibedakan. Sistem yang membagi bukunya.
+                    </p>
                   )}
-                  {swapMark[it.id] && (
-                    <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext shrink-0">
-                      diganti
-                    </span>
-                  )}
+
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xxs text-sap-muted font-mono min-w-0 truncate">
+                      {it.batch_number || 'no batch'}
+                      {doc.blind_book ? ' · buta' : ` · book ${g.book_qty} ${it.uom}`}
+                      {it.counted_qty !== null ? ` · tercatat ${it.counted_qty}` : ''}
+                    </p>
+                    {/*
+                      Ganti batch sengaja TIDAK ditawarkan untuk kartu gabungan.
+                      Reklasifikasi SKU memasangkan selisih pada batch yang sama;
+                      bila jangkarnya pindah ke batch baru sementara kembarannya
+                      ternol di batch lama, pasangannya tidak ketemu dan keduanya
+                      terbaca sebagai selisih stok sungguhan. Batch yang keliru
+                      pada SKU sekelompok dibetulkan setelah posting lewat MIGO
+                      Ubah Batch.
+                    */}
+                    {!g.grouped && !it.posted && !swapMark[it.id] && (
+                      <button
+                        type="button"
+                        onClick={() => swapBatch(it)}
+                        title="Barangnya ada, tapi batch-nya berbeda dari catatan"
+                        className="sap-btn !py-[3px] !px-2 text-xxs shrink-0"
+                      >
+                        <Replace size={12} /> Ganti batch
+                      </button>
+                    )}
+                    {swapMark[it.id] && (
+                      <span className="sap-badge border-sap-infoborder bg-sap-infobg text-sap-infotext shrink-0">
+                        diganti
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder={g.grouped ? 'Qty fisik (semua SKU)' : 'Qty fisik'}
+                    disabled={it.posted}
+                    value={counts[it.id] ?? ''}
+                    onChange={(e) => setCounts((s) => ({ ...s, [it.id]: e.target.value }))}
+                    className="w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
+                               rounded-sappanel px-3 py-2 text-base font-mono text-right"
+                  />
                 </div>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="Qty fisik"
-                  disabled={it.posted}
-                  value={counts[it.id] ?? ''}
-                  onChange={(e) => setCounts((s) => ({ ...s, [it.id]: e.target.value }))}
-                  className="w-full bg-sap-cmd border-2 border-sap-border focus:border-sap-blue outline-none
-                             rounded-sappanel px-3 py-2 text-base font-mono text-right"
-                />
-              </div>
-            ))}
+              );
+            })}
 
             {/* baris temuan — material yang tidak ada di snapshot (pallet campur) */}
             {extras.map((e) => (

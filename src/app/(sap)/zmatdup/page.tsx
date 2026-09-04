@@ -56,7 +56,7 @@ interface Member {
 }
 
 interface Group {
-  kind: 'NAMA' | 'BARCODE';
+  kind: 'NAMA' | 'BARCODE' | 'MIRIP';
   key: string;
   members: Member[];
   suggested_primary: string;
@@ -245,6 +245,7 @@ export default function ZmatdupPage() {
               <option value="">Semua</option>
               <option value="NAMA">Nama produk sama</option>
               <option value="BARCODE">Barcode sama</option>
+              <option value="MIRIP">Deskripsi mirip (beda penulisan)</option>
             </Select>
           </Field>
           <ActionField>
@@ -291,14 +292,30 @@ export default function ZmatdupPage() {
                       className={`sap-badge ${
                         g.kind === 'NAMA'
                           ? 'border-sap-warnborder bg-sap-warnbg text-sap-warntext'
-                          : 'border-sap-errborder bg-sap-errbg text-sap-errtext'
+                          : g.kind === 'MIRIP'
+                            ? 'border-sap-infoborder bg-sap-infobg text-sap-infotext'
+                            : 'border-sap-errborder bg-sap-errbg text-sap-errtext'
                       }`}
                     >
-                      {g.kind === 'NAMA' ? 'NAMA SAMA' : 'BARCODE SAMA'}
+                      {g.kind === 'NAMA'
+                        ? 'NAMA SAMA'
+                        : g.kind === 'MIRIP'
+                          ? 'DESKRIPSI MIRIP'
+                          : 'BARCODE SAMA'}
                     </span>
                     <span className="text-2xs font-medium">{g.key}</span>
                     <span className="text-xxs text-sap-muted">{g.members.length} kode</span>
                   </div>
+
+                  {g.kind === 'MIRIP' && (
+                    <p className="text-xxs text-sap-infotext leading-snug">
+                      Penulisannya berbeda, jadi WMS memperlakukan SKU ini sebagai barang yang
+                      berbeda: penjualannya tidak digabung FEFO, dan selisih opname-nya terbaca
+                      sebagai temuan sungguhan, bukan SKU yang tertukar.{' '}
+                      <b>Jangan digabung dari sini</b> — cukup seragamkan penulisan deskripsinya di
+                      MM01, dan pengelompokannya berjalan sendiri.
+                    </p>
+                  )}
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-2xs">
@@ -383,13 +400,21 @@ export default function ZmatdupPage() {
 
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xxs text-sap-muted">
-                      {chosen.length === 0
-                        ? 'Centang kode yang akan digabung ke kode utama.'
-                        : `${chosen.join(', ')} → ${primaryCode}`}
+                      {g.kind === 'MIRIP'
+                        ? 'Kelompok MIRIP tidak untuk digabung — betulkan penulisan deskripsinya di MM01.'
+                        : chosen.length === 0
+                          ? 'Centang kode yang akan digabung ke kode utama.'
+                          : `${chosen.join(', ')} → ${primaryCode}`}
                     </span>
+                    {/*
+                      Penggabungan sengaja ditutup untuk kelompok MIRIP.
+                      Deskripsi yang penulisannya berbeda belum tentu barang yang
+                      sama — kemiripan tulisan bukan bukti, dan menggabungkan atas
+                      dasar itu memindahkan stok sungguhan berdasarkan tebakan.
+                    */}
                     <Button
                       className="ml-auto"
-                      disabled={chosen.length !== 1 || planning}
+                      disabled={g.kind === 'MIRIP' || chosen.length !== 1 || planning}
                       loading={planning}
                       onClick={() => preview(chosen[0], primaryCode)}
                     >

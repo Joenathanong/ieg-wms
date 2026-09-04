@@ -137,6 +137,20 @@ async function resolveSalesBin(
   };
 }
 
+/** Bin milik zona Gudang Besar — sumber replenishment. */
+async function besarBinCodes(tx: Prisma.TransactionClient): Promise<string[]> {
+  const zones = await tx.zone.findMany({
+    where: { zone_group: 'BESAR' },
+    select: { zone_code: true },
+  });
+  if (zones.length === 0) return [];
+  const bins = await tx.storageBin.findMany({
+    where: { zone_id: { in: zones.map((z) => z.zone_code) }, is_interim: false },
+    select: { bin_code: true },
+  });
+  return bins.map((b) => b.bin_code);
+}
+
 /**
  * Batch yang paling mungkin dipakai saat replenishment berikutnya: FEFO dari
  * Gudang Besar. Null bila material itu tidak punya stok di mana pun.
@@ -146,116 +160,255 @@ async function guessReplenishBatch(
   material_code: string,
   excludeBin: string
 ): Promise<string | null> {
-  const besarZones = await tx.zone.findMany({
-    where: { zone_group: 'BESAR' },
-    select: { zone_code: true },
-  });
-  const codes = besarZones.map((z) => z.zone_code);
-
-  const binsBesar = codes.length
-    ? await tx.storageBin.findMany({
-        where: { zone_id: { in: codes }, is_interim: false },
-        select: { bin_code: true },
-      })
-    : [];
+  const binsBesar = await besarBinCodes(tx);
 
   if (binsBesar.length > 0) {
-    const q = await tx.stockWM.findFirst({
-      where: {
-        material_code,
-        bin_code: { in: binsBesar.map((b) => b.bin_code) },
-        qty: { gt: 0 },
-      },
-      orderBy: [{ exp_date: 'asc' }, { qty: 'asc' }],
-      select: { batch_number: true },
+    const qs = await tx.stockWM.findMany({
+      where: { material_code, bin_code: { in: binsBesar }, qty: { gt: 0 } },
+      select: { batch_number: true, exp_date: true, qty: true },
     });
-    if (q?.batch_number) return q.batch_number;
+    const first = fefoSort(qs)[0];
+    if (first?.batch_number) return first.batch_number;
   }
 
   // Tidak ada di Gudang Besar — pakai batch mana pun yang masih hidup, supaya
   // saldo minusnya tetap punya identitas yang bisa dicocokkan nanti.
-  const any = await tx.stockWM.findFirst({
+  const any = await tx.stockWM.findMany({
     where: { material_code, qty: { gt: 0 }, bin_code: { not: excludeBin } },
-    orderBy: [{ exp_date: 'asc' }, { qty: 'asc' }],
-    select: { batch_number: true },
+    select: { batch_number: true, exp_date: true, qty: true },
   });
-  return any?.batch_number ?? null;
+  return fefoSort(any)[0]?.batch_number ?? null;
 }
 
-export interface SkuResolution {
-  material_code: string | null;
+/**
+ * URUTAN FEFO — diurutkan di memori, bukan di database.
+ * =============================================================================
+ *
+ * MySQL/TiDB menaruh NULL PALING DEPAN pada `ORDER BY x ASC`. Artinya
+ * `orderBy: { exp_date: 'asc' }` — yang dipakai kode ini sebelumnya — selalu
+ * mengambil stok TANPA tanggal kedaluwarsa lebih dulu, mendahului barang yang
+ * jelas-jelas akan kedaluwarsa bulan depan. Itu kebalikan dari FEFO, dan tidak
+ * terlihat sama sekali dari luar.
+ *
+ * Stok tanpa tanggal diambil PALING AKHIR: tanggalnya tidak diketahui, jadi
+ * tidak ada dasar untuk mendahulukannya — sekaligus membuatnya menonjol sebagai
+ * master yang perlu dilengkapi, bukan diam-diam terpakai duluan.
+ *
+ * Urutan lengkapnya: ada-tanggal dulu (ED terdekat), lalu quant terkecil supaya
+ * pecahan cepat habis, lalu kode material dan batch sebagai pemutus supaya dua
+ * kali jalan menghasilkan urutan yang sama persis.
+ */
+function fefoSort<T extends { exp_date: Date | null; qty: number; material_code?: string; batch_number: string | null }>(
+  rows: T[]
+): T[] {
+  return [...rows].sort((a, b) => {
+    const an = a.exp_date === null;
+    const bn = b.exp_date === null;
+    if (an !== bn) return an ? 1 : -1;
+    if (a.exp_date && b.exp_date && a.exp_date.getTime() !== b.exp_date.getTime())
+      return a.exp_date.getTime() - b.exp_date.getTime();
+    if (a.qty !== b.qty) return a.qty - b.qty;
+    const am = a.material_code ?? '';
+    const bm = b.material_code ?? '';
+    if (am !== bm) return am < bm ? -1 : 1;
+    const ab = a.batch_number ?? '';
+    const bb = b.batch_number ?? '';
+    return ab < bb ? -1 : ab > bb ? 1 : 0;
+  });
+}
+
+/** Kolom material yang dibutuhkan alur GI penjualan. */
+const MATERIAL_PICK = {
+  material_code: true,
+  description: true,
+  uom: true,
+  is_batch_managed: true,
+  fix_bin: true,
+  barcode_bpom: true,
+  barcode_produk: true,
+} as const;
+
+export type SalesMaterial = {
+  material_code: string;
+  description: string;
+  uom: string;
+  is_batch_managed: boolean;
+  fix_bin: string | null;
+  barcode_bpom: string | null;
+  barcode_produk: string | null;
+};
+
+export interface SalesGroup {
+  /** semua material yang dianggap satu barang untuk keperluan penjualan */
+  members: SalesMaterial[];
   /** cara SKU itu dikenali — ditampilkan di log supaya bisa ditelusuri */
   matched_by: 'MATERIAL' | 'ALIAS' | 'DESCRIPTION' | 'KODE_OCS' | null;
   error: string | null;
 }
 
 /**
- * Terjemahkan SKU dari sumber penjualan menjadi kode material WMS.
+ * Terjemahkan SKU dari sumber penjualan menjadi SATU ATAU BEBERAPA material.
+ * =============================================================================
  *
- * URUTANNYA PENTING, dari yang paling pasti ke yang paling longgar:
+ * OCS memelihara beberapa SKU untuk barang yang sama. Barcode master box-nya
+ * berbeda (dan kadang barcode produk serta POM NA-nya juga), tetapi
+ * deskripsinya satu — dan deskripsi itulah satu-satunya kunci yang dikirim
+ * bersama data penjualan. Itu bukan master yang kotor, melainkan bentuk master
+ * yang memang dipelihara begitu; WMS tidak boleh memaksa penggabungannya.
  *
- *   1. kode material / alias — identitas yang memang dirancang unik;
- *   2. DESKRIPSI material — di OCS, "kode SKU" yang dipakai adalah deskripsi
- *      material di WMS;
+ * Karena itu fungsi ini mengembalikan KELOMPOK, bukan satu material. Yang
+ * memutuskan SKU mana yang benar-benar keluar bukan fungsi ini melainkan FEFO
+ * atas stok nyata di rak — lihat postSalesGiChunk.
+ *
+ * URUTANNYA, dari yang paling pasti ke yang paling longgar:
+ *
+ *   1. kode material / alias — identitas yang memang dirancang unik. Bila
+ *      sumbernya mengirim kode material, TIDAK ada pengelompokan: yang diminta
+ *      sudah spesifik.
+ *   2. DESKRIPSI material — kunci yang dipakai OCS. Boleh menunjuk beberapa
+ *      material sekaligus; itu justru kasus yang dilayani di sini.
  *   3. kolom kode_ocs — dipertahankan untuk pemasangan yang sudah mengisinya.
  *
- * Kecocokan lewat deskripsi punya bahaya yang tidak dimiliki dua lainnya:
- * deskripsi TIDAK DIJAMIN UNIK. Bila dua material aktif punya deskripsi sama,
- * fungsi ini menolak — bukan memilih salah satu. Memilih diam-diam berarti
- * stok keluar dari SKU yang salah, dan tidak ada satu pun laporan yang akan
- * menunjukkan kekeliruan itu. Kasus seperti ini dibereskan di ZMATDUP.
+ * PENGELOMPOKAN INI HANYA UNTUK PENJUALAN. MIGO, Transfer Requirement, scan
+ * PDT, dan replenishment tetap ketat satu kode: di sana orang memindai barcode
+ * tertentu, dan mengambilkan SKU lain berarti mengambilkan barang yang salah.
  */
-export async function resolveSku(
+export async function resolveSalesGroup(
   tx: Prisma.TransactionClient,
   sku: string
-): Promise<SkuResolution> {
+): Promise<SalesGroup> {
   const raw = String(sku ?? '').trim();
-  if (!raw) return { material_code: null, matched_by: null, error: 'SKU kosong.' };
+  if (!raw) return { members: [], matched_by: null, error: 'SKU kosong.' };
 
   const direct = await resolveMaterialCode(tx, raw);
-  if (direct)
-    return {
-      material_code: direct.material_code,
-      matched_by: direct.redirected ? 'ALIAS' : 'MATERIAL',
-      error: null,
-    };
+  if (direct) {
+    const m = await tx.material.findUnique({
+      where: { material_code: direct.material_code },
+      select: MATERIAL_PICK,
+    });
+    if (m)
+      return {
+        members: [m],
+        matched_by: direct.redirected ? 'ALIAS' : 'MATERIAL',
+        error: null,
+      };
+  }
 
   // Collation database berakhiran _ci, jadi '=' sudah mengabaikan besar-kecil
   // huruf tanpa perlu perlakuan khusus.
   const byDesc = await tx.material.findMany({
     where: { description: raw, is_active: true },
-    select: { material_code: true },
-    take: 5,
+    select: MATERIAL_PICK,
+    orderBy: { material_code: 'asc' },
+    take: 20,
   });
-  if (byDesc.length === 1)
-    return { material_code: byDesc[0].material_code, matched_by: 'DESCRIPTION', error: null };
-  if (byDesc.length > 1)
-    return {
-      material_code: null,
-      matched_by: null,
-      error:
-        `Deskripsi "${raw}" dipakai ${byDesc.length} material aktif ` +
-        `(${byDesc.map((m) => m.material_code).join(', ')}). Tidak bisa dipastikan yang mana — ` +
-        `rapikan dulu di ZMATDUP.`,
-    };
+  if (byDesc.length > 0) return checkGroup(byDesc, 'DESCRIPTION', raw);
 
-  const byOcs = await tx.material.findFirst({
+  const byOcs = await tx.material.findMany({
     where: { kode_ocs: raw.toUpperCase(), is_active: true },
-    select: { material_code: true },
+    select: MATERIAL_PICK,
+    orderBy: { material_code: 'asc' },
+    take: 20,
   });
-  if (byOcs) return { material_code: byOcs.material_code, matched_by: 'KODE_OCS', error: null };
+  if (byOcs.length > 0) return checkGroup(byOcs, 'KODE_OCS', raw);
 
   return {
-    material_code: null,
+    members: [],
     matched_by: null,
     error: `"${raw}" tidak cocok dengan kode material, deskripsi, kode OCS, maupun alias mana pun.`,
   };
 }
 
+/**
+ * Satu kelompok hanya sah bila anggotanya benar-benar barang yang sama untuk
+ * keperluan hitung-hitungan: SATUAN yang sama dan pengelolaan batch yang sama.
+ *
+ * Beda satuan dalam satu deskripsi bukan duplikasi OCS yang wajar melainkan
+ * salah master — menjumlahkan PC dengan CTN menghasilkan angka yang salah, dan
+ * tidak ada satu pun laporan yang akan menunjukkan kekeliruannya. Lebih baik
+ * barisnya ditolak dengan sebab yang jelas.
+ */
+function checkGroup(
+  members: SalesMaterial[],
+  matched_by: 'DESCRIPTION' | 'KODE_OCS',
+  raw: string
+): SalesGroup {
+  if (members.length > 1) {
+    const uoms = [...new Set(members.map((m) => m.uom.toUpperCase()))];
+    if (uoms.length > 1)
+      return {
+        members: [],
+        matched_by,
+        error:
+          `"${raw}" dipakai ${members.length} material dengan SATUAN berbeda (${uoms.join(', ')}). ` +
+          `Tidak bisa dijumlahkan — samakan UoM-nya di MM01.`,
+      };
+    const batchFlags = [...new Set(members.map((m) => m.is_batch_managed))];
+    if (batchFlags.length > 1)
+      return {
+        members: [],
+        matched_by,
+        error:
+          `"${raw}" dipakai ${members.length} material dengan pengelolaan batch berbeda ` +
+          `(${members.map((m) => `${m.material_code}=${m.is_batch_managed ? 'batch' : 'non-batch'}`).join(', ')}). ` +
+          `Samakan dulu di MM01.`,
+      };
+  }
+  return { members, matched_by, error: null };
+}
+
+/**
+ * SKU penanggung saldo minus.
+ *
+ * Pengambilan nyata selalu tercatat atas material aslinya, jadi telusur POM NA
+ * tetap utuh. Yang tidak punya asal-usul hanyalah kekurangannya — barangnya
+ * memang tidak ada di mana pun, jadi kodenya harus dipilih.
+ *
+ * Pilihannya: anggota yang fix bin Gudang Kecil-nya sah, lalu yang stok Gudang
+ * Besar-nya paling banyak — yaitu yang paling mungkin turun saat replenishment
+ * berikutnya. Itu penting karena saldo minus hanya impas bila barang masuk
+ * jatuh pada kode dan rak yang sama.
+ */
+async function pickAnchor(
+  tx: Prisma.TransactionClient,
+  members: SalesMaterial[],
+  targets: Map<string, { bin_code: string; from_fix_bin: boolean }>
+): Promise<SalesMaterial> {
+  if (members.length === 1) return members[0];
+
+  const withFixBin = members.filter((m) => targets.get(m.material_code)?.from_fix_bin);
+  const pool = withFixBin.length > 0 ? withFixBin : members;
+  if (pool.length === 1) return pool[0];
+
+  const binsBesar = await besarBinCodes(tx);
+  let best = pool[0];
+  let bestQty = -1;
+  for (const m of pool) {
+    const agg = binsBesar.length
+      ? await tx.stockWM.aggregate({
+          _sum: { qty: true },
+          where: { material_code: m.material_code, bin_code: { in: binsBesar }, qty: { gt: 0 } },
+        })
+      : null;
+    const q = agg?._sum.qty ?? 0;
+    // Seri diputus kode material terkecil supaya hasilnya tidak bergantung pada
+    // urutan baris yang dikembalikan database.
+    if (q > bestQty) {
+      best = m;
+      bestQty = q;
+    }
+  }
+  return best;
+}
+
 export interface SalesGiValidateResult {
   checked: number;
+  /** SKU yang tidak cocok dengan material mana pun — harus dibetulkan */
   unknown: number;
-  ambiguous: number;
+  /** deskripsi yang dipakai lebih dari satu material — normal, hanya informasi */
+  grouped: number;
+  /** kelompok yang anggotanya beda satuan / beda pengelolaan batch — harus dibetulkan */
+  conflict: number;
   /** line_no berikutnya bila pemeriksaan berhenti karena batas waktu; null bila habis */
   next_line: number | null;
 }
@@ -266,15 +419,20 @@ export interface SalesGiValidateResult {
  * Untuk backfill 14 hari ini bukan kemewahan melainkan syarat: SKU yang tidak
  * dikenali baru ketahuan saat posting, dan memperbaikinya setelah separuh hari
  * terlanjur keluar jauh lebih repot daripada memperbaikinya sebelum apa pun
- * bergerak. Hasilnya disimpan ke baris, jadi layar bisa menampilkan persis
- * material mana yang bermasalah beserta sebabnya.
+ * bergerak.
+ *
+ * Sejak GI penjualan membaca per DESKRIPSI, layar ini punya tugas kedua yang
+ * sama pentingnya: menampilkan siapa saja anggota tiap kelompok. Pengelompokan
+ * yang benar tidak bisa dibedakan dari yang keliru hanya dari angkanya — dua
+ * barang yang betul-betul berbeda tetapi kebetulan deskripsinya sama akan
+ * digabung tanpa suara. Daftar anggota di sini adalah satu-satunya tempat hal
+ * itu bisa tertangkap sebelum stok bergerak.
  *
  * SENGAJA TIDAK di dalam transaksi. Pemeriksaan ini tidak menyentuh stok, jadi
  * tidak ada yang perlu dibatalkan bersama-sama — sementara membungkus ratusan
  * material dalam satu transaksi panjang di database production menahan kunci
  * lebih lama daripada manfaatnya, dan berisiko putus di detik ke-55 tanpa
- * menyimpan satu hasil pun. Menyimpan sambil jalan berarti pemeriksaan yang
- * terputus tetap meninggalkan hasil yang berguna.
+ * menyimpan satu hasil pun.
  */
 export async function validateSalesGiRun(
   db: PrismaClient,
@@ -294,12 +452,11 @@ export async function validateSalesGiRun(
 
   let checked = 0;
   let unknown = 0;
-  let ambiguous = 0;
+  let grouped = 0;
+  let conflict = 0;
   let next_line: number | null = null;
 
-  // Satu run sudah dijumlahkan per SKU, tetapi cache ini tetap berguna saat
-  // beberapa SKU berbeda menunjuk material yang sama lewat alias.
-  const cache = new Map<string, SkuResolution>();
+  const cache = new Map<string, SalesGroup>();
 
   for (const it of items) {
     if (Date.now() > deadline) {
@@ -308,30 +465,46 @@ export async function validateSalesGiRun(
     }
 
     const key = it.sku.trim().toUpperCase();
-    let r = cache.get(key);
-    if (!r) {
-      r = await resolveSku(db, it.sku);
-      cache.set(key, r);
+    let g = cache.get(key);
+    if (!g) {
+      g = await resolveSalesGroup(db, it.sku);
+      cache.set(key, g);
     }
 
-    if (r.error) {
-      if (r.error.includes('dipakai')) ambiguous++;
-      else unknown++;
+    let message: string;
+    if (g.error) {
+      if (g.members.length === 0 && g.matched_by === null) unknown++;
+      else conflict++;
+      message = g.error;
+    } else if (g.members.length > 1) {
+      grouped++;
+      message =
+        `Dikenali lewat ${g.matched_by} — ${g.members.length} SKU dianggap satu barang: ` +
+        g.members
+          .map((m) => `${m.material_code}${m.fix_bin ? `@${m.fix_bin}` : ' (tanpa fix bin)'}`)
+          .join(', ') +
+        `. GI diambil FEFO gabungan dari rak-rak itu.`;
+    } else {
+      message = `Dikenali lewat ${g.matched_by}.`;
     }
+
     await db.salesGiItem.update({
       where: { id: it.id },
       data: {
-        material_code: r.material_code,
+        // Kode yang disimpan di sini hanya penanda sementara agar layar punya
+        // sesuatu untuk ditampilkan; kode sebenarnya baru ditentukan FEFO saat
+        // posting, dan bisa lebih dari satu.
+        material_code: g.members[0]?.material_code ?? null,
         // Status TIDAK diubah menjadi ERROR di sini: baris yang bermasalah
         // tetap PENDING supaya bisa langsung diposting setelah masternya
         // dibetulkan, tanpa perlu langkah reset terpisah.
-        message: r.error ? r.error.slice(0, 255) : `Dikenali lewat ${r.matched_by}.`,
+        message: message.slice(0, 255),
       },
     });
     checked++;
   }
 
-  return { checked, unknown, ambiguous, next_line };
+  return { checked, unknown, grouped, conflict, next_line };
 }
 
 export interface SalesGiChunkResult {
@@ -469,38 +642,89 @@ export async function postSalesGiChunk(
           });
           if (claim.count !== 1) return null;
 
-          const resolved = await resolveSku(tx, item.sku);
-          if (!resolved.material_code) throw new Error(resolved.error ?? 'SKU tidak dikenali.');
-          const material_code = resolved.material_code;
+          const group = await resolveSalesGroup(tx, item.sku);
+          if (group.error) throw new Error(group.error);
+          const members = group.members;
+          if (members.length === 0) throw new Error('SKU tidak dikenali.');
+          const byCode = new Map(members.map((m) => [m.material_code, m]));
 
-          const material = await tx.material.findUniqueOrThrow({ where: { material_code } });
           const qty = Math.trunc(item.qty);
           if (qty <= 0) throw new Error('Quantity harus lebih besar dari nol.');
 
-          const target = await resolveSalesBin(tx, material.fix_bin);
+          /* ---------- rak tujuan tiap anggota kelompok ---------- */
+          const targets = new Map<
+            string,
+            { bin_code: string; from_fix_bin: boolean; note: string | null }
+          >();
+          for (const m of members) targets.set(m.material_code, await resolveSalesBin(tx, m.fix_bin));
 
-          /* ---------- ambil dari rak, urut FEFO ---------- */
-          const quants = await tx.stockWM.findMany({
-            where: { material_code, bin_code: target.bin_code, qty: { gt: 0 } },
-            orderBy: [{ exp_date: 'asc' }, { qty: 'asc' }],
-          });
+          /* ---------- kumpulkan dulu, baru FEFO ---------- */
+          /**
+           * Stok seluruh anggota kelompok dijadikan SATU kolam sebelum
+           * diurutkan. Inilah inti perubahannya: yang memutuskan SKU mana yang
+           * keluar bukan tebakan atas kode, melainkan tanggal kedaluwarsa
+           * barang yang benar-benar ada di rak.
+           *
+           * Setiap pengambilan tetap tercatat atas material aslinya, jadi
+           * dokumen materialnya tetap menunjukkan POM NA mana yang keluar —
+           * penggabungan ini terjadi saat memilih, bukan saat mencatat.
+           */
+          const pool: {
+            material_code: string;
+            bin_code: string;
+            batch_number: string | null;
+            exp_date: Date | null;
+            qty: number;
+          }[] = [];
+          for (const m of members) {
+            const bin = targets.get(m.material_code)!.bin_code;
+            const qs = await tx.stockWM.findMany({
+              where: { material_code: m.material_code, bin_code: bin, qty: { gt: 0 } },
+              select: {
+                material_code: true,
+                bin_code: true,
+                batch_number: true,
+                exp_date: true,
+                qty: true,
+              },
+            });
+            pool.push(...qs);
+          }
 
-          const picks: { batch: string | null; take: number }[] = [];
+          const picks: {
+            material_code: string;
+            bin_code: string;
+            batch: string | null;
+            take: number;
+          }[] = [];
           let rest = qty;
-          for (const q of quants) {
+          for (const q of fefoSort(pool)) {
             if (rest <= 0) break;
             const take = Math.min(rest, q.qty);
-            picks.push({ batch: q.batch_number, take });
+            picks.push({
+              material_code: q.material_code,
+              bin_code: q.bin_code,
+              batch: q.batch_number,
+              take,
+            });
             rest -= take;
           }
 
-          /* ---------- sisanya jadi saldo minus ---------- */
+          /* ---------- sisanya jadi saldo minus, pada SKU penanggung ---------- */
+          const anchor = await pickAnchor(tx, members, targets);
+          const anchorTarget = targets.get(anchor.material_code)!;
+
           let shortBatch: string | null = null;
           if (rest > 0) {
-            shortBatch = material.is_batch_managed
-              ? await guessReplenishBatch(tx, material_code, target.bin_code)
+            shortBatch = anchor.is_batch_managed
+              ? await guessReplenishBatch(tx, anchor.material_code, anchorTarget.bin_code)
               : null;
-            picks.push({ batch: shortBatch, take: rest });
+            picks.push({
+              material_code: anchor.material_code,
+              bin_code: anchorTarget.bin_code,
+              batch: shortBatch,
+              take: rest,
+            });
           }
 
           /**
@@ -519,7 +743,7 @@ export async function postSalesGiChunk(
           for (const p of picks) {
             await applyStockWM(
               tx,
-              { material_code, bin_code: target.bin_code, batch_number: p.batch },
+              { material_code: p.material_code, bin_code: p.bin_code, batch_number: p.batch },
               -p.take,
               undefined,
               // Satu-satunya tempat saldo negatif diizinkan di seluruh aplikasi.
@@ -527,21 +751,21 @@ export async function postSalesGiChunk(
             );
             // Level IM harus mengikuti level bin. Bila hanya salah satunya
             // boleh minus, MB52 dan LX02 akan menampilkan angka berbeda.
-            await applyStockIM(tx, material_code, -p.take, { allowNegative: true });
+            await applyStockIM(tx, p.material_code, -p.take, { allowNegative: true });
 
             await tx.migoLog.create({
               data: {
                 document_number,
                 line_no: ++line_no,
                 movement_type: MovementType.GI_601_SALES,
-                material_code,
-                source_bin: target.bin_code,
+                material_code: p.material_code,
+                source_bin: p.bin_code,
                 batch_number: p.batch,
                 qty: p.take,
-                uom: material.uom,
+                uom: byCode.get(p.material_code)?.uom ?? anchor.uom,
                 reference: `SALES ${run.sales_date.toISOString().slice(0, 10)}`,
                 remarks:
-                  item.sku === material_code
+                  item.sku === p.material_code
                     ? `GI penjualan (${run.source})`
                     : `GI penjualan (${run.source}) — SKU ${item.sku}`,
                 doc_date: run.sales_date,
@@ -549,24 +773,38 @@ export async function postSalesGiChunk(
               },
             });
           }
-          await refreshBinStatus(tx, target.bin_code);
+
+          // Satu baris penjualan kini bisa menyentuh beberapa rak sekaligus.
+          for (const bin of new Set(picks.map((p) => p.bin_code)))
+            await refreshBinStatus(tx, bin);
 
           const detail = picks
-            .map((p) => `${target.bin_code}/${p.batch ?? '(tanpa batch)'}:${p.take}`)
+            .map((p) => `${p.material_code}/${p.bin_code}/${p.batch ?? '(tanpa batch)'}:${p.take}`)
             .join(', ');
+
+          const usedCodes = new Set(picks.map((p) => p.material_code));
+          const notes = [...usedCodes]
+            .map((c) => targets.get(c)?.note)
+            .filter((n): n is string => Boolean(n));
 
           await tx.salesGiItem.update({
             where: { id: item.id },
             data: {
-              material_code,
+              // Kode yang disimpan adalah SKU penanggung. Rincian sebenarnya —
+              // termasuk SKU lain yang ikut terambil — ada di kolom `picked`.
+              material_code: anchor.material_code,
               status: 'OK',
               short_qty: rest,
               picked: detail.slice(0, 500),
               message:
                 [
-                  target.note,
+                  members.length > 1
+                    ? `Gabungan ${members.length} SKU (${members.map((m) => m.material_code).join(', ')}).`
+                    : null,
+                  ...notes,
                   rest > 0
-                    ? `Kurang ${rest} — rak jadi minus${shortBatch ? ` pada batch ${shortBatch}` : ''}.`
+                    ? `Kurang ${rest} — minus di ${anchor.material_code}` +
+                      `${shortBatch ? ` batch ${shortBatch}` : ''}.`
                     : null,
                 ]
                   .filter(Boolean)

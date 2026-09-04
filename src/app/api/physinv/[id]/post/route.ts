@@ -7,6 +7,7 @@ import { applyStockIM, applyStockWM } from '@/lib/wms';
 import { BinStatus, MovementType, PhysInvStatus } from '@prisma/client';
 import { fromDbList, toDbList } from '@/lib/dblist';
 import { judgeLine, lineKey, type RoundValue } from '@/lib/consensus';
+import { planReclass, postReclass } from '@/lib/physinvreclass';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -113,6 +114,30 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
           }
         }
 
+        /**
+         * TERTUKAR SKU, BUKAN SELISIH.
+         *
+         * Sebelum satu pun 701/702 dibuat, pasangan yang saling meniadakan
+         * dalam satu rak / batch / deskripsi dikeluarkan lebih dulu dan
+         * diposting sebagai 309. Urutannya penting: kalau 701/702 dibuat lebih
+         * dulu, selisih fabrikasi itu sudah terlanjur masuk jurnal dan statistik
+         * akurasi opname, dan tidak ada cara membedakannya dari selisih asli.
+         */
+        const plan = await planReclass(
+          tx,
+          pending.map((i) => ({
+            id: i.id,
+            bin_code: i.bin_code,
+            batch_number: i.batch_number,
+            material_code: i.material_code,
+            diff_qty: i.diff_qty,
+          }))
+        );
+        const reclass = await postReclass(tx, plan.pairs, {
+          reference: doc.doc_number,
+          user_id: user.username,
+        });
+
         const docs: {
           document_number: string;
           bin_code: string;
@@ -122,7 +147,18 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         }[] = [];
 
         for (const item of pending) {
-          const diff = item.diff_qty;
+          const diff = plan.residual.get(item.id) ?? item.diff_qty;
+
+          // Seluruh selisihnya ternyata tertukar SKU dan sudah direklasifikasi.
+          // Barisnya tetap ditutup supaya tidak tertinggal seolah belum digarap.
+          if (diff === 0) {
+            await tx.physInvDocItem.update({
+              where: { id: item.id },
+              data: { posted: true, is_final: true },
+            });
+            continue;
+          }
+
           const movement = diff > 0 ? MovementType.ADJ_701_PLUS : MovementType.ADJ_702_MIN;
 
           const material = await tx.material.findUnique({
@@ -173,7 +209,11 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
               qty: Math.abs(diff),
               uom: material.uom,
               reference: doc.doc_number,
-              remarks: `Physical inventory clearance (book ${item.book_qty} / counted ${item.counted_qty})`,
+              remarks:
+                `Physical inventory clearance (book ${item.book_qty} / counted ${item.counted_qty})` +
+                (diff !== item.diff_qty
+                  ? ` — sisa setelah reklasifikasi SKU (${item.diff_qty} → ${diff})`
+                  : ''),
               doc_date: new Date(),
               user_id: user.username,
             },
@@ -213,6 +253,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
           doc_number: doc.doc_number,
           bins: fromDbList(doc.frozen_bins).length,
           documents: docs,
+          reclass,
           managed,
           skipped,
         };
@@ -225,11 +266,20 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     // rak yang terlewat adalah temuan tersendiri, dan tanpa disebut di sini
     // tidak ada yang akan menyadarinya setelah dokumen tertutup.
     const skip = result.skipped > 0 ? `, ${result.skipped} baris tidak pernah dihitung dan dilewati` : '';
+    // Reklasifikasi dilaporkan TERPISAH dari selisih. Menjumlahkannya jadi satu
+    // angka akan mengembalikan persis kekeliruan yang hendak dihindari: barang
+    // yang cuma tertukar kodenya terbaca sebagai masalah akurasi gudang.
+    const rc = result.reclass.length;
+    const rcMsg =
+      rc > 0
+        ? `, ${rc} pasang tertukar SKU direklasifikasi lewat 309 (bukan selisih: ` +
+          `${result.reclass.map((r) => `${r.from_code}→${r.to_code} ${r.qty}`).join(', ')})`
+        : '';
     return ok(
       result,
       n === 0
-        ? `Document ${result.doc_number} posted — no differences found, ${result.bins} bin(s) released${skip}`
-        : `Document ${result.doc_number} posted — ${n} difference document(s) created, ${result.bins} bin(s) released${skip}`
+        ? `Document ${result.doc_number} posted — no differences found, ${result.bins} bin(s) released${rcMsg}${skip}`
+        : `Document ${result.doc_number} posted — ${n} difference document(s) created, ${result.bins} bin(s) released${rcMsg}${skip}`
     );
   });
 }

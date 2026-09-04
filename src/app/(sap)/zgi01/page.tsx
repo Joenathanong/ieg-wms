@@ -265,13 +265,15 @@ export default function Zgi01Page() {
     let from_line: number | undefined;
     let checked = 0;
     let unknown = 0;
-    let ambiguous = 0;
+    let grouped = 0;
+    let conflict = 0;
 
     for (let i = 0; i < 40; i++) {
       const r = await post<{
         checked: number;
         unknown: number;
-        ambiguous: number;
+        grouped: number;
+        conflict: number;
         next_line: number | null;
       }>(`/api/sales-gi/${run.id}/validate`, from_line ? { from_line } : {});
       if (!r.ok) {
@@ -285,20 +287,25 @@ export default function Zgi01Page() {
       // terakhir bisa saja bersih sementara potongan pertama penuh masalah.
       checked += d.checked;
       unknown += d.unknown;
-      ambiguous += d.ambiguous;
+      grouped += d.grouped;
+      conflict += d.conflict;
       setStatus(r.message, 'I');
       if (d.next_line === null) break;
       from_line = d.next_line;
     }
 
     setBusy(false);
-    const bad = unknown + ambiguous;
+    const bad = unknown + conflict;
     setStatus(
       bad === 0
-        ? `${checked} material diperiksa — semuanya dikenali. Siap diposting.`
+        ? `${checked} material diperiksa — semuanya dikenali` +
+          (grouped > 0
+            ? `, ${grouped} di antaranya deskripsi yang dipakai beberapa SKU sekaligus (wajar). ` +
+              `Lihat kolom keterangan untuk anggota tiap kelompok sebelum posting.`
+            : `. Siap diposting.`)
         : `${checked} material diperiksa: ${unknown} tidak dikenali` +
-          (ambiguous > 0 ? `, ${ambiguous} deskripsinya dipakai lebih dari satu material` : '') +
-          `. Betulkan di MM01 / ZMATDUP lalu validasi ulang.`,
+          (conflict > 0 ? `, ${conflict} kelompoknya beda satuan / beda pengelolaan batch` : '') +
+          `. Betulkan di MM01 lalu validasi ulang.`,
       bad === 0 ? 'S' : 'W'
     );
     await loadRun(run.id);

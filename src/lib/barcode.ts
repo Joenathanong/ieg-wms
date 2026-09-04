@@ -54,6 +54,12 @@ export interface ResolvedScan {
   matched_by?: MatchedBy | null;
   /** kode lama yang discan, bila hasilnya lewat penerjemahan alias */
   alias_of?: string | null;
+  /**
+   * SKU lain berdeskripsi sama. Terisi hanya bila yang discan barcode ITEM —
+   * pada barang lepas barcode itu tidak bisa membedakan SKU, dan hasil hitungnya
+   * akan jatuh seluruhnya ke SKU yang kebetulan memegang barcode.
+   */
+  twins?: string[];
   message?: string;
 }
 
@@ -62,6 +68,7 @@ interface LookupData {
   description: string;
   matched_by: MatchedBy;
   alias_of: string | null;
+  twins?: string[];
 }
 
 function lookup(code: string) {
@@ -112,6 +119,8 @@ export async function resolveScan(raw: string): Promise<ResolvedScan> {
   const batch_number = p.batch_number;
   const tail = batch_number ? ` / batch ${batch_number}` : '';
 
+  const twins = d.twins ?? [];
+
   return {
     ok: true,
     material_code: d.material_code,
@@ -119,8 +128,19 @@ export async function resolveScan(raw: string): Promise<ResolvedScan> {
     description: d.description,
     matched_by: d.matched_by,
     alias_of: d.alias_of,
-    message: d.alias_of
-      ? `Kode lama ${d.alias_of} dibaca sebagai ${d.material_code} — ${d.description}${tail}`
-      : `${d.material_code} — ${d.description}${tail}`,
+    twins,
+    /**
+     * Peringatan SKU kembar didahulukan atas pesan alias: yang satu sekadar
+     * penerjemahan kode, yang lain bisa membuat seluruh hasil hitung jatuh ke
+     * SKU yang keliru.
+     */
+    message:
+      twins.length > 0
+        ? `${d.material_code} — ${d.description}${tail}. Deskripsi ini dipakai ${twins.length + 1} SKU ` +
+          `(${[d.material_code, ...twins].join(', ')}); barcode item tidak bisa membedakannya. ` +
+          `Bila karton masih tersegel, scan kode master box.`
+        : d.alias_of
+          ? `Kode lama ${d.alias_of} dibaca sebagai ${d.material_code} — ${d.description}${tail}`
+          : `${d.material_code} — ${d.description}${tail}`,
   };
 }

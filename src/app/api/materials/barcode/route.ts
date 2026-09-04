@@ -54,6 +54,35 @@ export async function GET(req: NextRequest) {
           ? 'BPOM'
           : 'PRODUK';
 
+    /**
+     * SKU KEMBAR — deskripsi sama, barcode berbeda.
+     *
+     * Hanya diperiksa bila yang discan barcode ITEM (B-POM / produk). Pada
+     * barang lepas, barcode item tidak bisa membedakan SKU: ia hanya menunjuk
+     * SKU yang kebetulan memegang barcode itu, sementara kembarannya tidak
+     * memegang apa-apa. Petugas yang menghitung perlu diberi tahu di detik itu
+     * juga — kalau kartonnya masih tersegel, kode master box (yang ADALAH kode
+     * material) memberi jawaban yang pasti.
+     *
+     * Scan kode material dan kode master box tidak pernah ambigu, jadi tidak
+     * perlu diganggu peringatan.
+     */
+    const twins =
+      matched_by === 'BPOM' || matched_by === 'PRODUK'
+        ? (
+            await prisma.material.findMany({
+              where: {
+                description: m.description,
+                is_active: true,
+                material_code: { not: m.material_code },
+              },
+              select: { material_code: true },
+              orderBy: { material_code: 'asc' },
+              take: 10,
+            })
+          ).map((x) => x.material_code)
+        : [];
+
     return ok(
       {
         material_code: m.material_code,
@@ -64,10 +93,16 @@ export async function GET(req: NextRequest) {
         matched_by,
         /** kode lama yang discan, bila hasilnya lewat penerjemahan alias */
         alias_of,
+        /** SKU lain berdeskripsi sama — barcode item tidak bisa membedakannya */
+        twins,
       },
-      alias_of
-        ? `Kode lama ${alias_of} -> material ${m.material_code} (${m.description})`
-        : `Barcode ${code} -> material ${m.material_code}`
+      twins.length > 0
+        ? `${m.material_code} — ${m.description}. PERHATIAN: deskripsi ini dipakai ` +
+          `${twins.length + 1} SKU (${[m.material_code, ...twins].join(', ')}) dan barcode item ` +
+          `tidak bisa membedakannya. Bila kartonnya masih tersegel, scan kode master box.`
+        : alias_of
+          ? `Kode lama ${alias_of} -> material ${m.material_code} (${m.description})`
+          : `Barcode ${code} -> material ${m.material_code}`
     );
   });
 }

@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       | 'ZONE'
       | 'ALL';
 
-    const result = await prisma.$transaction(
+    const created = await prisma.$transaction(
       async (tx) => {
         // ---- tentukan daftar bin dalam cakupan ----
         let bins: { bin_code: string }[] = [];
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
         }
 
         // ---- cakupan material ----
-        const materials: string[] = [
+        let materials: string[] = [
           ...new Set(
             (Array.isArray(b.materials) ? b.materials : [])
               .map((x: unknown) => cleanStr(x).toUpperCase())
@@ -184,14 +184,43 @@ export async function POST(req: NextRequest) {
           ),
         ];
 
+        /**
+         * Cakupan material DIPERLUAS ke seluruh SKU berdeskripsi sama.
+         *
+         * Beberapa SKU sengaja dipelihara dengan deskripsi yang sama, dan pada
+         * barang lepas barcode item tidak bisa membedakannya — seluruh isi rak
+         * akan terhitung sebagai SKU yang memegang barcode.
+         *
+         * Bila cakupan hanya berisi SKU-A, stok SKU-B tidak pernah di-snapshot.
+         * Hasilnya +40 pada A TANPA PASANGAN −40 pada B: reklasifikasi 309 tidak
+         * punya lawan untuk diniadakan, dan selisih yang sebenarnya cuma
+         * tertukar kode akan diposting sebagai selisih stok sungguhan.
+         *
+         * Karena itu perluasannya di sini, saat dokumen dibuat — bukan
+         * ditambal saat posting, ketika kesempatan menghitungnya sudah lewat.
+         */
+        let expanded: string[] = [];
         if (materials.length > 0) {
           const found = await tx.material.findMany({
             where: { material_code: { in: materials } },
-            select: { material_code: true },
+            select: { material_code: true, description: true },
           });
           const missing = materials.filter((m) => !found.some((f) => f.material_code === m));
           if (missing.length > 0)
             throw new HttpError(400, `Material ${missing.join(', ')} tidak ada di master data.`);
+
+          const descs = [...new Set(found.map((f) => f.description.trim()).filter(Boolean))];
+          const siblings = descs.length
+            ? await tx.material.findMany({
+                where: { description: { in: descs }, is_active: true },
+                select: { material_code: true },
+              })
+            : [];
+          expanded = siblings
+            .map((x) => x.material_code)
+            .filter((c) => !materials.includes(c))
+            .sort();
+          if (expanded.length > 0) materials = [...materials, ...expanded];
         }
 
         // ---- snapshot stok ----
@@ -329,14 +358,19 @@ export async function POST(req: NextRequest) {
           data: { status: BinStatus.BLOCKED },
         });
 
-        return doc;
+        return { doc, expanded };
       },
       { timeout: 30000, maxWait: 10000 }
     );
 
+    const { doc: result, expanded } = created;
+
     return ok(
-      { ...result, frozen_bins: fromDbList(result.frozen_bins) },
-      `Physical inventory document ${result.doc_number} created — ${binCountOf(result.frozen_bins)} bin(s) frozen, ${result.items.length} line(s) snapshot`
+      { ...result, frozen_bins: fromDbList(result.frozen_bins), scope_expanded: expanded },
+      `Physical inventory document ${result.doc_number} created — ${binCountOf(result.frozen_bins)} bin(s) frozen, ${result.items.length} line(s) snapshot` +
+        (expanded.length > 0
+          ? ` — cakupan diperluas ke ${expanded.length} SKU berdeskripsi sama (${expanded.join(', ')}) supaya SKU yang tertukar bisa dikenali, bukan terbaca sebagai selisih`
+          : '')
     );
   });
 }

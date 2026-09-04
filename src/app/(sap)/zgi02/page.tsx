@@ -24,11 +24,14 @@ import {
   XCircle,
   AlertTriangle,
   Clock,
+  ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import { Panel, Button, Toolbar, Separator, exportCsv, type Column } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
 import { useExecuteKey } from '@/components/sap/keynav';
-import { api, fmtDate, fmtDateTime } from '@/lib/client';
+import { api, del, fmtDate, fmtDateTime } from '@/lib/client';
+import { ConfirmDialog } from '@/components/sap/Confirm';
 
 interface Run {
   id: string;
@@ -46,6 +49,16 @@ interface Run {
   finished_at: string | null;
   created_by: string;
   created_at: string;
+}
+
+interface AuditLine {
+  line_no: number;
+  sku: string;
+  material_code: string | null;
+  status: string;
+  qty: number;
+  posted_qty: number;
+  verdict: string;
 }
 
 interface RunItem {
@@ -90,6 +103,8 @@ export default function Zgi02Page() {
   const { setStatus } = useStatus();
   const [runs, setRuns] = useState<Run[]>([]);
   const [items, setItems] = useState<RunItem[] | null>(null);
+  const [audit, setAudit] = useState<AuditLine[] | null>(null);
+  const [confirmDel, setConfirmDel] = useState(false);
   const [openRun, setOpenRun] = useState<Run | null>(null);
   const [negatives, setNegatives] = useState<Negative[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -162,6 +177,48 @@ export default function Zgi02Page() {
     ];
     exportCsv(`gi-penjualan-${openRun.sales_date.slice(0, 10)}.csv`, cols, items);
     setStatus(`${items.length} baris diekspor`, 'S');
+  }
+
+  /**
+   * Cocokkan catatan proses dengan buku besar.
+   *
+   * Status baris dan pergerakan stok adalah dua catatan berbeda. Versi lama
+   * program ini memproses banyak material dalam satu transaksi, sehingga sebuah
+   * baris bisa berstatus gagal padahal stoknya sudah keluar sebagian. Tombol ini
+   * membaca MB51, bukan status — dan tidak mengubah apa pun.
+   */
+  async function runAudit() {
+    if (!openRun) return;
+    setAudit(null);
+    const r = await api<{ lines: AuditLine[]; risky: number; orphan: number; ambiguous: number }>(
+      `/api/sales-gi/${openRun.id}/audit`
+    );
+    if (!r.ok || !r.data) return setStatus(r.message, 'E');
+    const bad = r.data.risky + r.data.orphan + r.data.ambiguous;
+    setAudit(r.data.lines.filter((l) => l.verdict !== 'COCOK'));
+    setStatus(r.message, bad === 0 ? 'S' : 'W');
+  }
+
+  /**
+   * Hapus proses yang BELUM menyentuh stok.
+   *
+   * Server tetap menolak bila sudah ada material yang terposting: catatan ini
+   * satu-satunya penjelasan mengapa dokumen 601 itu ada, dan menghapusnya
+   * meninggalkan pergerakan stok tanpa asal-usul. Tombolnya pun hanya muncul
+   * saat memang aman, supaya tidak ada yang menekannya lalu bertanya-tanya
+   * mengapa ditolak.
+   */
+  async function removeRun() {
+    if (!openRun) return;
+    setConfirmDel(false);
+    const r = await del(`/api/sales-gi/${openRun.id}`);
+    setStatus(r.message, r.ok ? 'S' : 'E');
+    if (r.ok) {
+      setOpenRun(null);
+      setItems(null);
+      setAudit(null);
+      await load();
+    }
   }
 
   return (
@@ -277,13 +334,68 @@ export default function Zgi02Page() {
           bodyClassName="p-0"
           actions={
             <>
+              <Button onClick={runAudit}>
+                <ShieldCheck size={12} /> Audit vs MB51
+              </Button>
               <Button onClick={exportItems} disabled={!items?.length}>
                 <Download size={12} /> Export CSV
               </Button>
+              {openRun.posted_lines === 0 && (
+                <Button onClick={() => setConfirmDel(true)}>
+                  <Trash2 size={12} /> Hapus proses
+                </Button>
+              )}
               <Button onClick={() => setOpenRun(null)}>Tutup</Button>
             </>
           }
         >
+          {audit && (
+            <div className="p-3 border-b border-sap-border bg-sap-warnbg/30">
+              {audit.length === 0 ? (
+                <p className="text-2xs text-sap-oktext flex items-center gap-1.5">
+                  <CheckCircle2 size={12} /> Catatan proses dan buku besar cocok. Baris yang gagal
+                  memang belum pernah mengeluarkan stok — aman diproses ulang.
+                </p>
+              ) : (
+                <>
+                  <p className="text-2xs text-sap-warntext flex items-start gap-1.5 mb-2">
+                    <AlertTriangle size={12} className="mt-[2px] shrink-0" />
+                    <span>
+                      <b>{audit.length} baris perlu dilihat.</b> SUDAH_KELUAR / SEBAGIAN berarti
+                      statusnya gagal tetapi stoknya sudah keluar — memprosesnya ulang akan
+                      mengeluarkan stok dua kali. Batalkan dulu lewat MIGO Cancellation.
+                    </span>
+                  </p>
+                  <table className="sap-grid">
+                    <thead>
+                      <tr>
+                        <th className="w-[45px]">Ln</th>
+                        <th>SKU</th>
+                        <th className="w-[120px]">Material</th>
+                        <th className="w-[80px]">Status</th>
+                        <th className="w-[70px] text-right">Qty</th>
+                        <th className="w-[90px] text-right">Sudah keluar</th>
+                        <th className="w-[110px]">Kesimpulan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {audit.map((l) => (
+                        <tr key={l.line_no}>
+                          <td className="font-mono">{l.line_no}</td>
+                          <td>{l.sku}</td>
+                          <td className="font-mono">{l.material_code ?? '—'}</td>
+                          <td className="font-mono">{l.status}</td>
+                          <td className="text-right font-mono tabular-nums">{nf(l.qty)}</td>
+                          <td className="text-right font-mono tabular-nums">{nf(l.posted_qty)}</td>
+                          <td className="font-mono text-sap-errtext">{l.verdict}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+          )}
           {openRun.error && (
             <p className="p-3 text-2xs text-sap-errtext border-b border-sap-border">
               {openRun.error}
@@ -434,6 +546,21 @@ export default function Zgi02Page() {
         <Separator />
         <span className="text-xxs text-sap-muted">Enter / F8 = muat ulang</span>
       </Toolbar>
+      <ConfirmDialog
+        open={confirmDel}
+        title="Hapus proses GI penjualan?"
+        question={
+          openRun
+            ? `Proses tanggal ${fmtDate(openRun.sales_date)} belum memposting satu material pun, ` +
+              `jadi tidak ada stok yang berubah. Catatannya akan hilang dan tanggal ini bisa dimuat ` +
+              `ulang dari awal di ZGI01.`
+            : ''
+        }
+        confirmLabel="Hapus"
+        danger
+        onConfirm={removeRun}
+        onCancel={() => setConfirmDel(false)}
+      />
     </div>
   );
 }

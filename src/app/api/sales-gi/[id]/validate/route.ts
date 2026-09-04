@@ -40,18 +40,23 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     const res = await validateSalesGiRun(prisma, runId, { from_line });
 
-    const bad = res.unknown + res.ambiguous;
+    const bad = res.unknown + res.conflict;
     return ok(
       res,
       res.next_line !== null
         ? `${res.checked} material diperiksa — lanjut dari baris ${res.next_line}…`
         : bad === 0
-          ? `${res.checked} material diperiksa — semuanya dikenali. Siap diposting.`
+          ? `${res.checked} material diperiksa — semuanya dikenali` +
+            (res.grouped > 0
+              ? `, ${res.grouped} di antaranya deskripsi yang dipakai beberapa SKU sekaligus ` +
+                `(wajar — GI-nya diambil FEFO gabungan). Periksa sekilas daftar anggotanya di ` +
+                `kolom keterangan sebelum posting.`
+              : `. Siap diposting.`)
           : `${res.checked} material diperiksa: ${res.unknown} tidak dikenali` +
-            (res.ambiguous > 0
-              ? `, ${res.ambiguous} deskripsinya dipakai lebih dari satu material`
+            (res.conflict > 0
+              ? `, ${res.conflict} kelompoknya beda satuan / beda pengelolaan batch`
               : '') +
-            `. Betulkan di MM01 / ZMATDUP lalu validasi ulang.`
+            `. Betulkan di MM01 lalu validasi ulang.`
     );
   });
 }
