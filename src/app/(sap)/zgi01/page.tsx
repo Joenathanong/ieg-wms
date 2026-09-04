@@ -30,6 +30,8 @@ import {
   CheckCircle2,
   ShieldCheck,
   RotateCw,
+  Link2,
+  HelpCircle,
 } from 'lucide-react';
 import { Panel, Field, Input, Button, Toolbar, Separator, ActionField } from '@/components/sap/ui';
 import { useStatus } from '@/components/sap/StatusBar';
@@ -71,6 +73,22 @@ interface RunItem {
   message: string | null;
   picked: string | null;
   short_qty: number;
+}
+
+interface UnknownSuggestion {
+  material_code: string;
+  description: string;
+  uom: string;
+  score: number;
+}
+
+interface UnknownRow {
+  line_no: number;
+  sku: string;
+  qty: number;
+  /** PENULISAN = materialnya ada, cuma beda tulisan · MIRIP = tebakan · BARU = belum ada */
+  reason: 'PENULISAN' | 'MIRIP' | 'BARU';
+  suggestions: UnknownSuggestion[];
 }
 
 interface Run {
@@ -254,6 +272,75 @@ export default function Zgi01Page() {
     };
   }, [salesDate, loadRun, setStatus]);
 
+  /**
+   * Daftar SKU yang tidak dikenali, beserta tebakan materialnya.
+   *
+   * Angka "52 tidak dikenali" tidak bisa dikerjakan; daftarnya bisa. Dan yang
+   * membuatnya bisa dikerjakan bukan sekadar daftarnya, melainkan pemisahan
+   * antara yang cuma beda penulisan (materialnya sudah ada — cukup dipasangi
+   * alias) dan yang memang belum ada di WMS.
+   */
+  const [unknown, setUnknown] = useState<UnknownRow[] | null>(null);
+  const [aliasBusy, setAliasBusy] = useState<string | null>(null);
+
+  const loadUnknown = useCallback(
+    async (runId: string, quiet = false) => {
+      const r = await api<{ unknown: UnknownRow[] }>(`/api/sales-gi/${runId}/unknown`);
+      if (!r.ok) {
+        if (!quiet) setStatus(r.message, 'E');
+        return;
+      }
+      setUnknown(r.data?.unknown ?? []);
+      if (!quiet) setStatus(r.message, (r.data?.unknown.length ?? 0) > 0 ? 'W' : 'S');
+    },
+    [setStatus]
+  );
+
+  /**
+   * Sambungkan tulisan versi OCS ke material yang sudah ada.
+   *
+   * Alias, bukan perubahan deskripsi. Deskripsi di MM01 dipakai banyak hal lain
+   * — pengelompokan SKU kembar, laporan, pencarian — dan mengubahnya demi satu
+   * sumber penjualan berarti memindahkan masalahnya, bukan menyelesaikannya.
+   * Alias hanya menambah satu penunjuk, tidak menyentuh master maupun stok, dan
+   * bisa dilepas kembali.
+   */
+  async function makeAlias(sku: string, material_code: string) {
+    setAliasBusy(`${sku}|${material_code}`);
+    const r = await post(`/api/materials/${encodeURIComponent(material_code)}/alias`, {
+      alias_code: sku,
+      remarks: `Tulisan SKU dari OCS (${run?.sales_date.slice(0, 10) ?? ''})`,
+    });
+    setAliasBusy(null);
+    setStatus(r.message, r.ok ? 'S' : 'E');
+    if (r.ok) setUnknown((s) => (s ? s.filter((u) => u.sku !== sku) : s));
+  }
+
+  /** Unduh daftar yang tidak dikenali supaya bisa dikerjakan di luar layar ini. */
+  function exportUnknown() {
+    if (!unknown?.length || !run) return;
+    const head = 'baris;sku;qty;jenis;saran_kode;saran_deskripsi;kecocokan\n';
+    const body = unknown
+      .map((u) =>
+        [
+          u.line_no,
+          u.sku,
+          u.qty,
+          u.reason,
+          u.suggestions[0]?.material_code ?? '',
+          u.suggestions[0]?.description ?? '',
+          u.suggestions[0] ? `${u.suggestions[0].score}%` : '',
+        ].join(';')
+      )
+      .join('\n');
+    const blob = new Blob(['\ufeff' + head + body], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `sku-tidak-dikenali-${run.sales_date.slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   /** Periksa seluruh SKU tanpa menyentuh stok. */
   async function validate() {
     if (!run) return;
@@ -309,6 +396,9 @@ export default function Zgi01Page() {
       bad === 0 ? 'S' : 'W'
     );
     await loadRun(run.id);
+    // Daftarnya dimuat tanpa mengganti pesan status: angka hasil validasi yang
+    // barusan muncul masih yang paling ingin dibaca orang.
+    await loadUnknown(run.id, true);
   }
 
   /** Kembalikan baris gagal ke antrean setelah masternya dibetulkan. */
@@ -494,6 +584,95 @@ export default function Zgi01Page() {
               </table>
             </div>
           )}
+        </Panel>
+      )}
+
+      {unknown && unknown.length > 0 && (
+        <Panel
+          title={`${unknown.length} SKU tidak dikenali`}
+          icon={<HelpCircle size={13} className="text-sap-warntext" />}
+          bodyClassName="p-0"
+          actions={
+            <Button onClick={exportUnknown}>
+              <FileDown size={12} /> Unduh daftar
+            </Button>
+          }
+        >
+          <p className="p-3 text-2xs text-sap-muted border-b border-sap-border leading-snug">
+            <b>PENULISAN</b> berarti materialnya sudah ada di WMS dan hanya tulisannya yang berbeda —
+            tekan <b>Pasang alias</b> untuk menyambungkannya. Alias tidak mengubah master maupun stok
+            dan bisa dilepas kembali. <b>MIRIP</b> hanya tebakan; periksa dulu deskripsinya sebelum
+            dipakai. <b>BARU</b> memang belum ada di WMS dan harus dibuat di MM01. Setelah dibereskan,
+            tekan Validasi SKU lagi.
+          </p>
+          <div className="overflow-x-auto max-h-[420px]">
+            <table className="sap-grid">
+              <thead>
+                <tr>
+                  <th className="w-[45px]">Ln</th>
+                  <th>SKU dari penjualan</th>
+                  <th className="w-[70px] text-right">Qty</th>
+                  <th className="w-[90px]">Jenis</th>
+                  <th colSpan={2}>Saran material — tekan Pakai untuk memasang alias</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unknown.map((u) => (
+                  <tr key={u.line_no}>
+                    <td className="font-mono">{u.line_no}</td>
+                    <td className="font-mono">{u.sku}</td>
+                    <td className="text-right font-mono tabular-nums">{u.qty}</td>
+                    <td>
+                      <span
+                        className={`sap-badge ${
+                          u.reason === 'PENULISAN'
+                            ? 'border-sap-infoborder bg-sap-infobg text-sap-infotext'
+                            : u.reason === 'MIRIP'
+                              ? 'border-sap-warnborder bg-sap-warnbg text-sap-warntext'
+                              : 'border-sap-errborder bg-sap-errbg text-sap-errtext'
+                        }`}
+                      >
+                        {u.reason}
+                      </span>
+                    </td>
+                    {/*
+                      Setiap saran punya tombolnya sendiri, bukan satu tombol
+                      yang memakai saran teratas. Untuk baris MIRIP, saran
+                      teratas hanyalah yang skornya paling tinggi — bukan yang
+                      pasti benar — dan alias yang salah mengarahkan penjualan
+                      ke SKU yang keliru tanpa ada yang error.
+                    */}
+                    <td className="text-2xs" colSpan={2}>
+                      {u.suggestions.length === 0 ? (
+                        <span className="text-sap-muted">— belum ada padanannya di MM01</span>
+                      ) : (
+                        <div className="space-y-1">
+                          {u.suggestions.map((sg) => (
+                            <div key={sg.material_code} className="flex items-center gap-2">
+                              <Button
+                                onClick={() => makeAlias(u.sku, sg.material_code)}
+                                loading={aliasBusy === `${u.sku}|${sg.material_code}`}
+                                disabled={aliasBusy !== null}
+                              >
+                                <Link2 size={12} /> Pakai
+                              </Button>
+                              <span className="min-w-0 truncate">
+                                <span className="font-mono text-sap-blue">{sg.material_code}</span>{' '}
+                                {sg.description}{' '}
+                                <span className="text-sap-muted">
+                                  ({sg.uom} · {sg.score}%)
+                                </span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Panel>
       )}
 
